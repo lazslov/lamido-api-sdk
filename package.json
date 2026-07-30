@@ -1,0 +1,36 @@
+{
+  "name": "lamido-api-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Workspace root for the @lamido/* consumer SDK packages. Never published — see docs/plans/phase-1-foundations.md §1.",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "contracts:import": "tsx scripts/import-contracts.ts",
+    "contracts:drift": "tsx scripts/check-contract-drift.ts",
+    "generate:types": "tsx scripts/generate-types.ts",
+    "check:leaks": "tsx scripts/check-forbidden-strings.ts",
+    "audit:tarballs": "tsx scripts/audit-tarballs.ts",
+    "verify": "pnpm lint && pnpm check:leaks && pnpm typecheck && pnpm test && pnpm build && pnpm -r check:package && pnpm audit:tarballs"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.5.6",
+    "@changesets/cli": "^2.31.1",
+    "@types/node": "^26.1.2",
+    "openapi-typescript": "^7.13.0",
+    "publint": "^0.3.22",
+    "tsdown": "^0.22.14",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

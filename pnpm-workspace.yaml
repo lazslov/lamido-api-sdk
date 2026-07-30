@@ -1,0 +1,8 @@
+packages:
+  - "packages/*"
+
+# pnpm refuses to run install scripts unless the package is listed here.
+# Only build-time tooling appears; no published package has an install script.
+allowBuilds:
+  esbuild: true
+  "@biomejs/biome": true

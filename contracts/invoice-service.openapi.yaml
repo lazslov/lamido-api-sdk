@@ -1,0 +1,1878 @@
+openapi: 3.1.0
+
+# Machine-readable contract for invoice-service.
+# Prose, gotchas and runbooks live in the sibling Markdown files — this file is the
+# authority on SHAPES (fields, types, enums, status codes); the Markdown is the authority
+# on BEHAVIOUR (idempotency semantics, side effects, retry rules).
+# Source: https://github.com/lazslov/invoice-service @ f5af0dc — verified 2026-07-25
+
+info:
+  title: Invoice Service API
+  version: 0.1.0
+  summary: Hungarian invoicing via szamlazz.hu and Billingo, provider chosen per request.
+  description: |
+    Two independent credential tiers:
+      * client tier  — `Authorization: Bearer isk_…` → /api/invoices/*
+      * admin tier   — `Authorization: Bearer iad_…` → /api/admin/*  (server-to-server only)
+    Plus two unauthenticated endpoints: /api/health and /api/public/invoices/{id}/pdf.
+
+    Envelope: success `{ "data": … }`, failure `{ "error": { code, message, details } }`.
+    Exceptions: GET /api/health returns a bare object; all /pdf endpoints return binary.
+
+    No CORS headers are served on any route. Admin routes additionally reject any request
+    carrying `Origin` or `Sec-Fetch-Mode: cors` with 403.
+  contact:
+    name: invoice-service
+    url: https://github.com/lazslov/invoice-service
+
+servers:
+  # The deployment host is deliberately absent from this pinned copy. No host ships in
+  # a tarball, and contracts/ is one `files` mistake away from being published — see
+  # docs/plans/phase-1-foundations.md §4. The consuming project supplies the base URL
+  # from its own environment; the SDK has no fallback.
+  - url: "{baseUrl}"
+    description: Supplied by the consuming project from its own environment.
+    variables:
+      baseUrl:
+        default: https://invoice.example.com
+        description: Documentation placeholder, not a usable default.
+
+tags:
+  - name: public
+    description: No authentication.
+  - name: client
+    description: Client tier — isk_ key, scoped to the owning tenant.
+  - name: admin-self
+    description: Admin key introspection and service health.
+  - name: admin-keys
+    description: Admin credential management.
+  - name: admin-clients
+    description: Tenant management.
+  - name: admin-integrations
+    description: Provider credential management.
+  - name: admin-invoices
+    description: Cross-tenant invoice operations.
+  - name: admin-stats
+    description: Dashboard aggregates.
+  - name: admin-audit
+    description: Append-only audit trail — both credential tiers write to it.
+
+security: []
+
+paths:
+  # ───────────────────────────── public ─────────────────────────────
+  /api/health:
+    get:
+      tags: [public]
+      operationId: getHealth
+      summary: Liveness + database ping
+      description: NOT wrapped in `data`.
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+        '503':
+          description: Database unreachable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, db]
+                properties:
+                  status: { type: string, const: degraded }
+                  db: { type: string, const: unreachable }
+                  code:
+                    type: string
+                    description: Driver error code or name. Never a connection string.
+
+  /api/public/invoices/{id}/pdf:
+    get:
+      tags: [public]
+      operationId: getPublicInvoicePdf
+      summary: PDF for a signed download link
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+          description: '`<expiryEpochSeconds>.<base64url HMAC-SHA256>` from a download-link response.'
+      responses:
+        '200':
+          $ref: '#/components/responses/Pdf'
+        '403':
+          description: Invalid, tampered or expired token
+          $ref: '#/components/responses/Error'
+        '404':
+          description: Invoice not available for download (not in status `created`)
+          $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
+
+  # ───────────────────────────── client tier ─────────────────────────────
+  /api/invoices:
+    post:
+      tags: [client]
+      operationId: createInvoice
+      summary: Create an invoice (idempotent)
+      description: |
+        201 = a new invoice was issued. 200 = idempotent replay; the stored invoice is
+        returned unchanged in ANY status and the provider was NOT called.
+        Once the row is inserted the Idempotency-Key is consumed even if the provider
+        fails — retry a failed invoice with a NEW key.
+      security: [{ ClientKey: [] }]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+          description: Stable per business event (e.g. an order id). Never random per attempt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInvoiceRequest' }
+      responses:
+        '201':
+          description: Invoice issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Invoice' }
+        '200':
+          description: Idempotent replay — nothing new was issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Invoice' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+    get:
+      tags: [client]
+      operationId: listInvoices
+      summary: List the caller's invoices (newest first)
+      description: No `total` is returned on this tier.
+      security: [{ ClientKey: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/InvoiceStatus' }
+        - name: provider
+          in: query
+          schema: { $ref: '#/components/schemas/Provider' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, limit, offset]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Invoice' }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /api/invoices/{id}:
+    get:
+      tags: [client]
+      operationId: getInvoice
+      summary: Get one invoice (own tenant only)
+      security: [{ ClientKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404':
+          description: Not found — also returned when the invoice belongs to another client
+          $ref: '#/components/responses/Error'
+
+  /api/invoices/{id}/pdf:
+    get:
+      tags: [client]
+      operationId: getInvoicePdf
+      summary: Download the PDF (re-fetched from the provider every call)
+      security: [{ ClientKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      responses:
+        '200': { $ref: '#/components/responses/Pdf' }
+        '400':
+          description: Invoice is not in status `created`
+          $ref: '#/components/responses/Error'
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+
+  /api/invoices/{id}/download-link:
+    get:
+      tags: [client]
+      operationId: getInvoiceDownloadLink
+      summary: Mint a public 7-day PDF URL
+      description: >-
+        The link needs no API key. An individual link cannot be revoked before it expires;
+        the operator's only lever is changing DOWNLOAD_LINK_SECRET, which kills every
+        outstanding link at once.
+      security: [{ ClientKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/DownloadLink' }
+        '400':
+          description: Invoice is not in status `created`
+          $ref: '#/components/responses/Error'
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/invoices/{id}/cancel:
+    post:
+      tags: [client]
+      operationId: cancelInvoice
+      summary: Cancel (storno) — real financial effect at the provider
+      description: |
+        No request body. The state check runs before any provider call, so 400 means
+        nothing was contacted; 502 means the provider was reached and refused.
+
+        Audited: a success writes an audit_log entry with action=invoice.cancel and
+        actorType=client_key (metadata {clientId, invoiceNumber, stornoNumber}, no reason —
+        this endpoint takes no body). Visible via GET /api/admin/audit.
+      security: [{ ClientKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Invoice'
+                      - type: object
+                        properties:
+                          stornoNumber:
+                            type: string
+                            description: >-
+                              Absent if the provider returned none. Returned on this
+                              response only — there is no column for it on the invoice,
+                              so a later GET never includes it. Persist it on receipt.
+        '400':
+          description: Invoice is not in status `created`
+          $ref: '#/components/responses/Error'
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502':
+          description: Provider failure
+          $ref: '#/components/responses/Error'
+
+  # ───────────────────────────── admin: self ─────────────────────────────
+  /api/admin/me:
+    get:
+      tags: [admin-self]
+      operationId: adminMe
+      summary: Introspect the calling admin key (no scope required)
+      security: [{ AdminKey: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminKey' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/health:
+    get:
+      tags: [admin-self]
+      operationId: adminHealth
+      summary: Operational health (no scope required)
+      description: >-
+        NOTE the 503 carries the same envelope as the 200, not an error envelope. A client
+        that checks response.ok before parsing will discard the only payload that explains
+        why — read the body regardless of status here, or treat the 503 itself as the signal.
+      security: [{ AdminKey: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminHealth' }
+        '503':
+          description: >-
+            Database unreachable — status `degraded`, counts absent. Body present, and NOT
+            an error envelope.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminHealth' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/providers:
+    get:
+      tags: [admin-self]
+      operationId: listProviders
+      summary: Provider catalog — the credential-form rendering contract
+      security: [{ AdminKey: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ProviderDescriptor' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403':
+          description: Missing scope `credentials:read`, or an Origin header was present
+          $ref: '#/components/responses/Error'
+
+  # ───────────────────────────── admin: keys ─────────────────────────────
+  /api/admin/admin-keys:
+    get:
+      tags: [admin-keys]
+      operationId: listAdminKeys
+      summary: List all admin keys (scope admin:manage, unpaginated, newest first)
+      security: [{ AdminKey: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminKey' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [admin-keys]
+      operationId: createAdminKey
+      summary: Mint an admin key (scope admin:manage) — apiKey shown once
+      security: [{ AdminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label: { type: string, minLength: 1, maxLength: 100 }
+                scopes:
+                  type: array
+                  minItems: 1
+                  default: ['*']
+                  items: { $ref: '#/components/schemas/AdminScope' }
+                allowedIps:
+                  type: array
+                  default: []
+                  items: { type: string, maxLength: 64, description: IPv4/IPv6 address or CIDR }
+      responses:
+        '201':
+          description: Created — `apiKey` is returned once and never again
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/AdminKey'
+                      - type: object
+                        required: [apiKey]
+                        properties:
+                          apiKey: { type: string, examples: ['iad_9Kd2mQx7…'] }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/admin-keys/{id}:
+    patch:
+      tags: [admin-keys]
+      operationId: updateAdminKey
+      summary: Update label / scopes / allowedIps / active (scope admin:manage)
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                label: { type: string, minLength: 1, maxLength: 100 }
+                scopes:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/AdminScope' }
+                allowedIps:
+                  type: array
+                  items: { type: string, maxLength: 64 }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminKey' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409':
+          description: Refusing to deactivate the key making this request
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [admin-keys]
+      operationId: revokeAdminKey
+      summary: Soft-revoke an admin key (scope admin:manage)
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminKey' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409':
+          description: Refusing to revoke the key making this request
+          $ref: '#/components/responses/Error'
+
+  # ───────────────────────────── admin: clients ─────────────────────────────
+  /api/admin/clients:
+    get:
+      tags: [admin-clients]
+      operationId: listClients
+      summary: List clients with rollup counts (scope clients:read, newest first)
+      security: [{ AdminKey: [] }]
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 200 }
+          description: Case-insensitive substring on `name` or `externalRef`.
+        - name: active
+          in: query
+          schema: { type: string, enum: ['true', 'false'] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ClientWithCounts' }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [admin-clients]
+      operationId: createClient
+      summary: Create a client (scope clients:write) — apiKey shown once
+      security: [{ AdminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                externalRef: { type: string, maxLength: 200 }
+                notes: { type: string, maxLength: 2000 }
+      responses:
+        '201':
+          description: Created — `apiKey` (isk_…) is the CLIENT's key, shown once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Client'
+                      - type: object
+                        required: [apiKey]
+                        properties:
+                          apiKey: { type: string, examples: ['isk_9Kd2mQx7…'] }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/clients/{id}:
+    get:
+      tags: [admin-clients]
+      operationId: getClient
+      summary: Client detail with masked integrations (scope clients:read)
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/ClientDetail' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [admin-clients]
+      operationId: updateClient
+      summary: Update a client (scope clients:write)
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                externalRef:
+                  type: [string, 'null']
+                  maxLength: 200
+                notes:
+                  type: [string, 'null']
+                  maxLength: 2000
+                active: { type: boolean }
+                allowedProviderConfigs:
+                  type: array
+                  items: { $ref: '#/components/schemas/ConfigId' }
+                  description: |
+                    Escape hatch. Normally maintained automatically by the integration
+                    endpoints — setting it by hand can desynchronise it from the credentials.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Client' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [admin-clients]
+      operationId: deleteClient
+      summary: Deactivate (default) or hard-delete a client (scope clients:write)
+      security: [{ AdminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: hard
+          in: query
+          schema: { type: string, enum: ['true', 'false'], default: 'false' }
+          description: '`true` permanently deletes — only allowed when the client has no invoices.'
+      responses:
+        '200':
+          description: Deactivated (soft) or deleted (hard)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: '#/components/schemas/Client' }
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [id, deleted]
+                        properties:
+                          id: { type: string, format: uuid }
+                          deleted: { type: boolean, const: true }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409':
+          description: Hard delete refused — the client has invoices (`details.invoiceCount`)
+          $ref: '#/components/responses/Error'
+
+  /api/admin/clients/{id}/rotate-key:
+    post:
+      tags: [admin-clients]
+      operationId: rotateClientKey
+      summary: Rotate the client's isk_ key (scope clients:write)
+      description: The old key stops working immediately — there is no overlap window.
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '201':
+          description: Rotated — new `apiKey` shown once
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Client'
+                      - type: object
+                        required: [apiKey]
+                        properties:
+                          apiKey: { type: string }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── admin: integrations ─────────────────────────────
+  /api/admin/integrations:
+    get:
+      tags: [admin-integrations]
+      operationId: listAllIntegrations
+      summary: Credentials across all clients, masked (scope credentials:read)
+      description: |
+        Cross-client credential listing — the drill-down for `failingCredentials` in
+        GET /api/admin/health. `?active=true&lastTestStatus=failed` returns exactly the
+        rows that count counts. Ordered by client name, then configId.
+
+        `lastTestStatus=untested` is a FILTER-ONLY value meaning `lastTestStatus: null`
+        (never tested); it is not a stored status and never appears in a response.
+      security: [{ AdminKey: [] }]
+      parameters:
+        - name: clientId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: provider
+          in: query
+          schema: { $ref: '#/components/schemas/Provider' }
+        - name: configId
+          in: query
+          description: Exact match across clients, not a prefix search.
+          schema: { $ref: '#/components/schemas/ConfigId' }
+        - name: lastTestStatus
+          in: query
+          schema: { type: string, enum: [ok, failed, untested] }
+        - name: allowed
+          in: query
+          description: Whether configId is in the owning client's allowedProviderConfigs.
+          schema: { type: string, enum: ['true', 'false'] }
+        - name: active
+          in: query
+          description: 'false = soft-deleted.'
+          schema: { type: string, enum: ['true', 'false'] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/CredentialWithClient' }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/clients/{id}/integrations:
+    get:
+      tags: [admin-integrations]
+      operationId: listIntegrations
+      summary: All credentials of a client, masked (scope credentials:read)
+      description: |
+        Unpaginated, sorted by configId, includes inactive rows. Rows carry no
+        clientId/clientName — use GET /api/admin/integrations?clientId= for those.
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Credential' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/admin/clients/{id}/integrations/{configId}:
+    get:
+      tags: [admin-integrations]
+      operationId: getIntegration
+      summary: One credential, masked (scope credentials:read)
+      security: [{ AdminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/ConfigIdPath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Credential' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [admin-integrations]
+      operationId: upsertIntegration
+      summary: Create or update a provider credential (scope credentials:write)
+      description: |
+        Side effects: the configId is added to the client's allowedProviderConfigs, and
+        supplying `secret` clears lastTestedAt / lastTestStatus / lastTestError.
+        A PUT without an explicit `active` reactivates a soft-deleted integration.
+        NEVER log this request body — it carries a plaintext provider secret.
+      security: [{ AdminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/ConfigIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider]
+              properties:
+                provider: { $ref: '#/components/schemas/Provider' }
+                secret:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: Required on create; omit on update to keep the stored secret.
+                config:
+                  type: object
+                  default: {}
+                  additionalProperties: { type: number }
+                  description: |
+                    Billingo requires {blockId, bankAccountId}; szamlazz requires none.
+                    Numeric strings are coerced to numbers.
+                label: { type: string, minLength: 1, maxLength: 200 }
+                active: { type: boolean }
+            examples:
+              billingo:
+                value:
+                  provider: billingo
+                  secret: the-billingo-api-key
+                  config: { blockId: 1234, bankAccountId: 5678 }
+                  label: Acme main block
+              szamlazz:
+                value:
+                  provider: szamlazz
+                  secret: the-agent-key
+                  label: Acme agent
+              metadataOnlyEdit:
+                summary: Rename without re-typing the secret
+                value:
+                  provider: billingo
+                  config: { blockId: 1234, bankAccountId: 5678 }
+                  label: Renamed
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Credential' }
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Credential' }
+        '400':
+          description: Bad configId prefix, missing required config keys, or missing secret on create
+          $ref: '#/components/responses/Error'
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [admin-integrations]
+      operationId: deleteIntegration
+      summary: Soft-delete a credential and un-allow-list its configId (scope credentials:write)
+      security: [{ AdminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/ConfigIdPath'
+      responses:
+        '200':
+          description: Deactivated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Credential' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/admin/clients/{id}/integrations/{configId}/test:
+    post:
+      tags: [admin-integrations]
+      operationId: testIntegration
+      summary: Live, read-only credential check (scope credentials:write)
+      description: |
+        Issues nothing at the provider. `ok: false` is a RESULT, not an error — the HTTP
+        status is still 200. The verdict is persisted to lastTest* on the credential.
+      security: [{ AdminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/ConfigIdPath'
+      responses:
+        '200':
+          description: Test executed (check `data.ok`)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/CredentialTestResult' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── admin: invoices ─────────────────────────────
+  /api/admin/invoices:
+    get:
+      tags: [admin-invoices]
+      operationId: adminListInvoices
+      summary: Cross-tenant invoice list (scope invoices:read, newest first)
+      security: [{ AdminKey: [] }]
+      parameters:
+        - name: clientId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: provider
+          in: query
+          schema: { $ref: '#/components/schemas/Provider' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/InvoiceStatus' }
+        - name: configId
+          in: query
+          schema: { $ref: '#/components/schemas/ConfigId' }
+        - name: q
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 200 }
+          description: |
+            Substring across invoiceNumber, partnerRef and providerInvoiceId.
+            Partner names/addresses are NOT searchable — they are never stored.
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminInvoice' }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/invoices/stuck:
+    get:
+      tags: [admin-invoices]
+      operationId: listStuckInvoices
+      summary: Invoices stuck in `pending` (scope invoices:read, oldest first)
+      security: [{ AdminKey: [] }]
+      parameters:
+        - name: olderThanMinutes
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 43200, default: 15 }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, olderThanMinutes, cutoff, limit, offset]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminInvoice' }
+                  total: { type: integer }
+                  olderThanMinutes: { type: integer }
+                  cutoff: { type: string, format: date-time }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/invoices/{id}:
+    get:
+      tags: [admin-invoices]
+      operationId: adminGetInvoice
+      summary: Any invoice, any tenant (scope invoices:read)
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminInvoice' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/admin/invoices/{id}/pdf:
+    get:
+      tags: [admin-invoices]
+      operationId: adminGetInvoicePdf
+      summary: PDF for any invoice (scope invoices:read)
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      responses:
+        '200': { $ref: '#/components/responses/Pdf' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+
+  /api/admin/invoices/{id}/download-link:
+    get:
+      tags: [admin-invoices]
+      operationId: adminGetDownloadLink
+      summary: Mint a public 7-day PDF URL for any invoice (scope invoices:read)
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/DownloadLink' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/admin/invoices/{id}/cancel:
+    post:
+      tags: [admin-invoices]
+      operationId: adminCancelInvoice
+      summary: Storno on the client's behalf (scope invoices:write)
+      description: Real financial effect at the provider. `reason` is required and audited.
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/AdminInvoice'
+                      - type: object
+                        properties:
+                          stornoNumber:
+                            type: string
+                            description: >-
+                              Absent if the provider returned none. Returned on this
+                              response only — there is no column for it on the invoice,
+                              so a later GET never includes it. The durable record is
+                              the invoice.cancel audit entry's metadata.stornoNumber.
+        '400':
+          description: Invoice is not in status `created`
+          $ref: '#/components/responses/Error'
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+
+  /api/admin/invoices/{id}/reconcile:
+    post:
+      tags: [admin-invoices]
+      operationId: reconcileInvoice
+      summary: Resolve a stuck `pending` invoice (scope invoices:write)
+      description: |
+        Requires status === "pending". `release` DELETES the row, freeing
+        (clientId, idempotencyKey) so the client can retry with the same key — it is the
+        only destructive action in the API. The deleted row is snapshotted into the audit
+        trail first.
+      security: [{ AdminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/InvoiceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/ReconcileMarkFailed'
+                - $ref: '#/components/schemas/ReconcileAttach'
+                - $ref: '#/components/schemas/ReconcileRelease'
+              discriminator:
+                propertyName: action
+      responses:
+        '200':
+          description: Reconciled
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: { $ref: '#/components/schemas/AdminInvoice' }
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: object
+                        required: [id, released, idempotencyKey]
+                        properties:
+                          id: { type: string, format: uuid }
+                          released: { type: boolean, const: true }
+                          idempotencyKey: { type: string }
+        '400':
+          description: Invoice is not `pending`, or the body failed validation
+          $ref: '#/components/responses/Error'
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── admin: stats ─────────────────────────────
+  /api/admin/stats/overview:
+    get:
+      tags: [admin-stats]
+      operationId: statsOverview
+      summary: Dashboard headline numbers (scope stats:read)
+      security: [{ AdminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/StatsOverview' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/stats/timeseries:
+    get:
+      tags: [admin-stats]
+      operationId: statsTimeseries
+      summary: Invoice counts bucketed by time and status (scope stats:read)
+      description: Sparse — a bucket/status pair with no rows is absent, not zero.
+      security: [{ AdminKey: [] }]
+      parameters:
+        - name: interval
+          in: query
+          schema: { type: string, enum: [hour, day], default: day }
+        - name: clientId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: provider
+          in: query
+          schema: { $ref: '#/components/schemas/Provider' }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, interval, range]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [bucket, status, count]
+                      properties:
+                        bucket: { type: string, format: date-time }
+                        status: { $ref: '#/components/schemas/InvoiceStatus' }
+                        count: { type: integer }
+                  interval: { type: string, enum: [hour, day] }
+                  range: { $ref: '#/components/schemas/Range' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/admin/stats/clients:
+    get:
+      tags: [admin-stats]
+      operationId: statsClients
+      summary: Per-client rollup — the metering base (scope stats:read)
+      description: Every client appears, including those with no invoices in range.
+      security: [{ AdminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, range]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ClientStats' }
+                  range: { $ref: '#/components/schemas/Range' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── admin: audit ─────────────────────────────
+  /api/admin/audit:
+    get:
+      tags: [admin-audit]
+      operationId: listAudit
+      summary: Append-only audit trail, both tiers (scope audit:read, newest first)
+      security: [{ AdminKey: [] }]
+      parameters:
+        - name: actorType
+          in: query
+          description: >-
+            Which tier acted. Both admin_key and client_key emit action=invoice.cancel,
+            so omit this filter for the complete storno list.
+          schema: { $ref: '#/components/schemas/AuditActorType' }
+        - name: actorId
+          in: query
+          description: An admin_keys.id or a clients.id, depending on actorType.
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 100 }
+          description: Exact match, not a prefix.
+        - name: targetType
+          in: query
+          schema: { $ref: '#/components/schemas/AuditTargetType' }
+        - name: targetId
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditEntry' }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    ClientKey:
+      type: http
+      scheme: bearer
+      description: 'Client tier key, prefix `isk_`. Server-side only.'
+    AdminKey:
+      type: http
+      scheme: bearer
+      description: |
+        Admin tier key, prefix `iad_`. Server-to-server only — a request carrying an
+        `Origin` or `Sec-Fetch-Mode: cors` header is rejected with 403 before auth.
+        Scopes are enforced per route and named in each operation summary.
+
+  parameters:
+    InvoiceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ConfigIdPath:
+      name: configId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ConfigId' }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    From:
+      name: from
+      in: query
+      schema: { type: string }
+      description: ISO date or date-time, inclusive, on `createdAt`. `from > to` is a 400.
+    To:
+      name: to
+      in: query
+      schema: { type: string }
+      description: ISO date or date-time, inclusive, on `createdAt`.
+
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Pdf:
+      description: 'PDF bytes. `Content-Disposition: inline; filename="<name>.pdf"`.'
+      content:
+        application/pdf:
+          schema: { type: string, format: binary }
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { $ref: '#/components/schemas/ErrorCode' }
+            message: { type: string, description: Human-readable. Never branch on this. }
+            details:
+              description: |
+                Shape depends on `code`. For `validation_error` it is Zod's flatten():
+                { formErrors: string[], fieldErrors: Record<string, string[]> } —
+                fieldErrors keys are TOP-LEVEL only.
+
+    ErrorCode:
+      type: string
+      enum:
+        - validation_error
+        - bad_request
+        - unauthorized
+        - forbidden
+        - not_found
+        - conflict
+        - provider_error
+        - internal_error
+
+    Provider:
+      type: string
+      enum: [szamlazz, billingo]
+
+    InvoiceStatus:
+      type: string
+      enum: [pending, created, failed, cancelled]
+
+    AuditActorType:
+      type: string
+      enum: [admin_key, client_key, system]
+      description: >-
+        admin_key = an operator on /api/admin/* (actorId is an admin_keys.id).
+        client_key = the integrating application on /api/invoices/* (actorId is a
+        clients.id); today only POST /api/invoices/{id}/cancel writes one.
+        system = reserved, nothing emits it.
+
+    AuditTargetType:
+      type: string
+      enum: [client, credential, invoice, admin_key]
+
+    AdminScope:
+      type: string
+      enum:
+        - 'clients:read'
+        - 'clients:write'
+        - 'credentials:read'
+        - 'credentials:write'
+        - 'invoices:read'
+        - 'invoices:write'
+        - 'stats:read'
+        - 'audit:read'
+        - 'admin:manage'
+        - '*'
+
+    ConfigId:
+      type: string
+      pattern: '^[a-z0-9_]+$'
+      maxLength: 64
+      description: |
+        Must start with the provider prefix (`szamlazz_` / `billingo_`) and be present in
+        the client's allowedProviderConfigs for invoicing to succeed.
+      examples: [billingo_acme, szamlazz_acme]
+
+    Range:
+      type: object
+      properties:
+        from: { type: [string, 'null'], format: date-time }
+        to: { type: [string, 'null'], format: date-time }
+
+    Invoice:
+      type: object
+      required: [id, provider, providerConfigId, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { $ref: '#/components/schemas/Provider' }
+        providerConfigId: { type: string }
+        status: { $ref: '#/components/schemas/InvoiceStatus' }
+        invoiceNumber: { type: [string, 'null'] }
+        providerInvoiceId:
+          type: [string, 'null']
+          description: 'Billingo: numeric document id as a string. szamlazz: the invoice number.'
+        grossAmount:
+          type: [number, 'null']
+          description: Major units (38100 = 38 100 Ft). Null unless status is `created`.
+        currency: { type: [string, 'null'] }
+        partnerRef:
+          type: [string, 'null']
+          description: The only buyer-side value stored. Must stay non-identifying.
+        errorMessage: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    AdminInvoice:
+      allOf:
+        - $ref: '#/components/schemas/Invoice'
+        - type: object
+          required: [clientId, idempotencyKey]
+          properties:
+            clientId: { type: string, format: uuid }
+            clientName:
+              type: [string, 'null']
+              description: Null if the client row was hard-deleted.
+            idempotencyKey: { type: string }
+
+    CreateInvoiceRequest:
+      type: object
+      required: [provider, providerConfigId, partner, items]
+      properties:
+        provider: { $ref: '#/components/schemas/Provider' }
+        providerConfigId:
+          type: string
+          minLength: 1
+          description: Must start with `<provider>_` and be allow-listed for the client.
+        partner: { $ref: '#/components/schemas/Partner' }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/InvoiceItem' }
+        seller:
+          type: object
+          description: szamlazz only — Billingo ignores it and uses its configured bankAccountId.
+          properties:
+            bankName: { type: string }
+            bankAccount: { type: string }
+        paymentMethod:
+          type: string
+          default: átutalás
+          description: |
+            szamlazz receives it verbatim. Billingo maps (case-insensitively):
+            átutalás|transfer|wire_transfer → wire_transfer; készpénz|cash → cash;
+            bankkártya|card|bankcard → bankcard; anything else passes through.
+        currency: { type: string, default: HUF }
+        language: { type: string, default: hu }
+        issueDate:
+          type: string
+          description: 'YYYY-MM-DD. NOT format-validated. Defaults to today (UTC).'
+        fulfillmentDate:
+          type: string
+          description: 'YYYY-MM-DD. NOT format-validated. Defaults to issueDate.'
+        dueDate:
+          type: string
+          description: 'YYYY-MM-DD. NOT format-validated. Defaults to today + 8 days.'
+        eInvoice: { type: boolean, default: true }
+        comment: { type: string }
+        partnerRef:
+          type: string
+          description: Non-identifying reference (an order id). The only buyer-side value stored.
+
+    Partner:
+      type: object
+      required: [name, address]
+      properties:
+        name: { type: string, minLength: 1 }
+        taxNumber:
+          type: string
+          description: 'e.g. 12345678-2-42. Send it for company buyers — Billingo dedupes partners on name + taxcode.'
+        email: { type: string, format: email }
+        address:
+          type: object
+          required: [postalCode, city, address]
+          properties:
+            postalCode: { type: string, minLength: 1 }
+            city: { type: string, minLength: 1 }
+            address: { type: string, minLength: 1 }
+            country:
+              type: string
+              default: Magyarország
+              description: Accepted and then IGNORED — both adapters assume Hungary.
+
+    InvoiceItem:
+      type: object
+      required: [name, quantity, netUnitPrice, vatRate]
+      properties:
+        name: { type: string, minLength: 1 }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        unit: { type: string, minLength: 1, default: db }
+        netUnitPrice:
+          type: number
+          description: Net price per unit. Negative allowed for discount lines.
+        vatRate:
+          type: string
+          description: |
+            A percentage as a STRING ("27", "5", "0") or a code ("AAM", "TAM", "EU").
+            Billingo receives "27%" for numeric rates; codes pass through. For szamlazz a
+            non-numeric code makes the computed line VAT 0.
+          examples: ['27', '5', AAM]
+        comment: { type: string }
+
+    DownloadLink:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: >-
+            Public, no API key required. 7-day TTL. No per-link revoke — only a change of
+            the service's link-signing key invalidates it (all links at once).
+        expiresAt: { type: string, format: date-time }
+
+    Client:
+      type: object
+      required: [id, name, allowedProviderConfigs, active, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        notes: { type: [string, 'null'] }
+        externalRef: { type: [string, 'null'] }
+        allowedProviderConfigs:
+          type: array
+          items: { $ref: '#/components/schemas/ConfigId' }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ClientWithCounts:
+      allOf:
+        - $ref: '#/components/schemas/Client'
+        - type: object
+          properties:
+            invoiceCount: { type: integer, description: All time, ignores filters. }
+            credentialCount: { type: integer, description: Active credentials only. }
+            lastInvoiceAt: { type: [string, 'null'], format: date-time }
+
+    ClientDetail:
+      allOf:
+        - $ref: '#/components/schemas/ClientWithCounts'
+        - type: object
+          required: [integrations]
+          properties:
+            integrations:
+              type: array
+              description: All credentials, active and inactive, sorted by configId.
+              items: { $ref: '#/components/schemas/Credential' }
+
+    Credential:
+      type: object
+      description: Masked provider credential. There is NO `secret` field, ever.
+      required: [id, provider, configId, config, allowed, active, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { $ref: '#/components/schemas/Provider' }
+        configId: { $ref: '#/components/schemas/ConfigId' }
+        label: { type: [string, 'null'] }
+        config:
+          type: object
+          additionalProperties: { type: number }
+          description: 'Billingo: {blockId, bankAccountId}. szamlazz: {}.'
+        secretLast4:
+          type: [string, 'null']
+          description: Last 4 plaintext characters. Display hint only.
+        secretFingerprint:
+          type: [string, 'null']
+          description: First 8 hex chars of SHA-256(secret). Compare across rotations.
+        allowed:
+          type: boolean
+          description: Whether configId is in the client's allowedProviderConfigs. False → invoicing 403s.
+        lastTestedAt: { type: [string, 'null'], format: date-time }
+        lastTestStatus: { type: [string, 'null'], enum: [ok, failed, null] }
+        lastTestError: { type: [string, 'null'], maxLength: 500 }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CredentialWithClient:
+      allOf:
+        - $ref: '#/components/schemas/Credential'
+        - type: object
+          description: A Credential plus its owning client, as returned by GET /api/admin/integrations.
+          required: [clientId]
+          properties:
+            clientId: { type: string, format: uuid }
+            clientName:
+              type: [string, 'null']
+              description: >-
+                Null only if the owning client row is gone, which a foreign key prevents —
+                treat it as always present.
+
+    CredentialTestResult:
+      type: object
+      required: [ok, credential]
+      properties:
+        ok:
+          type: boolean
+          description: A RESULT, not an error. The HTTP status is 200 either way.
+        message: { type: string }
+        details:
+          type: object
+          description: |
+            Billingo: { availableBlockIds: number[], availableBankAccountIds: number[] }.
+            szamlazz: { code, probeError }.
+          additionalProperties: true
+        credential: { $ref: '#/components/schemas/Credential' }
+
+    AdminKey:
+      type: object
+      required: [id, label, scopes, allowedIps, active, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string, description: The audit identity of everything this key does. }
+        scopes:
+          type: array
+          items: { $ref: '#/components/schemas/AdminScope' }
+        allowedIps:
+          type: array
+          items: { type: string }
+          description: CIDR allowlist. EMPTY MEANS UNRESTRICTED (the default).
+        active: { type: boolean }
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Refreshed at most once every 5 minutes — coarse, not precise.
+        createdAt: { type: string, format: date-time }
+
+    ProviderDescriptor:
+      type: object
+      required: [name, label, configIdPrefix, secret, configFields, envFallback, testDescription]
+      properties:
+        name: { $ref: '#/components/schemas/Provider' }
+        label: { type: string }
+        configIdPrefix: { type: string, examples: [billingo_, szamlazz_] }
+        secret:
+          type: object
+          required: [label, help]
+          properties:
+            label: { type: string }
+            help: { type: string }
+        configFields:
+          type: array
+          items:
+            type: object
+            required: [key, label, type, required]
+            properties:
+              key: { type: string }
+              label: { type: string }
+              type: { type: string, const: number }
+              required: { type: boolean }
+              help: { type: string }
+        envFallback:
+          type: array
+          items: { type: string }
+          description: '`<CONFIGID>` = the upper-cased config id.'
+        testDescription: { type: string }
+
+    AdminHealth:
+      type: object
+      required: [status, encryptionKeyConfigured]
+      properties:
+        status:
+          type: string
+          enum: [ok, attention, degraded]
+          description: '`attention` = stuck invoices or failing credentials. `degraded` = DB down (HTTP 503).'
+        database: { type: string, enum: [ok, unreachable] }
+        encryptionKeyConfigured:
+          type: boolean
+          description: False → credential reads and download-link minting will fail.
+        stuckInvoices:
+          type: integer
+          description: >-
+            Invoices pending for more than 15 minutes. Absent when degraded.
+            Drill down with GET /api/admin/invoices/stuck.
+        failingCredentials:
+          type: integer
+          description: >-
+            Active credentials whose last test FAILED — never-tested ones are not counted.
+            Absent when degraded. Drill down with
+            GET /api/admin/integrations?active=true&lastTestStatus=failed.
+
+    StatsOverview:
+      type: object
+      required: [range, clients, invoices, gross]
+      properties:
+        range: { $ref: '#/components/schemas/Range' }
+        clients:
+          type: object
+          description: All-time counts — ignores from/to.
+          properties:
+            total: { type: integer }
+            active: { type: integer }
+        invoices:
+          type: object
+          properties:
+            total: { type: integer }
+            byStatus:
+              type: object
+              additionalProperties: { type: integer }
+              description: Keys with zero rows are OMITTED.
+            byProvider:
+              type: object
+              additionalProperties: { type: integer }
+              description: Keys with zero rows are OMITTED.
+            failureRate:
+              type: number
+              description: failed / total, 4 decimals. 0 when there are no invoices.
+            last24h:
+              type: integer
+              description: Rolling 24 hours — ignores from/to.
+        gross:
+          type: array
+          description: Only `created` invoices contribute.
+          items:
+            type: object
+            properties:
+              currency: { type: [string, 'null'] }
+              invoiceCount: { type: integer }
+              grossAmount: { type: number }
+
+    ClientStats:
+      type: object
+      required: [clientId, clientName, active, invoices, grossAmount]
+      properties:
+        clientId: { type: string, format: uuid }
+        clientName: { type: string }
+        active: { type: boolean }
+        invoices:
+          type: object
+          properties:
+            total: { type: integer }
+            created: { type: integer }
+            failed: { type: integer }
+            pending: { type: integer }
+            cancelled: { type: integer }
+        grossAmount:
+          type: number
+          description: Sum over `created` invoices, all currencies combined indiscriminately.
+        lastInvoiceAt: { type: [string, 'null'], format: date-time }
+
+    AuditEntry:
+      type: object
+      required: [id, actorType, actorLabel, action, targetType, metadata, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        actorType: { $ref: '#/components/schemas/AuditActorType' }
+        actorId: { type: [string, 'null'], format: uuid }
+        actorLabel:
+          type: string
+          description: >-
+            Denormalised — survives key deletion. The admin key's label, or the client's
+            name when actorType is client_key.
+        action:
+          type: string
+          examples: [client.create, credential.update, invoice.reconcile.release]
+        targetType: { $ref: '#/components/schemas/AuditTargetType' }
+        targetId: { type: [string, 'null'] }
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Allowlisted summary per action — never a raw request body.
+        ip: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+
+    ReconcileMarkFailed:
+      type: object
+      required: [action, reason]
+      properties:
+        action: { type: string, const: mark_failed }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+      description: Use when NO invoice was created at the provider. → status `failed`.
+
+    ReconcileAttach:
+      type: object
+      required: [action, reason, providerInvoiceId, invoiceNumber]
+      properties:
+        action: { type: string, const: attach }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        providerInvoiceId: { type: string, minLength: 1, maxLength: 200 }
+        invoiceNumber: { type: string, minLength: 1, maxLength: 200 }
+        grossAmount: { type: number }
+        currency: { type: string, minLength: 1, maxLength: 10 }
+      description: Use when the invoice WAS created at the provider. → status `created`.
+
+    ReconcileRelease:
+      type: object
+      required: [action, reason]
+      properties:
+        action: { type: string, const: release }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+      description: |
+        DESTRUCTIVE — deletes the row so the client can retry with the SAME
+        Idempotency-Key. Only use after confirming no invoice exists at the provider.

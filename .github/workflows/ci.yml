@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A second push to the same branch supersedes the first.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 20 LTS is the development runtime; the packages support 18.17+.
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint and format
+        run: pnpm lint
+
+      - name: Leak guard
+        run: pnpm check:leaks
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      # The step that prevents a hand-edited generated file, which is how a type quietly
+      # stops matching the service. Regenerating must leave the tree clean.
+      - name: Generated types match the pinned contracts
+        run: |
+          pnpm generate:types
+          git diff --exit-code
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Published package shape
+        run: pnpm -r check:package
+
+      - name: Tarball audit
+        run: pnpm audit:tarballs

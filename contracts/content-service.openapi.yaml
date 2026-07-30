@@ -1,0 +1,4548 @@
+openapi: 3.1.0
+
+# ---------------------------------------------------------------------------
+# This spec is the authority on SHAPES. The Markdown in this folder is the
+# authority on BEHAVIOUR. Where they disagree, the Markdown wins and this file
+# is the bug — fix it here.
+#
+# Every path below is registered in src/app.ts of the service repo:
+#   /api/health            1 operation   (the only unauthenticated one)
+#   /api/content/*         6 operations  → website-api.md
+#   /api/client/*         30 operations  → client-api.md
+#   /api/admin/*          69 operations  → admin-api.md
+#                        ---
+#                        106 operations
+# ---------------------------------------------------------------------------
+
+info:
+  title: content-service
+  version: 0.1.0
+  summary: Multi-tenant content API — pages, collections, assets and application data.
+  description: |
+    Lamido's client websites store their content here instead of hardcoding it, and store
+    their application data here instead of owning a database. Texts live in Neon Postgres;
+    images live on the Vercel Blob CDN with their URL recorded in Postgres.
+
+    **Three surfaces, three credentials:**
+
+    | Surface | Prefix | Auth | Reads drafts |
+    |---|---|---|---|
+    | Website read | `/api/content/*` | `Bearer cpk_…` (a `csk_…` also works) | no |
+    | Client admin | `/api/client/*` | `Bearer csk_…` | yes |
+    | Lamido admin | `/api/admin/*` | `Bearer cad_…` plus per-route scopes | yes |
+
+    A `cpk_` publishable key is **public by design** — it scopes and revokes, it does not keep
+    content secret. A `csk_` or `cad_` key must never reach a browser.
+
+    **Envelope:** `{"data": …}` on success, with sibling `total`/`limit`/`offset` on list
+    responses. Failure is `{"error":{"code","message","details"?}}` — branch on `code`, never
+    on `message`.
+
+    **Tenant scoping is per-query.** A resource belonging to another site is a `404`, never a
+    `403`, so cross-tenant existence never leaks.
+
+    **`richtext` is a markdown subset, never HTML.** Nothing here sanitises tags.
+
+    This service has no users, no roles, no sessions, no cron, no queue, no rate limiting and
+    no CORS on the two write tiers. See `conventions.md` for the full list of non-features.
+  license:
+    name: UNLICENSED
+  x-docs:
+    conventions: conventions.md
+    website: website-api.md
+    client: client-api.md
+    admin: admin-api.md
+    dataModel: data-model.md
+    operations: operations.md
+    workflows: workflows.md
+
+servers:
+  # The deployment host is deliberately absent from this pinned copy. No host ships in
+  # a tarball, and contracts/ is one `files` mistake away from being published — see
+  # docs/plans/phase-1-foundations.md §4. The consuming project supplies the base URL
+  # from its own environment; the SDK has no fallback.
+  - url: "{baseUrl}"
+    description: Supplied by the consuming project from its own environment.
+    variables:
+      baseUrl:
+        default: https://content.example.com
+        description: Documentation placeholder, not a usable default.
+
+tags:
+  - name: health
+    description: Liveness. The only unauthenticated endpoint.
+  - name: website
+    description: >
+      Public read tier. Published content only, CDN-cacheable, CORS-gated per site.
+      `?view=` is a 403 here for every key kind.
+  - name: client
+    description: >
+      Editor write tier. One site, scoped by the key itself — no path carries a site id.
+  - name: client-datasets
+    description: Application data. The only tier that creates records.
+  - name: admin-keys
+    description: Admin credential management.
+  - name: admin-sites
+    description: Sites and their per-site keys.
+  - name: admin-structure
+    description: Pages, sections, fields and collections — the shape editors fill in.
+  - name: admin-content
+    description: >
+      The cross-site twins of every client-tier content write. Same functions, same
+      behaviour; only the audit actor differs.
+  - name: admin-assets
+    description: The image library across every site.
+  - name: admin-datasets
+    description: Dataset definitions and record support access.
+  - name: admin-transfer
+    description: Whole-site export and import.
+  - name: admin-ops
+    description: Health, audit and stats.
+
+security:
+  - siteKey: []
+
+components:
+  securitySchemes:
+    siteKey:
+      type: http
+      scheme: bearer
+      description: >
+        A `cpk_` publishable key (browser-safe, published content only) or a `csk_` secret key
+        (server-side, one site, may read drafts and write). 36 characters, opaque.
+    secretKey:
+      type: http
+      scheme: bearer
+      description: >
+        A `csk_` secret key. Scoped to exactly one site by the key itself. Never ship it to a
+        browser — it can publish every word on the site and read every unpublished draft.
+    adminKey:
+      type: http
+      scheme: bearer
+      description: >
+        A `cad_` admin key. Reaches EVERY site; limited only by its scopes and its optional
+        CIDR allowlist. Server-to-server only — this tier sends no CORS headers.
+
+  parameters:
+    localeQuery:
+      name: locale
+      in: query
+      required: false
+      schema: { type: string, pattern: '^[a-z]{2}(-[A-Z]{2})?$' }
+      description: >
+        Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400
+        whose `details.locales` lists the ones it does. There is no fallback chain.
+    limitQuery:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: Out of range is a 400, never a clamp.
+    offsetQuery:
+      name: offset
+      in: query
+      required: false
+      schema: { type: integer, minimum: 0, default: 0 }
+    aggregateLimitQuery:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      description: 1–1000 here, because a group is a much smaller row than a page document.
+    ifNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema: { type: string }
+      description: >
+        Echo back the `ETag` you received — never rebuild it, because Vercel's edge weakens it
+        to `W/"…"`. Comparison is weak, so quoted, unquoted, `W/`-prefixed, comma-separated and
+        `*` all work. A match answers 304 with no body.
+    pageSlug:
+      name: slug
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Slug' }
+    collectionKey:
+      name: key
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Slug' }
+    datasetKey:
+      name: key
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Slug' }
+    itemId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    recordId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    assetId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    versionNumber:
+      name: version
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1, maximum: 1000000 }
+      description: A non-integer is a 400, so `abc` never reads as "no such version".
+    resourceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    siteIdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: The site. On the admin tier the site is in the path; on the client tier it is the key.
+    keyIdPath:
+      name: keyId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    itemIdPath:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: Named `itemId` rather than `id` because `:id` is already the site.
+    recordIdPath:
+      name: recordId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    viewQuery:
+      name: view
+      in: query
+      required: false
+      schema: { type: string, enum: [draft, published], default: published }
+      description: >
+        `draft` falls back to the published value for any untouched field, and answers
+        `no-store`. Only on the write tiers — on `/api/content/*` any `?view=` other than
+        `published` is a 403.
+    itemViewQuery:
+      name: view
+      in: query
+      required: false
+      schema: { type: string, enum: [draft, published], default: draft }
+      description: Defaults to `draft` here, unlike the public tier which serves published only.
+    itemStatusQuery:
+      name: status
+      in: query
+      required: false
+      schema: { $ref: '#/components/schemas/ItemStatus' }
+      description: Omitted returns every status.
+    forceQuery:
+      name: force
+      in: query
+      required: false
+      schema: { type: string, enum: ['true', 'false'], default: 'false' }
+      description: >
+        Skips the reference check. Leaves dangling references, which surface in `danglingRefs`
+        on `GET /api/admin/health` and are audited as `forced`.
+    confirmQuery:
+      name: confirm
+      in: query
+      required: false
+      schema: { type: string, enum: ['true', 'false'], default: 'false' }
+      description: >
+        Required once the delete would destroy editor-entered values, which a version restore
+        cannot bring back — a restore writes into the draft of a field that still has to exist.
+    includeSensitiveQuery:
+      name: include
+      in: query
+      required: false
+      schema: { type: string, enum: [sensitive] }
+      description: >
+        The only way a `sensitive` value reaches a response, and the read IS audited
+        (`record.read_sensitive`).
+    eqQuery:
+      name: eq
+      in: query
+      required: false
+      explode: true
+      schema:
+        type: array
+        maxItems: 3
+        items: { type: string }
+      description: >
+        `field:value` equality, repeatable, max 3. The field must be declared `groupable`.
+        The value is coerced to the field's declared type, so `manual:false` matches the
+        boolean `false` rather than the string.
+    fromQuery:
+      name: from
+      in: query
+      required: false
+      schema: { type: string, format: date-time }
+      description: Inclusive lower bound on `occurredAt`. `from` after `to` is a 400.
+    toQuery:
+      name: to
+      in: query
+      required: false
+      schema: { type: string, format: date-time }
+      description: Inclusive upper bound on `occurredAt`.
+
+  responses:
+    NotModified:
+      description: The caller's validator still matches. No body.
+    BadRequest:
+      description: >
+        `validation_error` or `bad_request`. Every problem in the request is reported at once —
+        read `details`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          examples:
+            unknownValueKey:
+              summary: An unknown content value key is a 400, not a silent strip
+              value:
+                error:
+                  code: validation_error
+                  message: One or more content values could not be stored
+                  details:
+                    unknownKeys: [hero.titel]
+                    invalid:
+                      - key: celok.stats
+                        message: 'Entry 0, "icon": Expected a string for a "text" field'
+            unknownLocale:
+              summary: A locale the site does not publish
+              value:
+                error:
+                  code: validation_error
+                  message: '"en" is not one of this site''s locales'
+                  details: { locale: en, locales: [hu] }
+    Unauthorized:
+      description: >
+        `unauthorized`. Missing, malformed, unknown or revoked key — or a deactivated site.
+        All of these share one message on purpose: a distinguishable answer would make the API
+        a key-validity oracle. Do not retry.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: >
+        `forbidden`. The credential is valid and is being used in the wrong place: a `cpk_` key
+        on a write tier, `?view=` on the read tier, a missing admin scope, an admin key from a
+        disallowed address, or an asset pathname outside the site's prefix.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: >
+        `not_found`. Also the answer for a resource that belongs to ANOTHER site, and — on the
+        public tier — for content that is unpublished, inactive, draft or archived.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: '`conflict`. See `details` for the cause.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          examples:
+            requiredEmpty:
+              summary: A required field would publish empty
+              value:
+                error:
+                  code: conflict
+                  message: Required fields are empty — fill them in before publishing
+                  details: { missing: [hero.title], locales: [hu] }
+            referencedAsset:
+              summary: The asset is still in use, in either view
+              value:
+                error:
+                  code: conflict
+                  message: This asset is still referenced — clear the references before deleting it
+                  details: { references: [] }
+    PayloadTooLarge:
+      description: '`payload_too_large`. A record''s `data` serialises to more than 8 KB.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    Slug:
+      type: string
+      maxLength: 64
+      pattern: '^[a-z0-9_]+$'
+      description: >
+        Lowercase letters, digits and underscores. No dashes, no uppercase — these strings end
+        up as object keys in a published document. Uniqueness is scoped to the parent.
+      examples: [home, news, donations]
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [validation_error, bad_request, unauthorized, forbidden, not_found, conflict, payload_too_large, internal_error]
+          description: The contract. Branch on this, never on `message`.
+        message:
+          type: string
+          description: For a human. Reworded freely — never parse it.
+        details:
+          description: >
+            Present where it helps a caller act. Documented per endpoint; common keys are
+            `unknownKeys`, `invalid`, `missing`, `locales`, `references`, `recordCount`,
+            `unresolvableRefs`, `assetId`, `bytes`.
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error: { $ref: '#/components/schemas/Error' }
+
+    ItemStatus:
+      type: string
+      enum: [draft, published, archived]
+      description: >
+        Only `published` items reach the website. `archived` is the recommended way to remove
+        one — it keeps its values and its dataset records, and publishing it again brings it
+        back.
+
+    FieldType:
+      type: string
+      enum: [text, richtext, image, url, number, boolean, list]
+      description: Not patchable once the field exists — no value conversion exists.
+
+    ItemSchemaField:
+      type: object
+      required: [key, type]
+      description: One entry of a `list` field's or a collection's item schema. Scalars only.
+      properties:
+        key: { $ref: '#/components/schemas/Slug' }
+        type:
+          type: string
+          enum: [text, richtext, image, url, number, boolean]
+          description: '`list` is absent deliberately: a list inside a list has no modelled value shape.'
+        label: { type: string, maxLength: 200 }
+        required: { type: boolean, default: false }
+
+    ItemSchema:
+      type: array
+      minItems: 1
+      maxItems: 50
+      items: { $ref: '#/components/schemas/ItemSchemaField' }
+      description: >
+        Required for a `list` field and forbidden for every other type. Keys must be unique.
+
+    ResolvedImage:
+      type: object
+      required: [url, alt]
+      description: >
+        An `image` value as a consumer sees it — no second call to make. An image whose asset
+        was deleted resolves to `null` instead, never to a dangling id.
+      properties:
+        url: { type: string, format: uri }
+        alt: { type: string, description: 'May be "" — that is the correct signal for a decorative image.' }
+        width: { type: [integer, 'null'] }
+        height: { type: [integer, 'null'] }
+
+    ImageValue:
+      type: object
+      required: [assetId, alt]
+      description: An `image` value as it is WRITTEN. Only these two keys are stored; extras are dropped.
+      properties:
+        assetId: { type: string, format: uuid, description: Must name an asset of this site. }
+        alt:
+          type: string
+          maxLength: 300
+          description: Required. Use "" for a decorative image, so "I forgot" stays distinguishable.
+
+    ContentValue:
+      description: >
+        What a field holds, by its declared `type`: `text`/`richtext`/`url` a string (5 000 /
+        100 000 / 2 000 chars), `number` a finite number, `boolean` a boolean, `image` an
+        ImageValue, `list` an array of at most 200 flat objects matching the field's item
+        schema. `null` on a write discards the DRAFT for that field; send "" to publish an empty
+        value.
+      oneOf:
+        - type: string
+        - type: number
+        - type: boolean
+        - { $ref: '#/components/schemas/ImageValue' }
+        - type: array
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: true
+        - type: 'null'
+
+    PageDocument:
+      type: object
+      required: [page, sections]
+      description: >
+        The ONE shape a page's content is served in — identical on the public read, the draft
+        preview and inside a frozen version. A field whose value is null is OMITTED, so a
+        consumer's own default applies.
+      properties:
+        page:
+          type: object
+          required: [slug, title, locale, version, publishedAt]
+          properties:
+            slug: { $ref: '#/components/schemas/Slug' }
+            title: { type: string }
+            locale: { type: string }
+            version:
+              type: [integer, 'null']
+              description: >
+                Null until the first publish — which is reachable only on the CLIENT tier's draft
+                preview. On /api/content/* it is never null, because an unpublished page is a 404
+                there. One schema serves both tiers, hence the wider type.
+            publishedAt:
+              type: [string, 'null']
+              format: date-time
+              description: Same nullability rule as `version`.
+        sections:
+          type: array
+          description: Active sections only, in `position` order.
+          items:
+            type: object
+            required: [key, type, fields]
+            properties:
+              key: { $ref: '#/components/schemas/Slug' }
+              type: { type: string, description: The structural name a consuming component switches on. }
+              fields:
+                type: object
+                description: Keyed by field key, not an array. Images arrive resolved.
+                additionalProperties: true
+
+    Site:
+      type: object
+      description: The site as Lamido staff and the site's own backend see it.
+      required: [id, slug, name, defaultLocale, locales, active]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { $ref: '#/components/schemas/Slug' }
+        name: { type: string }
+        defaultLocale: { type: string }
+        locales: { type: array, items: { type: string } }
+        allowedOrigins:
+          type: array
+          items: { type: string }
+          description: Exact `Origin` strings. Empty means no browser access at all.
+        revalidateUrl: { type: [string, 'null'], format: uri }
+        hasRevalidateSecret:
+          type: boolean
+          description: The secret itself is write-only and never returned.
+        externalRef: { type: [string, 'null'] }
+        active: { type: boolean, description: 'false ⇒ every key on this site answers 401.' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PublicSite:
+      type: object
+      description: >
+        The deliberately smaller shape `GET /api/content/site` serves — this payload may be
+        fetched with a key that ships inside a browser bundle.
+      required: [slug, name, defaultLocale, locales, locale, settings]
+      properties:
+        slug: { $ref: '#/components/schemas/Slug' }
+        name: { type: string }
+        defaultLocale: { type: string }
+        locales: { type: array, items: { type: string } }
+        locale: { type: string, description: The locale these `settings` values are in. }
+        settings:
+          type: object
+          description: >
+            The published fields of the site's reserved `settings` section — nav labels, links,
+            e-mails, bank details, page metadata. `{}` when the site has no such section, never
+            a 404.
+          additionalProperties: true
+
+    SiteKey:
+      type: object
+      required: [id, siteId, kind, label, keyLast4, active]
+      properties:
+        id: { type: string, format: uuid }
+        siteId: { type: string, format: uuid }
+        kind: { type: string, enum: [publishable, secret] }
+        label: { type: string, maxLength: 100, description: Becomes the audit actor and the `publishedBy` suffix. }
+        keyLast4: { type: string, description: Last 4 plaintext characters, so two keys can be told apart. }
+        active: { type: boolean }
+        lastUsedAt: { type: [string, 'null'], format: date-time, description: Refreshed at most every 5 minutes. }
+        createdAt: { type: string, format: date-time }
+
+    MintedSiteKey:
+      allOf:
+        - { $ref: '#/components/schemas/SiteKey' }
+        - type: object
+          required: [apiKey]
+          properties:
+            apiKey:
+              type: string
+              description: >
+                THE PLAINTEXT, returned exactly once and never recoverable. Do not log it. A
+                lost key can only be rotated.
+              examples: [csk_YOUR_SECRET_KEY]
+
+    AdminKey:
+      type: object
+      required: [id, label, scopes, allowedIps, active]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string, maxLength: 100, description: The audit actor. One key per deployment. }
+        scopes:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/AdminScope' }
+        allowedIps:
+          type: array
+          maxItems: 50
+          items: { type: string }
+          description: CIDR allowlist. EMPTY MEANS UNRESTRICTED — the default, because Vercel egress IPs rotate.
+          examples: [['203.0.113.7/32']]
+        active: { type: boolean }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    AdminScope:
+      type: string
+      enum:
+        - '*'
+        - sites:read
+        - sites:write
+        - content:read
+        - content:write
+        - content:publish
+        - assets:read
+        - assets:write
+        - datasets:read
+        - datasets:write
+        - records:read
+        - records:write
+        - keys:manage
+        - audit:read
+        - admin:manage
+      description: >
+        `content:write` can stage every change and make none of it live; `content:publish` is
+        the scope that reaches a visitor. `datasets:*` is structure, `records:*` may return PII.
+
+    Page:
+      type: object
+      required: [id, siteId, slug, title, position, active]
+      properties:
+        id: { type: string, format: uuid }
+        siteId: { type: string, format: uuid }
+        slug: { $ref: '#/components/schemas/Slug' }
+        title: { type: string, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+        position: { type: integer, minimum: 0, maximum: 9999 }
+        active: { type: boolean, description: 'false ⇒ invisible to the website, still editable.' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Section:
+      type: object
+      required: [id, pageId, key, type, position, active]
+      properties:
+        id: { type: string, format: uuid }
+        pageId: { type: string, format: uuid }
+        key:
+          allOf: [{ $ref: '#/components/schemas/Slug' }]
+          description: '`settings` is RESERVED: that section becomes `settings` on `GET /api/content/site`.'
+        type:
+          allOf: [{ $ref: '#/components/schemas/Slug' }]
+          description: Deliberately not an enum — a new section type must not need a deploy.
+        label: { type: [string, 'null'], maxLength: 200 }
+        position: { type: integer, minimum: 0, maximum: 9999 }
+        active:
+          type: boolean
+          description: >
+            false ⇒ excluded from every document, still writable, and its `required` fields do
+            not block a publish.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Field:
+      type: object
+      required: [id, sectionId, key, type, required, position]
+      properties:
+        id: { type: string, format: uuid }
+        sectionId: { type: string, format: uuid }
+        key: { $ref: '#/components/schemas/Slug' }
+        type: { $ref: '#/components/schemas/FieldType' }
+        label: { type: [string, 'null'], maxLength: 200 }
+        required: { type: boolean, description: Enforced at PUBLISH, not at save. }
+        itemSchema:
+          oneOf:
+            - { $ref: '#/components/schemas/ItemSchema' }
+            - type: 'null'
+          description: "Non-null only for `type: list`."
+        position: { type: integer, minimum: 0, maximum: 9999 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PageTree:
+      allOf:
+        - { $ref: '#/components/schemas/Page' }
+        - type: object
+          required: [sections]
+          description: >
+            The structure an editor UI renders a form from. INCLUDES inactive sections, unlike
+            the rendered document.
+          properties:
+            sections:
+              type: array
+              items:
+                allOf:
+                  - { $ref: '#/components/schemas/Section' }
+                  - type: object
+                    required: [fields]
+                    properties:
+                      fields:
+                        type: array
+                        items: { $ref: '#/components/schemas/Field' }
+
+    VersionSummary:
+      type: object
+      required: [version, publishedBy, createdAt]
+      properties:
+        version: { type: integer, minimum: 1 }
+        note: { type: [string, 'null'], maxLength: 500 }
+        publishedBy: { type: string, description: '`"<siteSlug>/<keyLabel>"`.' }
+        createdAt: { type: string, format: date-time }
+
+    Version:
+      allOf:
+        - { $ref: '#/components/schemas/VersionSummary' }
+        - type: object
+          required: [document]
+          properties:
+            document:
+              allOf: [{ $ref: '#/components/schemas/PageDocument' }]
+              description: >
+                Plus a `values` map of RAW, unresolved values — the only thing a restore can
+                work from, because a resolved image URL cannot be stored in a value column.
+
+    CollectionSummary:
+      type: object
+      required: [key, name, itemSchema, position, itemCounts]
+      properties:
+        key: { $ref: '#/components/schemas/Slug' }
+        name: { type: string, maxLength: 200 }
+        itemSchema: { $ref: '#/components/schemas/ItemSchema' }
+        position: { type: integer }
+        itemCounts:
+          type: object
+          required: [draft, published, archived]
+          properties:
+            draft: { type: integer }
+            published: { type: integer }
+            archived: { type: integer }
+
+    Collection:
+      type: object
+      required: [id, siteId, key, name, itemSchema, position]
+      properties:
+        id: { type: string, format: uuid }
+        siteId: { type: string, format: uuid }
+        key: { $ref: '#/components/schemas/Slug' }
+        name: { type: string, maxLength: 200 }
+        itemSchema: { $ref: '#/components/schemas/ItemSchema' }
+        position: { type: integer, minimum: 0, maximum: 9999 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Item:
+      type: object
+      required: [id, collectionKey, slug, position, status, values]
+      description: The same shape on every tier — with `status` always `published` on the public one.
+      properties:
+        id: { type: string, format: uuid }
+        collectionKey: { $ref: '#/components/schemas/Slug' }
+        slug:
+          oneOf: [{ $ref: '#/components/schemas/Slug' }, { type: 'null' }]
+          description: >
+            Optional — only items addressable by URL need one. NULLs do not collide, so any
+            number of slugless items may coexist.
+        position: { type: integer, minimum: 0, maximum: 9999 }
+        status: { $ref: '#/components/schemas/ItemStatus' }
+        publishedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        values:
+          type: object
+          description: Keyed by field key, validated against the collection's item schema. Nulls omitted.
+          additionalProperties: true
+
+    Asset:
+      type: object
+      required: [id, siteId, pathname, url, contentType, size, uploadedBy, references]
+      properties:
+        id: { type: string, format: uuid }
+        siteId: { type: string, format: uuid }
+        pathname:
+          type: string
+          description: Blob object key. Always inside `sites/<siteSlug>/`, and unique across the whole store.
+          examples: [sites/acme_foundation/hero-Xy7.jpg]
+        url: { type: string, format: uri }
+        contentType: { $ref: '#/components/schemas/ImageContentType' }
+        size: { type: integer, minimum: 1, maximum: 15728640 }
+        width: { type: [integer, 'null'] }
+        height: { type: [integer, 'null'] }
+        uploadedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        references:
+          type: integer
+          description: How many draft or published values point at this asset. 0 means safe to delete.
+
+    ImageContentType:
+      type: string
+      enum: [image/jpeg, image/png, image/webp, image/avif]
+      description: >
+        SVG IS EXCLUDED deliberately — it is a script-execution vector served from a CDN
+        origin. A rejected type is a 400 before an upload capability is minted.
+
+    RecordFieldSpec:
+      type: object
+      required: [key, type]
+      description: One entry of a dataset's `recordSchema`.
+      properties:
+        key:
+          type: string
+          maxLength: 64
+          pattern: '^[a-z][a-zA-Z0-9_]*$'
+          description: >
+            camelCase IS allowed here, unlike every addressing key in this API: a record field
+            is a JSON property of `data`, not an address.
+          examples: [amountForint]
+        type: { type: string, enum: [text, number, boolean, timestamp, ref] }
+        label: { type: string, maxLength: 200 }
+        required: { type: boolean, default: false }
+        groupable:
+          type: boolean
+          default: false
+          description: >
+            May be grouped by AND filtered on. Anything undeclared is a 400 rather than an
+            unindexed scan.
+        summable: { type: boolean, default: false, description: '`number` fields only.' }
+        sensitive:
+          type: boolean
+          default: false
+          description: >
+            Withheld from list reads, audit, logs and export. MAY NEVER BE `groupable` — a
+            group key is publicly enumerable once an aggregate is public.
+        maxLength: { type: integer, minimum: 1, maximum: 5000, default: 2000, description: '`text` only.' }
+        min: { type: number }
+        max: { type: number }
+        integer: { type: boolean }
+        ref:
+          type: object
+          required: [collection]
+          properties:
+            collection:
+              allOf: [{ $ref: '#/components/schemas/Slug' }]
+              description: A collection that exists on this site.
+            policy:
+              type: string
+              enum: [reject, store]
+              default: reject
+              description: >
+                `store` skips the existence check entirely and is what a dataset recording
+                MONEY must declare: a payment webhook must never fail because its target was
+                deleted mid-checkout. The resulting dangling refs are counted in
+                `GET /api/admin/health`.
+
+    RecordSchema:
+      type: array
+      minItems: 1
+      maxItems: 40
+      items: { $ref: '#/components/schemas/RecordFieldSpec' }
+
+    Dataset:
+      type: object
+      required: [id, siteId, key, name, recordSchema, publicAggregate, position]
+      properties:
+        id: { type: string, format: uuid }
+        siteId: { type: string, format: uuid }
+        key: { $ref: '#/components/schemas/Slug' }
+        name: { type: string, maxLength: 200 }
+        recordSchema: { $ref: '#/components/schemas/RecordSchema' }
+        publicAggregate:
+          type: boolean
+          default: false
+          description: >
+            Gates `GET /api/content/datasets/:key/aggregate`. Turning it on makes every
+            `groupable` field's VALUES publicly enumerable through group keys.
+        retentionDays:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 3650
+          description: null keeps everything forever. Enforced by a CLI, never a cron.
+        position: { type: integer, minimum: 0, maximum: 9999 }
+        recordCount: { type: integer, description: Present on the list endpoints. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    RecordData:
+      type: object
+      description: >
+        Flat by construction — no nesting. Values are `text` (string), `number`, `boolean`,
+        `timestamp` (ISO 8601, normalised to UTC on write) or `ref` (a collection item id). AN
+        UNKNOWN KEY IS A 400, never stripped. Serialises to at most 8 KB.
+      additionalProperties:
+        oneOf: [{ type: string }, { type: number }, { type: boolean }, { type: 'null' }]
+      examples:
+        - { amountForint: 5000, beneficiaryId: 3f1c0000-0000-4000-8000-000000000000, manual: false }
+
+    Record:
+      type: object
+      required: [id, datasetKey, externalId, data, withheld, occurredAt]
+      properties:
+        id: { type: string, format: uuid }
+        datasetKey: { $ref: '#/components/schemas/Slug' }
+        externalId:
+          type: [string, 'null']
+          maxLength: 200
+          description: >
+            The caller's own natural key — pass the payment provider's id. NOT patchable: the
+            idempotency key must be stable.
+        data: { $ref: '#/components/schemas/RecordData' }
+        withheld:
+          type: array
+          items: { type: string }
+          description: >
+            `sensitive` keys that ARE set but not returned, so "withheld" and "never set" stay
+            distinguishable. `[]` when sensitive values are included.
+        occurredAt:
+          type: string
+          format: date-time
+          description: The EVENT time — what the list orders by and `from`/`to` filter on.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    AggregateGroup:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: [string, 'null']
+          description: >
+            The group's value, always a string. `null` is the bucket for records MISSING the
+            `groupBy` field — deliberately returned rather than dropped — and is also the single
+            row you get when `groupBy` is omitted.
+        count: { type: integer }
+        sum:
+          type: object
+          additionalProperties: { type: number }
+          description: One entry per `sum:<field>` metric. A group with no matching rows reports 0, not null.
+
+    AuditEntry:
+      type: object
+      required: [id, actorType, actorLabel, action, targetType, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        actorType: { type: string, enum: [admin_key, client_key, system] }
+        actorId: { type: [string, 'null'], format: uuid }
+        actorLabel: { type: string, description: Denormalised, so the trail outlives the key. }
+        action: { type: string, examples: [site.create, page.publish, asset.delete, record.read_sensitive] }
+        targetType:
+          type: string
+          enum: [site, site_key, page, section, field, collection, collection_item, asset, dataset, record, admin_key]
+        targetId: { type: [string, 'null'] }
+        metadata:
+          type: object
+          description: >
+            An ALLOWLISTED summary per action — never a raw request body, never a plaintext key,
+            never a record's values. Patches record the changed field NAMES only.
+          additionalProperties: true
+        ip: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+
+    Health:
+      type: object
+      required: [status, db]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        db: { type: string, enum: [ok, unreachable] }
+        code: { type: string, description: The driver's error code when the database is unreachable. Never a connection string. }
+
+    AdminHealth:
+      type: object
+      required: [status, db]
+      properties:
+        status:
+          type: string
+          enum: [ok, attention, degraded]
+          description: >
+            `attention` when a page has unpublished drafts OR a revalidation failed in the last
+            24 hours. `danglingRefs` deliberately does not affect it.
+        db: { type: string, enum: [ok, unreachable] }
+        blobConfigured: { type: boolean, description: 'false breaks every upload.' }
+        sites: { type: integer }
+        pagesWithUnpublishedDrafts: { type: integer }
+        orphanAssets: { type: integer, description: Shares its exact predicate with `GET /api/admin/assets/orphans`. }
+        orphanAssetsOlderThanHours: { type: integer, default: 24 }
+        failedRevalidations: { type: integer, description: In the last 24 hours. A website is serving stale content. }
+        danglingRefs: { type: integer, description: Records whose `ref` names a collection item that no longer exists. }
+
+    ImportDocument:
+      type: object
+      description: >
+        A whole site as one document — what `GET …/export` returns and `POST …/import` accepts.
+        Values are keyed by locale: `values: { hu: { draft: …, published: … } }`.
+
+        CRITICAL: on a merge, for every section and field the document MENTIONS, an omitted key
+        is a WRITTEN NULL — `label ?? null`, `position ?? 0`, `itemSchema ?? null`. So a
+        values-only companion document destroys the structure it was meant to fill. Keep
+        structure and values in ONE document, and omit `values` entirely to leave stored values
+        untouched (`values: {hu: {draft: null}}` CLEARS them). Import writes DRAFTS ONLY and
+        never publishes — but the next publish of a page carries everything it wrote live.
+      properties:
+        site: { type: object, additionalProperties: true }
+        pages: { type: array, maxItems: 200, items: { type: object, additionalProperties: true } }
+        collections: { type: array, maxItems: 100, items: { type: object, additionalProperties: true } }
+        datasets: { type: array, maxItems: 100, items: { type: object, additionalProperties: true } }
+        assets: { type: array, maxItems: 5000, items: { type: object, additionalProperties: true } }
+
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      tags: [health]
+      summary: Liveness and a database ping
+      description: >
+        The ONLY unauthenticated endpoint. Answers 503 WITH A BODY when the database is
+        unreachable — a monitor that checks `response.ok` before reading will never see
+        `status: "degraded"`.
+      security: []
+      responses:
+        '200':
+          description: Healthy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: The database is unreachable. The body is still JSON.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Website read tier — /api/content/*   (6 operations)
+  # ─────────────────────────────────────────────────────────────────────────
+  /api/content/site:
+    get:
+      operationId: getPublicSite
+      tags: [website]
+      summary: Site identity and the published `settings` section
+      description: >
+        One request a website makes per render and caches. `settings` is `{}` — never a 404 —
+        when the site has no `settings` section. The ETag folds in the site row's own
+        `updatedAt`, because renaming a site changes this payload with nothing published.
+      security: [{ siteKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/localeQuery' }
+        - { $ref: '#/components/parameters/ifNoneMatch' }
+      responses:
+        '200':
+          description: >
+            Cache-Control public, s-maxage=60, stale-while-revalidate=300, plus an ETag and
+            Vary Origin, Authorization.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/PublicSite' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/content/pages:
+    get:
+      operationId: listPublishedPages
+      tags: [website]
+      summary: Every page published at least once
+      description: >
+        For a sitemap or a static path list. NOT paginated — a site has single-digit pages. A
+        page that has never been published, or that is inactive, is absent entirely rather than
+        listed with a null version. TAKES NO `locale` PARAMETER, unlike every other content read:
+        a page's `title` is a column on the page rather than a localised value, so this list is
+        the same in every locale.
+      security: [{ siteKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ifNoneMatch' }
+      responses:
+        '200':
+          description: Published pages in staff-defined order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [slug, title, version, publishedAt]
+                      properties:
+                        slug: { $ref: '#/components/schemas/Slug' }
+                        title: { type: string }
+                        version: { type: integer }
+                        publishedAt: { type: string, format: date-time }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/content/pages/{slug}:
+    get:
+      operationId: getPublishedPage
+      tags: [website]
+      summary: The published page document
+      description: >
+        "Does not exist", "switched off" and "never published" all answer the SAME 404 with the
+        same message — they are the same fact to a website, and distinguishing them would turn a
+        browser-visible key into a map of unreleased structure. That 404 is cacheable at
+        s-maxage=10.
+      security: [{ siteKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/localeQuery' }
+        - { $ref: '#/components/parameters/ifNoneMatch' }
+      responses:
+        '200':
+          description: The document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/PageDocument' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/content/collections/{key}:
+    get:
+      operationId: listPublishedItems
+      tags: [website]
+      summary: Published items of a collection
+      description: >
+        `position` order, published only. The ETag folds in `updatedAt` as well as
+        `publishedAt`, because a reorder moves `position` without touching any publish stamp.
+      security: [{ siteKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/localeQuery' }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+        - { $ref: '#/components/parameters/ifNoneMatch' }
+      responses:
+        '200':
+          description: Published items.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Item' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/content/collections/{key}/items/{idOrSlug}:
+    get:
+      operationId: getPublishedItem
+      tags: [website]
+      summary: One published item, by id or by slug
+      description: >
+        Both forms, because a list payload gives you ids while a URL carries a slug. A draft or
+        archived item is a 404 with the same message as an unknown one.
+      security: [{ siteKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+        - name: idOrSlug
+          in: path
+          required: true
+          schema: { type: string }
+          description: A uuid or a slug — the service decides which by shape.
+        - { $ref: '#/components/parameters/localeQuery' }
+        - { $ref: '#/components/parameters/ifNoneMatch' }
+      responses:
+        '200':
+          description: The item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/content/datasets/{key}/aggregate:
+    get:
+      operationId: getPublicAggregate
+      tags: [website]
+      summary: Grouped counts and sums — the only public thing a dataset exposes
+      description: >
+        Lets a browser render a live total without a secret key and without the site owning a
+        database. Answered ONLY when the dataset's `publicAggregate` is true; otherwise a 404
+        with the same message as an unknown dataset, because a 403 would confirm it exists.
+        Cached for 10 SECONDS, not 60: no publish invalidates a total, so this is the freshness
+        mechanism rather than a backstop. The ETag folds in the record count, so a DELETE moves
+        it even though no timestamp changed. There is no public records list and no public
+        write, on any tier.
+      security: [{ siteKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/datasetKey' }
+        - name: groupBy
+          in: query
+          required: false
+          schema: { type: string }
+          description: >
+            A field the dataset declared `groupable`. Omitted gives ONE row with a null key
+            holding whole-dataset totals, which exists even over zero records.
+        - name: metrics
+          in: query
+          required: false
+          schema: { type: string, maxLength: 200, default: count }
+          description: >
+            Comma-separated `count` and/or `sum:<field>`. Max 3 sum metrics; each field must be
+            declared summable.
+          examples:
+            countAndSum:
+              value: count,sum:amountForint
+        - { $ref: '#/components/parameters/eqQuery' }
+        - { $ref: '#/components/parameters/fromQuery' }
+        - { $ref: '#/components/parameters/toQuery' }
+        - { $ref: '#/components/parameters/aggregateLimitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+        - { $ref: '#/components/parameters/ifNoneMatch' }
+      responses:
+        '200':
+          description: >
+            Cache-Control public, s-maxage=10, stale-while-revalidate=60. Groups by key
+            ascending, nulls first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AggregateGroup' } }
+                  total: { type: integer, description: The DISTINCT GROUP count, including the null group. }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Client (editor) write tier — /api/client/*   (30 operations)
+  # Every path is scoped to ONE site by the csk_ key. None carries a site id.
+  # ─────────────────────────────────────────────────────────────────────────
+  /api/client/me:
+    get:
+      operationId: getClientMe
+      tags: [client]
+      summary: The site this key is bound to, and the key's own metadata
+      description: '`site.locales` is the set this key may write. Nothing else on this tier tells you that.'
+      security: [{ secretKey: [] }]
+      responses:
+        '200':
+          description: Site and key.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [site, key]
+                    properties:
+                      site: { $ref: '#/components/schemas/Site' }
+                      key: { $ref: '#/components/schemas/SiteKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/client/pages:
+    get:
+      operationId: listClientPages
+      tags: [client]
+      summary: The site's pages, in staff-defined order
+      description: Not paginated. Includes inactive pages, so an editor UI can build a nav.
+      security: [{ secretKey: [] }]
+      responses:
+        '200':
+          description: Pages.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Page' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/client/pages/{slug}:
+    get:
+      operationId: getClientPageStructure
+      tags: [client]
+      summary: The STRUCTURE tree — what fields exist and of what type
+      description: >
+        Render a form from this; get the values from the rendered endpoint. INCLUDES inactive
+        sections, unlike the rendered document, because staff switch a section off to stage it
+        and an editor has to be able to fill it in first.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+      responses:
+        '200':
+          description: The page with its sections and their fields, both in position order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/PageTree' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/pages/{slug}/values:
+    patch:
+      operationId: setDraftValues
+      tags: [client]
+      summary: Save draft values
+      description: >
+        ONLY THE DRAFT MOVES — a save never touches what is live. AN UNKNOWN KEY IS A 400, not a
+        silent strip: stripping a typo would lose the editor's text behind a 200 OK. Every
+        problem comes back at once in `details.unknownKeys` and `details.invalid`. One
+        transaction. Answers with the updated draft document so an optimistic UI reconciles in
+        one round trip.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                locale:
+                  type: string
+                  description: Omitted means the site's defaultLocale.
+                values:
+                  type: object
+                  minProperties: 1
+                  maxProperties: 500
+                  description: >
+                    Keys are "<sectionKey>.<fieldKey>". A null value discards the DRAFT for that
+                    field; send "" to publish an empty value. More than 500 keys means using the
+                    admin import endpoint instead.
+                  additionalProperties: { $ref: '#/components/schemas/ContentValue' }
+            examples:
+              mixed:
+                value:
+                  locale: hu
+                  values:
+                    hero.title: Minden gyermek egy **csoda.**
+                    hero.image: { assetId: 0f2c0000-0000-4000-8000-000000000000, alt: Hero kép }
+                    celok.stats:
+                      - { value: '17', label: támogatott }
+      responses:
+        '200':
+          description: The updated DRAFT document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/PageDocument' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/pages/{slug}/publish:
+    post:
+      operationId: publishPage
+      tags: [client]
+      summary: Copy drafts over published and freeze a version
+      description: >
+        PUBLISH IS PER PAGE. Every section shares one document, so this publishes EVERY
+        unpublished draft on the page — including ones a seed import wrote. One transaction:
+        required fields of ACTIVE sections are checked first (409 with details.missing), then
+        published = coalesce(draft, published) per locale, then one page_versions row at
+        max(version)+1. The revalidation webhook fires AFTER the commit, best-effort, and never
+        fails the publish. Omitting locale publishes every locale but snapshots only the default
+        one. A version-number race is retried once, then a 409 you may retry after reloading.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+      requestBody:
+        required: false
+        description: Optional — a bodyless POST publishes with no note in every locale.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale: { type: string, description: Restricts the publish to one locale. }
+                note: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: Published.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [version, publishedBy, createdAt, locales, document]
+                    properties:
+                      version: { type: integer }
+                      note: { type: [string, 'null'] }
+                      publishedBy: { type: string }
+                      createdAt: { type: string, format: date-time }
+                      locales: { type: array, items: { type: string } }
+                      document: { $ref: '#/components/schemas/PageDocument' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/client/pages/{slug}/revert:
+    post:
+      operationId: revertPage
+      tags: [client]
+      summary: Discard drafts — copy published back over draft
+      description: >
+        Writes NO version row, deliberately: nothing went live, so there is nothing to record in
+        the history of what the website has served.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale: { type: string, description: Omitted reverts every locale of the site. }
+      responses:
+        '200':
+          description: The draft document, now equal to the published one.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [locales, document]
+                    properties:
+                      locales: { type: array, items: { type: string } }
+                      document: { $ref: '#/components/schemas/PageDocument' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/pages/{slug}/versions:
+    get:
+      operationId: listPageVersions
+      tags: [client]
+      summary: Publish history, newest first
+      description: Carries NO documents — a history of fifty publishes would be fifty full pages.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Version summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VersionSummary' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/pages/{slug}/versions/{version}:
+    get:
+      operationId: getPageVersion
+      tags: [client]
+      summary: One frozen snapshot, with its document
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/versionNumber' }
+      responses:
+        '200':
+          description: The version.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Version' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/pages/{slug}/versions/{version}/restore:
+    post:
+      operationId: restorePageVersion
+      tags: [client]
+      summary: Copy a version's values into the DRAFT
+      description: >
+        NEVER straight to published — there is exactly one path to live content, so every live
+        change has a version row. Restore then publish produces version N+1 whose document
+        equals version M. `skipped` names fields the snapshot has that the structure no longer
+        does, or whose type changed; SHOW IT, or an editor publishes a page missing a paragraph
+        and is never told which.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/versionNumber' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale: { type: string }
+      responses:
+        '200':
+          description: Restored into the draft.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [restored, skipped, document]
+                    properties:
+                      restored: { type: array, items: { type: string } }
+                      skipped: { type: array, items: { type: string } }
+                      document: { $ref: '#/components/schemas/PageDocument' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/rendered/pages/{slug}:
+    get:
+      operationId: getRenderedPage
+      tags: [client]
+      summary: Preview — the page document in either view
+      description: >
+        IDENTICAL in shape to the public read, so preview mode renders through production
+        components. `view=draft` answers no-store, because an editor's back button showing
+        yesterday's unpublished draft is indistinguishable from a bug; a published read here is
+        still private, because it is authorised by a secret key.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/viewQuery' }
+        - { $ref: '#/components/parameters/localeQuery' }
+      responses:
+        '200':
+          description: The document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/PageDocument' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/collections:
+    get:
+      operationId: listClientCollections
+      tags: [client]
+      summary: Collections with their item counts by status
+      description: One screen's worth in one request. Not paginated.
+      security: [{ secretKey: [] }]
+      responses:
+        '200':
+          description: Collections.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/CollectionSummary' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/client/collections/{key}/items:
+    get:
+      operationId: listClientItems
+      tags: [client]
+      summary: Items of a collection, in position order
+      description: '`view` defaults to `draft` here, unlike the public tier. `status` omitted returns all three.'
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemStatusQuery' }
+        - { $ref: '#/components/parameters/itemViewQuery' }
+        - { $ref: '#/components/parameters/localeQuery' }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Items.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Item' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createItem
+      tags: [client]
+      summary: Create an item — always born a draft
+      description: >
+        `status` is not settable: otherwise "add the next news item" would be a publish. An
+        unknown value key is a 400, checked against the collection's itemSchema. A duplicate
+        slug is a 409; a null slug never collides.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                slug: { $ref: '#/components/schemas/Slug' }
+                position: { type: integer, minimum: 0, maximum: 9999, description: 'Omitted: max(position)+1.' }
+                locale: { type: string }
+                values:
+                  type: object
+                  additionalProperties: { $ref: '#/components/schemas/ContentValue' }
+      responses:
+        '201':
+          description: The created draft item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/client/collections/{key}/items/reorder:
+    post:
+      operationId: reorderItems
+      tags: [client]
+      summary: Set the complete item order
+      description: >
+        Takes the COMPLETE ordered set. A partial list is a 400 naming details.missing and
+        details.unknown rather than being applied to a prefix — "reshuffle these three and leave
+        the rest wherever they landed" is not an operation anyone means to perform.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  uniqueItems: true
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The applied order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      collectionKey: { $ref: '#/components/schemas/Slug' }
+                      ids: { type: array, items: { type: string, format: uuid } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/collections/{key}/items/{id}:
+    get:
+      operationId: getClientItem
+      tags: [client]
+      summary: One item
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemId' }
+        - { $ref: '#/components/parameters/itemViewQuery' }
+        - { $ref: '#/components/parameters/localeQuery' }
+      responses:
+        '200':
+          description: The item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateItem
+      tags: [client]
+      summary: Partially update an item
+      description: >
+        Values MERGE — keys the patch does not mention keep their value, because replacing the
+        whole map would make a one-field form silently blank the others. A null slug clears it. A
+        body with no fields at all is a 400.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                slug:
+                  oneOf: [{ $ref: '#/components/schemas/Slug' }, { type: 'null' }]
+                position: { type: integer, minimum: 0, maximum: 9999 }
+                locale: { type: string }
+                values:
+                  type: object
+                  additionalProperties: { $ref: '#/components/schemas/ContentValue' }
+      responses:
+        '200':
+          description: The updated item, draft view.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      operationId: deleteItem
+      tags: [client]
+      summary: HARD delete an item — archive instead, normally
+      description: >
+        Reference-counted: a 409 with details.recordCount while dataset records point at this
+        item, unless force=true, which leaves those refs dangling (visible in
+        GET /api/admin/health, audited as forced). ARCHIVING IS THE EVERYDAY PATH and has
+        nothing to refuse.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemId' }
+        - { $ref: '#/components/parameters/forceQuery' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      deleted: { type: boolean }
+                      forced: { type: boolean }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/client/collections/{key}/items/{id}/publish:
+    post:
+      operationId: publishItem
+      tags: [client]
+      summary: Publish one item
+      description: >
+        Copies draft over published per key with coalesce, flips status to published and stamps
+        publishedAt, then fires the revalidation webhook. An empty required key is a 409 with
+        details.missing. Publishing an ARCHIVED item brings it back — there is no separate
+        un-archive endpoint.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemId' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale: { type: string }
+      responses:
+        '200':
+          description: The published item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/client/collections/{key}/items/{id}/archive:
+    post:
+      operationId: archiveItem
+      tags: [client]
+      summary: Take an item off the website, recoverably
+      description: >
+        THE RECOMMENDED REMOVAL. Values are untouched and dataset records that point at it keep
+        pointing, so a retired beneficiary keeps its donations and the ledger still adds up.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemId' }
+      responses:
+        '200':
+          description: The archived item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/assets/upload-token:
+    post:
+      operationId: createUploadToken
+      tags: [client]
+      summary: Step 1 of 3 — mint a capability to write one object
+      description: >
+        Called by YOUR BACKEND; the token it returns is what the browser holds. Scoped to this
+        site's prefix, 15 minutes, 15 MB, and the four allowed image types — SVG is rejected
+        here, before a capability exists. The bytes never pass through this service, which is why
+        Vercel's 4.5 MB body limit does not apply.
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, contentType]
+              properties:
+                filename:
+                  type: string
+                  minLength: 1
+                  maxLength: 300
+                  description: >
+                    A filename, not a path. Sanitised server-side regardless: directory
+                    components are dropped and the name is reduced to [a-z0-9._-].
+                contentType: { $ref: '#/components/schemas/ImageContentType' }
+      responses:
+        '200':
+          description: The capability.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [token, pathname, allowedContentTypes, maximumSizeInBytes]
+                    properties:
+                      token: { type: string }
+                      pathname: { type: string, description: The pathname asked for, BEFORE Blob appends its random suffix. }
+                      allowedContentTypes: { type: array, items: { $ref: '#/components/schemas/ImageContentType' } }
+                      maximumSizeInBytes: { type: integer, examples: [15728640] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/client/assets:
+    post:
+      operationId: registerAsset
+      tags: [client]
+      summary: Step 3 of 3 — register what Blob actually stored
+      description: >
+        Explicit registration is the primary path, NOT Blob's onUploadCompleted callback: that
+        callback does not fire against localhost, so relying on it would make local development
+        diverge from production in the flow that is hardest to test. Send the pathname and url
+        Blob returned, which differ from what the token asked for.
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pathname, url, contentType, size]
+              properties:
+                pathname:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: Must start with sites/<siteSlug>/ or the answer is 403.
+                url: { type: string, format: uri, maxLength: 1000, description: Must be a Vercel Blob URL. }
+                contentType: { $ref: '#/components/schemas/ImageContentType' }
+                size:
+                  type: integer
+                  minimum: 1
+                  maximum: 15728640
+                  description: 0 is a 400 — a zero-byte image is a failed upload, and registering one hides that.
+                width: { type: integer, minimum: 1, maximum: 100000 }
+                height: { type: integer, minimum: 1, maximum: 100000 }
+      responses:
+        '201':
+          description: The registered asset, with references 0.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Asset' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      operationId: listClientAssets
+      tags: [client]
+      summary: This site's image library, newest first
+      description: >
+        No siteId parameter, unlike the admin twin — the key decides the site, so there is
+        nothing here a caller could set to read another one. `references` is live: 0 means safe
+        to delete.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Assets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Asset' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/client/assets/{id}:
+    delete:
+      operationId: deleteClientAsset
+      tags: [client]
+      summary: Delete an asset, refusing while anything points at it
+      description: >
+        The 409 names WHERE, in both views — an image only a draft references is still someone's
+        work in progress. THERE IS NO force= ON THIS TIER: an editor bypassing the check would
+        blank an image on their own live site. The row goes first, then the object, because an
+        orphaned object is recoverable garbage while a row pointing at deleted bytes is a broken
+        image on a live page.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/assetId' }
+      responses:
+        '200':
+          description: Deleted. blobDeleted false means the object survived and the GC CLI will sweep it.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      deleted: { type: boolean }
+                      blobDeleted: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/client/datasets:
+    get:
+      operationId: listClientDatasets
+      tags: [client-datasets]
+      summary: Dataset definitions with their record counts
+      security: [{ secretKey: [] }]
+      responses:
+        '200':
+          description: Datasets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Dataset' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/client/datasets/{key}/records:
+    post:
+      operationId: insertRecord
+      tags: [client-datasets]
+      summary: Insert a record — IDEMPOTENT on externalId
+      description: >
+        THIS IS THE ONLY TIER THAT CREATES RECORDS. 201 created:true for a new row, 200
+        created:false for a replay. A REDELIVERED WEBHOOK IS A SUCCESS, NOT A 409 — an error
+        would make a payment provider retry forever. Uniqueness is the (dataset_id, external_id)
+        index's job, so two concurrent deliveries cannot race into two rows. Pass the provider's
+        own id; a uuid generated per attempt defeats the mechanism. An unknown data key is a 400.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/datasetKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                externalId: { type: string, minLength: 1, maxLength: 200 }
+                occurredAt:
+                  type: string
+                  format: date-time
+                  description: The EVENT time. Omitted means now — a live webhook rather than a back-fill.
+                data: { $ref: '#/components/schemas/RecordData' }
+            examples:
+              donation:
+                value:
+                  externalId: cs_test_YOUR_SESSION_ID
+                  occurredAt: '2026-03-01T12:00:00Z'
+                  data: { amountForint: 5000, manual: false, donorName: Kovács Anna }
+      responses:
+        '201':
+          description: A new row.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, created]
+                properties:
+                  data: { $ref: '#/components/schemas/Record' }
+                  created: { type: boolean, const: true }
+        '200':
+          description: A replay — the record already existed. Not an error.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, created]
+                properties:
+                  data: { $ref: '#/components/schemas/Record' }
+                  created: { type: boolean, const: false }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+    get:
+      operationId: listRecords
+      tags: [client-datasets]
+      summary: Records, newest event first
+      description: >
+        Ordered by occurredAt descending, not createdAt — a migrated ledger keeps its original
+        dates, and ordering by when the webhook landed would put a back-fill at the top.
+        SENSITIVE VALUES ARE WITHHELD ENTIRELY HERE; there is one door to them and it is the
+        single-record read.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/datasetKey' }
+        - { $ref: '#/components/parameters/eqQuery' }
+        - { $ref: '#/components/parameters/fromQuery' }
+        - { $ref: '#/components/parameters/toQuery' }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Records.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Record' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/datasets/{key}/records/{id}:
+    get:
+      operationId: getRecord
+      tags: [client-datasets]
+      summary: One record, optionally including sensitive values
+      description: >
+        include=sensitive is the ONLY way a sensitive value reaches a response, and that read IS
+        AUDITED (record.read_sensitive) — a deliberate exception to "reads are not audited",
+        because looking up a donor's details is an event someone may later need to account for.
+        The values never reach the trail; only the key names, which are already public on the
+        definition.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/datasetKey' }
+        - { $ref: '#/components/parameters/recordId' }
+        - { $ref: '#/components/parameters/includeSensitiveQuery' }
+      responses:
+        '200':
+          description: The record.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Record' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateRecord
+      tags: [client-datasets]
+      summary: Partially update a record
+      description: >
+        data keys MERGE; null clears one. `required` is checked against the MERGED result, so a
+        one-field correction is possible. externalId is absent from this body and is stripped if
+        sent: changing the idempotency key would let a replay insert a second row for a payment
+        that already counted.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/datasetKey' }
+        - { $ref: '#/components/parameters/recordId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                occurredAt: { type: string, format: date-time }
+                data: { $ref: '#/components/schemas/RecordData' }
+      responses:
+        '200':
+          description: The updated record.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Record' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+    delete:
+      operationId: deleteRecord
+      tags: [client-datasets]
+      summary: Hard delete a record
+      description: There is no archive for a record — it is data, not an editorial draft. Audited.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/datasetKey' }
+        - { $ref: '#/components/parameters/recordId' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      deleted: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/client/datasets/{key}/aggregate:
+    get:
+      operationId: getClientAggregate
+      tags: [client-datasets]
+      summary: Grouped counts and sums, authenticated
+      description: >
+        The same parser and the same semantics as the public aggregate, with no publicAggregate
+        gate — so a dataset's public aggregate can never answer a question its authenticated twin
+        refuses. Answers ETag/If-None-Match with 304; the validator folds in the record count, so
+        a delete moves it.
+      security: [{ secretKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/datasetKey' }
+        - name: groupBy
+          in: query
+          required: false
+          schema: { type: string }
+          description: A field the dataset declared groupable. Omitted gives one null-key row of totals.
+        - name: metrics
+          in: query
+          required: false
+          schema: { type: string, maxLength: 200, default: count }
+          description: 'Comma-separated count and/or sum:<field>. Max 3 sum metrics.'
+        - { $ref: '#/components/parameters/eqQuery' }
+        - { $ref: '#/components/parameters/fromQuery' }
+        - { $ref: '#/components/parameters/toQuery' }
+        - { $ref: '#/components/parameters/aggregateLimitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+        - { $ref: '#/components/parameters/ifNoneMatch' }
+      responses:
+        '200':
+          description: Groups.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AggregateGroup' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Lamido admin tier — /api/admin/*   (69 operations)
+  # Server-to-server. NO CORS headers, and no Sec-Fetch-Mode tripwire either —
+  # do not copy invoice-service's mode: "same-origin" workaround here.
+  # Scopes are per route; a cad_ key reaches every site.
+  # ─────────────────────────────────────────────────────────────────────────
+  /api/admin/me:
+    get:
+      operationId: getAdminMe
+      tags: [admin-ops]
+      summary: What may this key do?
+      description: >
+        NO SCOPE REQUIRED — a key must always be able to introspect itself, or a narrowly-scoped
+        key cannot even discover that it is narrowly scoped.
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: The key.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/health:
+    get:
+      operationId: getAdminHealth
+      tags: [admin-ops]
+      summary: The operator status strip
+      description: >
+        No scope required. Deeper than /api/health: it reports the conditions a human has to act
+        on. The DB-unreachable branch answers 503 WITH THIS BODY, so a consumer that checks
+        response.ok first will never see status degraded. danglingRefs is deliberately excluded
+        from `status`, because ref policy store produces them on purpose.
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Reachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminHealth' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: The database is unreachable. Still a JSON body.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/AdminHealth' }
+
+  /api/admin/admin-keys:
+    get:
+      operationId: listAdminKeys
+      tags: [admin-keys]
+      summary: Every admin key, hashes excluded
+      description: 'Scope: admin:manage.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Admin keys.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AdminKey' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createAdminKey
+      tags: [admin-keys]
+      summary: Mint an admin key
+      description: >
+        Scope: admin:manage. Returns the plaintext ONCE. The FIRST key on a deployment cannot be
+        made here — use the CLI (pnpm run db:admin-key -- mint --label …), because there is
+        deliberately no master key in the environment. One key per deployment: the label is the
+        audit actor.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label: { type: string, minLength: 1, maxLength: 100 }
+                scopes:
+                  type: array
+                  minItems: 1
+                  default: ['*']
+                  items: { $ref: '#/components/schemas/AdminScope' }
+                allowedIps:
+                  type: array
+                  maxItems: 50
+                  default: []
+                  items: { type: string }
+                  description: CIDRs. Empty means unrestricted, which is correct for rotating egress IPs.
+      responses:
+        '201':
+          description: The key, with its plaintext — the only time it is readable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - { $ref: '#/components/schemas/AdminKey' }
+                      - type: object
+                        properties:
+                          apiKey: { type: string, examples: [cad_YOUR_ADMIN_KEY] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/admin-keys/{id}:
+    patch:
+      operationId: updateAdminKey
+      tags: [admin-keys]
+      summary: Change a key's label, scopes, allowlist or active flag
+      description: 'Scope: admin:manage. A body with no fields is a 400.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                label: { type: string, minLength: 1, maxLength: 100 }
+                scopes: { type: array, minItems: 1, items: { $ref: '#/components/schemas/AdminScope' } }
+                allowedIps: { type: array, maxItems: 50, items: { type: string } }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: The updated key.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminKey' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: revokeAdminKey
+      tags: [admin-keys]
+      summary: Revoke an admin key
+      description: >
+        Scope: admin:manage. Mint and deploy the replacement first — a key that revokes the one
+        it is authenticated with cannot undo it.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      responses:
+        '200':
+          description: Revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/AdminKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites:
+    get:
+      operationId: listSites
+      tags: [admin-sites]
+      summary: Sites, filterable
+      description: 'Scope: sites:read. `externalRef` is indexed, so filtering by it is cheap.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 200 }
+          description: Free-text match on slug and name.
+        - name: active
+          in: query
+          required: false
+          schema: { type: string, enum: ['true', 'false'] }
+        - name: externalRef
+          in: query
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Sites.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Site' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createSite
+      tags: [admin-sites]
+      summary: Onboard a site and mint its key pair
+      description: >
+        Scope: sites:write. THE RESPONSE CONTAINS THE ONLY READABLE COPY OF TWO PLAINTEXT KEYS —
+        do not log it. The site and its keys are created in one transaction, because a site
+        without keys is a half-onboarded tenant somebody has to notice by hand. The slug is also
+        the Blob prefix, so it is effectively immutable.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, name]
+              properties:
+                slug: { $ref: '#/components/schemas/Slug' }
+                name: { type: string, minLength: 1, maxLength: 200 }
+                defaultLocale: { type: string, default: hu }
+                locales:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items: { type: string }
+                  description: Defaults to [defaultLocale], and MUST contain it.
+                allowedOrigins:
+                  type: array
+                  maxItems: 20
+                  default: []
+                  items: { type: string }
+                  description: >
+                    Origins, not URLs — scheme, host, optional port. No path, no trailing slash,
+                    no wildcard; compared with ===. Empty means no browser access.
+                revalidateUrl: { type: string, format: uri }
+                revalidateSecret:
+                  type: string
+                  minLength: 32
+                  description: >
+                    WRITE-ONLY — returned only as hasRevalidateSecret. Must equal the consumer's
+                    CONTENT_REVALIDATE_SECRET. A URL with no secret is counted as a failed
+                    delivery rather than sent unsigned.
+                externalRef: { type: string, minLength: 1, maxLength: 200 }
+                keyLabel: { type: string, minLength: 1, maxLength: 100, description: Defaults to the slug. }
+      responses:
+        '201':
+          description: The site plus both plaintext keys — publishable first, then secret.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - { $ref: '#/components/schemas/Site' }
+                      - type: object
+                        required: [keys]
+                        properties:
+                          keys:
+                            type: array
+                            items: { $ref: '#/components/schemas/MintedSiteKey' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}:
+    get:
+      operationId: getSite
+      tags: [admin-sites]
+      summary: Site, masked keys and structure counts in one payload
+      description: 'Scope: sites:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      responses:
+        '200':
+          description: The site.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    allOf:
+                      - { $ref: '#/components/schemas/Site' }
+                      - type: object
+                        properties:
+                          keys: { type: array, items: { $ref: '#/components/schemas/SiteKey' } }
+                          counts: { type: object, additionalProperties: { type: integer } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateSite
+      tags: [admin-sites]
+      summary: Update a site
+      description: >
+        Scope: sites:write. A body with no fields is a 400. `locales` must still contain
+        `defaultLocale` — checked against the stored row when only one of the two is sent. Setting
+        revalidateSecret to null clears it; active true reverses a soft delete.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                defaultLocale: { type: string }
+                locales: { type: array, minItems: 1, maxItems: 20, items: { type: string } }
+                allowedOrigins: { type: array, maxItems: 20, items: { type: string } }
+                revalidateUrl: { type: [string, 'null'], format: uri }
+                revalidateSecret: { type: [string, 'null'], minLength: 32 }
+                externalRef: { type: [string, 'null'] }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: The updated site.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Site' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteSite
+      tags: [admin-sites]
+      summary: Deactivate a site, or hard-delete an empty one
+      description: >
+        Scope: sites:write. WITHOUT hard=true this is a SOFT delete: active goes false, every key
+        on the site starts answering 401, and every row stays — reversible with PATCH
+        {"active": true}. WITH hard=true it refuses with a 409 while the site has any page,
+        collection or asset, because content is not recreatable from anywhere else in this system.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - name: hard
+          in: query
+          required: false
+          schema: { type: string, enum: ['true', 'false'], default: 'false' }
+      responses:
+        '200':
+          description: Deactivated (the site) or deleted ({id, deleted}).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    oneOf:
+                      - { $ref: '#/components/schemas/Site' }
+                      - type: object
+                        properties:
+                          id: { type: string, format: uuid }
+                          deleted: { type: boolean }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/keys:
+    get:
+      operationId: listSiteKeys
+      tags: [admin-sites]
+      summary: A site's keys, masked
+      description: 'Scope: sites:read. Hashes are never returned; keyLast4 is how two keys are told apart.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - name: kind
+          in: query
+          required: false
+          schema: { type: string, enum: [publishable, secret] }
+        - name: active
+          in: query
+          required: false
+          schema: { type: string, enum: ['true', 'false'] }
+      responses:
+        '200':
+          description: Keys.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SiteKey' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createSiteKey
+      tags: [admin-sites]
+      summary: Mint an additional key for a site
+      description: 'Scope: sites:write. Returns the plaintext once.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, label]
+              properties:
+                kind: { type: string, enum: [publishable, secret] }
+                label: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        '201':
+          description: The key, with its plaintext.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/MintedSiteKey' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/keys/{keyId}/rotate:
+    post:
+      operationId: rotateSiteKey
+      tags: [admin-sites]
+      summary: Replace a key's secret, keeping the row
+      description: >
+        Scope: sites:write. Same row, so the label, the audit history and every entry naming this
+        key id survive; lastUsedAt resets and a revoked key becomes active again. THERE IS NO
+        GRACE WINDOW — the old plaintext stops working the moment this returns, so deploy the new
+        key to the consumer before or with the rotation.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/keyIdPath' }
+      responses:
+        '201':
+          description: The rotated key, with its new plaintext.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/MintedSiteKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/keys/{keyId}:
+    delete:
+      operationId: revokeSiteKey
+      tags: [admin-sites]
+      summary: Soft-revoke a site key
+      description: >
+        Scope: sites:write. REFUSES the site's last active key of that kind with a 409: a site
+        with no publishable key serves nothing to its website and one with no secret key cannot
+        be edited. Mint the replacement first.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/keyIdPath' }
+      responses:
+        '200':
+          description: Revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/SiteKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/pages:
+    get:
+      operationId: listSitePages
+      tags: [admin-structure]
+      summary: A site's pages
+      description: 'Scope: sites:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - name: active
+          in: query
+          required: false
+          schema: { type: string, enum: ['true', 'false'] }
+      responses:
+        '200':
+          description: Pages in position order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Page' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createPage
+      tags: [admin-structure]
+      summary: Create a page
+      description: 'Scope: sites:write. A duplicate slug on the site is a 409.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, title]
+              properties:
+                slug: { $ref: '#/components/schemas/Slug' }
+                title: { type: string, minLength: 1, maxLength: 200 }
+                description: { type: string, maxLength: 2000 }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+      responses:
+        '201':
+          description: The page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Page' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/pages/reorder:
+    post:
+      operationId: reorderPages
+      tags: [admin-structure]
+      summary: Set the complete page order
+      description: 'Scope: sites:write. Takes every page id exactly once, as every reorder here does.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  uniqueItems: true
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Applied.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/pages/{id}:
+    get:
+      operationId: getPageTree
+      tags: [admin-structure]
+      summary: A page with its whole section and field tree
+      description: 'Scope: sites:read. This is the shape the editor UIs are built against.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      responses:
+        '200':
+          description: The tree.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/PageTree' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updatePage
+      tags: [admin-structure]
+      summary: Update a page
+      description: 'Scope: sites:write. `active: false` takes it off the website while leaving it editable.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                slug: { $ref: '#/components/schemas/Slug' }
+                title: { type: string, minLength: 1, maxLength: 200 }
+                description: { type: [string, 'null'], maxLength: 2000 }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: The updated page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Page' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      operationId: deletePage
+      tags: [admin-structure]
+      summary: Delete a page, its sections, fields, values and versions
+      description: >
+        Scope: sites:write. A 409 unless confirm=true once it holds editor-entered values: this
+        is NOT recoverable from page_versions, because a restore writes into the draft of a field
+        that still has to exist. Deactivating takes a page off the website; deleting means it is
+        not coming back.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+        - { $ref: '#/components/parameters/confirmQuery' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/pages/{id}/sections:
+    get:
+      operationId: listSections
+      tags: [admin-structure]
+      summary: A page's sections
+      description: 'Scope: sites:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      responses:
+        '200':
+          description: Sections in position order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Section' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createSection
+      tags: [admin-structure]
+      summary: Create a section
+      description: >
+        Scope: sites:write. `key` "settings" is RESERVED — that section becomes the `settings`
+        object on GET /api/content/site, and a site should carry exactly one. A duplicate key on
+        the page is a 409.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, type]
+              properties:
+                key: { $ref: '#/components/schemas/Slug' }
+                type:
+                  allOf: [{ $ref: '#/components/schemas/Slug' }]
+                  description: The structural name a consuming component switches on. Not an enum.
+                label: { type: string, minLength: 1, maxLength: 200 }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+      responses:
+        '201':
+          description: The section.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/pages/{id}/sections/reorder:
+    post:
+      operationId: reorderSections
+      tags: [admin-structure]
+      summary: Set the complete section order
+      description: 'Scope: sites:write.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: { type: array, minItems: 1, maxItems: 500, uniqueItems: true, items: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Applied.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sections/{id}:
+    patch:
+      operationId: updateSection
+      tags: [admin-structure]
+      summary: Update a section
+      description: >
+        Scope: sites:write. `active: false` excludes it from every rendered document while
+        leaving it writable — and its required fields then stop blocking a publish.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                key: { $ref: '#/components/schemas/Slug' }
+                type: { $ref: '#/components/schemas/Slug' }
+                label: { type: [string, 'null'], maxLength: 200 }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: The updated section.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Section' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      operationId: deleteSection
+      tags: [admin-structure]
+      summary: Delete a section, its fields and their values
+      description: 'Scope: sites:write. A 409 unless confirm=true once it holds values.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+        - { $ref: '#/components/parameters/confirmQuery' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sections/{id}/fields:
+    get:
+      operationId: listFields
+      tags: [admin-structure]
+      summary: A section's fields
+      description: 'Scope: sites:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      responses:
+        '200':
+          description: Fields in position order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Field' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createField
+      tags: [admin-structure]
+      summary: Create a field
+      description: >
+        Scope: sites:write. itemSchema is REQUIRED for type list and REJECTED for every other
+        type — a list with no schema has nothing to validate its entries against, and a schema on
+        a scalar is meaningless. `type: "list"` inside an itemSchema is rejected: lists do not
+        nest.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, type]
+              properties:
+                key: { $ref: '#/components/schemas/Slug' }
+                type: { $ref: '#/components/schemas/FieldType' }
+                label: { type: string, minLength: 1, maxLength: 200 }
+                required: { type: boolean, default: false, description: Enforced at publish, not at save. }
+                itemSchema: { $ref: '#/components/schemas/ItemSchema' }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+      responses:
+        '201':
+          description: The field.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Field' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sections/{id}/fields/reorder:
+    post:
+      operationId: reorderFields
+      tags: [admin-structure]
+      summary: Set the complete field order
+      description: 'Scope: sites:write.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: { type: array, minItems: 1, maxItems: 500, uniqueItems: true, items: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Applied.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/fields/{id}:
+    patch:
+      operationId: updateField
+      tags: [admin-structure]
+      summary: Update a field — but never its type
+      description: >
+        Scope: sites:write. `type` IS DELIBERATELY NOT PATCHABLE: every stored value is shaped by
+        it and no conversion exists, so flipping text to image would leave a bare string where
+        {assetId, alt} is expected and pass every later read until a renderer crashes. Delete the
+        field and create the new one; that path makes the value loss visible and needs confirm.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                key: { $ref: '#/components/schemas/Slug' }
+                label: { type: [string, 'null'], maxLength: 200 }
+                required: { type: boolean }
+                itemSchema: { $ref: '#/components/schemas/ItemSchema' }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+      responses:
+        '200':
+          description: The updated field.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Field' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      operationId: deleteField
+      tags: [admin-structure]
+      summary: Delete a field and every value it holds
+      description: 'Scope: sites:write. A 409 unless confirm=true once any locale holds a non-null value.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+        - { $ref: '#/components/parameters/confirmQuery' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/collections:
+    get:
+      operationId: listSiteCollections
+      tags: [admin-structure]
+      summary: A site's collections
+      description: 'Scope: sites:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      responses:
+        '200':
+          description: Collections.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Collection' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createCollection
+      tags: [admin-structure]
+      summary: Create a collection
+      description: >
+        Scope: sites:write. itemSchema is required and must hold 1–50 unique-keyed entries of
+        scalar types. Site-scoped, not page-scoped: one collection can be rendered by several
+        pages.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, name, itemSchema]
+              properties:
+                key: { $ref: '#/components/schemas/Slug' }
+                name: { type: string, minLength: 1, maxLength: 200 }
+                itemSchema: { $ref: '#/components/schemas/ItemSchema' }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+      responses:
+        '201':
+          description: The collection.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Collection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/collections/{id}:
+    get:
+      operationId: getCollection
+      tags: [admin-structure]
+      summary: One collection
+      description: 'Scope: sites:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      responses:
+        '200':
+          description: The collection.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Collection' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateCollection
+      tags: [admin-structure]
+      summary: Update a collection
+      description: >
+        Scope: sites:write. Removing a key from itemSchema does NOT delete the values already
+        stored under it — they simply stop being readable through the schema, and a re-added key
+        finds them again.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                key: { $ref: '#/components/schemas/Slug' }
+                name: { type: string, minLength: 1, maxLength: 200 }
+                itemSchema: { $ref: '#/components/schemas/ItemSchema' }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+      responses:
+        '200':
+          description: The updated collection.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Collection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      operationId: deleteCollection
+      tags: [admin-structure]
+      summary: Delete a collection, its items and their values
+      description: 'Scope: sites:write. A 409 unless confirm=true once any item holds a value.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+        - { $ref: '#/components/parameters/confirmQuery' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ── Admin assets (5) ─────────────────────────────────────────────────────
+  /api/admin/sites/{id}/assets/upload-token:
+    post:
+      operationId: createAdminUploadToken
+      tags: [admin-assets]
+      summary: Mint an upload capability for one site
+      description: >
+        Scope: assets:write. The client-tier twin, with the site in the path instead of in the
+        key. Same 15-minute, 15 MB, four-content-type capability scoped to sites/<siteSlug>/.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, contentType]
+              properties:
+                filename: { type: string, minLength: 1, maxLength: 300 }
+                contentType: { $ref: '#/components/schemas/ImageContentType' }
+      responses:
+        '200':
+          description: The capability.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/assets:
+    post:
+      operationId: registerAdminAsset
+      tags: [admin-assets]
+      summary: Register an uploaded object against one site
+      description: 'Scope: assets:write. A pathname outside the site prefix is a 403; a duplicate is a 409.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pathname, url, contentType, size]
+              properties:
+                pathname: { type: string, minLength: 1, maxLength: 500 }
+                url: { type: string, format: uri, maxLength: 1000 }
+                contentType: { $ref: '#/components/schemas/ImageContentType' }
+                size: { type: integer, minimum: 1, maximum: 15728640 }
+                width: { type: integer, minimum: 1, maximum: 100000 }
+                height: { type: integer, minimum: 1, maximum: 100000 }
+      responses:
+        '201':
+          description: The registered asset.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Asset' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/assets:
+    get:
+      operationId: listAdminAssets
+      tags: [admin-assets]
+      summary: The image library, across every site or one
+      description: 'Scope: assets:read. Omitting siteId lists EVERY site — this key is cross-tenant.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Assets, newest first, each with a live reference count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Asset' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/assets/orphans:
+    get:
+      operationId: listOrphanAssets
+      tags: [admin-assets]
+      summary: Assets nothing refers to
+      description: >
+        Scope: assets:read. Shares its exact predicate with the orphanAssets count on
+        GET /api/admin/health, so the number and this list are the same set by construction. The
+        response echoes back the cutoff it applied, so a list can be matched to the count that
+        prompted it. olderThan is in HOURS (default 24, so a just-uploaded image is not garbage);
+        0 reports everything unreferenced right now.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: siteId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: olderThan
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 8760, default: 24 }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Orphans, with the applied cutoff.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Asset' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+                  olderThan: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/assets/{id}:
+    delete:
+      operationId: deleteAdminAsset
+      tags: [admin-assets]
+      summary: Delete an asset, with an operator override
+      description: >
+        Scope: assets:write. force=true skips the reference check AND NOTHING ELSE — it is for an
+        asset whose references are themselves broken, never a convenience: forcing it blanks an
+        image on a live site. The forced delete is audited as forced.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/assetId' }
+        - { $ref: '#/components/parameters/forceQuery' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ── Admin datasets and records (8) ───────────────────────────────────────
+  /api/admin/sites/{id}/datasets:
+    get:
+      operationId: listSiteDatasets
+      tags: [admin-datasets]
+      summary: A site's dataset definitions
+      description: 'Scope: datasets:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      responses:
+        '200':
+          description: Datasets with record counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Dataset' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createDataset
+      tags: [admin-datasets]
+      summary: Provision a dataset
+      description: >
+        Scope: datasets:write. A new kind of client data costs one call and NO DEPLOY. Cross-field
+        rules, each a 400: summable only on a number field, sensitive may NEVER be groupable, and
+        a ref.collection must be a collection that already exists on this site. Setting
+        publicAggregate true makes every groupable field's values publicly enumerable through
+        group keys.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, name, recordSchema]
+              properties:
+                key: { $ref: '#/components/schemas/Slug' }
+                name: { type: string, minLength: 1, maxLength: 200 }
+                recordSchema: { $ref: '#/components/schemas/RecordSchema' }
+                publicAggregate: { type: boolean, default: false }
+                retentionDays: { type: [integer, 'null'], minimum: 1, maximum: 3650 }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+            examples:
+              donations:
+                value:
+                  key: donations
+                  name: Adományok
+                  publicAggregate: true
+                  recordSchema:
+                    - { key: amountForint, type: number, required: true, summable: true, integer: true, min: 1 }
+                    - { key: beneficiaryId, type: ref, groupable: true, ref: { collection: beneficiaries, policy: store } }
+                    - { key: donorName, type: text, sensitive: true, maxLength: 200 }
+      responses:
+        '201':
+          description: The dataset.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Dataset' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/datasets/{id}:
+    get:
+      operationId: getDataset
+      tags: [admin-datasets]
+      summary: One dataset definition
+      description: 'Scope: datasets:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      responses:
+        '200':
+          description: The dataset.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Dataset' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateDataset
+      tags: [admin-datasets]
+      summary: Update a dataset definition
+      description: >
+        Scope: datasets:write. Existing records are NOT re-validated against a changed schema —
+        tightening a rule affects future writes only. retentionDays null clears the window back
+        to keep-forever.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                key: { $ref: '#/components/schemas/Slug' }
+                name: { type: string, minLength: 1, maxLength: 200 }
+                recordSchema: { $ref: '#/components/schemas/RecordSchema' }
+                publicAggregate: { type: boolean }
+                retentionDays: { type: [integer, 'null'], minimum: 1, maximum: 3650 }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+      responses:
+        '200':
+          description: The updated dataset.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Dataset' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      operationId: deleteDataset
+      tags: [admin-datasets]
+      summary: Delete a dataset AND ALL ITS RECORDS
+      description: >
+        Scope: datasets:write, and confirm=true is required. NOTHING IN THIS SYSTEM CAN RESTORE
+        THE RECORDS — a site export carries dataset definitions and no records, so the database's
+        own backup is the only copy.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+        - { $ref: '#/components/parameters/confirmQuery' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/datasets/{id}/records:
+    get:
+      operationId: listAdminRecords
+      tags: [admin-datasets]
+      summary: Records of one dataset, for support
+      description: >
+        Scope: records:read — a SEPARATE scope from datasets:read, because records may hold donor
+        PII while a definition is only structure. THERE IS DELIBERATELY NO INSERT ON THIS TIER:
+        records are written by the system that owns the event, and a staff-created donation with
+        no payment behind it is a data-integrity bug wearing a helpful face. Sensitive values are
+        withheld here.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+        - { $ref: '#/components/parameters/eqQuery' }
+        - { $ref: '#/components/parameters/fromQuery' }
+        - { $ref: '#/components/parameters/toQuery' }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Records, newest event first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Record' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/datasets/{id}/records/{recordId}:
+    get:
+      operationId: getAdminRecord
+      tags: [admin-datasets]
+      summary: One record, optionally including sensitive values
+      description: >
+        Scope: records:read. include=sensitive is AUDITED here too (record.read_sensitive), and
+        for the stronger reason: a cad_ key reaches every site.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+        - { $ref: '#/components/parameters/recordIdPath' }
+        - { $ref: '#/components/parameters/includeSensitiveQuery' }
+      responses:
+        '200':
+          description: The record.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Record' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteAdminRecord
+      tags: [admin-datasets]
+      summary: Delete a record
+      description: 'Scope: records:write. Hard delete, audited. There is no archive for a record.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/resourceId' }
+        - { $ref: '#/components/parameters/recordIdPath' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ── Admin content mirrors (15) ───────────────────────────────────────────
+  # Two-line handlers over the SAME functions the client tier calls, with the
+  # same arguments. Behaviour is identical by construction; see client-api.md.
+  /api/admin/sites/{id}/rendered/pages/{slug}:
+    get:
+      operationId: getAdminRenderedPage
+      tags: [admin-content]
+      summary: A page document in either view, for any site
+      description: 'Scope: content:read. The client-tier twin of GET /api/client/rendered/pages/{slug}.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/viewQuery' }
+        - { $ref: '#/components/parameters/localeQuery' }
+      responses:
+        '200':
+          description: The document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/PageDocument' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/pages/{slug}/values:
+    patch:
+      operationId: setAdminDraftValues
+      tags: [admin-content]
+      summary: Save draft values for any site
+      description: >
+        Scope: content:write. Identical semantics to the client tier, including the unknown-key
+        400 — see client-api.md.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/pageSlug' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                locale: { type: string }
+                values:
+                  type: object
+                  minProperties: 1
+                  maxProperties: 500
+                  additionalProperties: { $ref: '#/components/schemas/ContentValue' }
+      responses:
+        '200':
+          description: The updated draft document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/PageDocument' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/pages/{slug}/publish:
+    post:
+      operationId: publishAdminPage
+      tags: [admin-content]
+      summary: Publish a page of any site
+      description: >
+        Scope: content:publish — DELIBERATELY SEPARATE from content:write, so a key can stage
+        every change on a site and make none of it live. Publishes the whole page, including
+        drafts someone else left.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/pageSlug' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale: { type: string }
+                note: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: Published.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/pages/{slug}/revert:
+    post:
+      operationId: revertAdminPage
+      tags: [admin-content]
+      summary: Discard a page's drafts, for any site
+      description: 'Scope: content:write. No version row — nothing went live.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/pageSlug' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale: { type: string }
+      responses:
+        '200':
+          description: Reverted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/pages/{slug}/versions:
+    get:
+      operationId: listAdminPageVersions
+      tags: [admin-content]
+      summary: A page's publish history, for any site
+      description: 'Scope: content:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Version summaries, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/VersionSummary' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/pages/{slug}/versions/{version}:
+    get:
+      operationId: getAdminPageVersion
+      tags: [admin-content]
+      summary: One frozen snapshot, for any site
+      description: 'Scope: content:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/versionNumber' }
+      responses:
+        '200':
+          description: The version.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Version' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/pages/{slug}/versions/{version}/restore:
+    post:
+      operationId: restoreAdminPageVersion
+      tags: [admin-content]
+      summary: Restore a version into the draft, for any site
+      description: >
+        Scope: content:write — NOT content:publish, because a restore writes the draft and
+        changes nothing a visitor sees. `skipped` still has to be surfaced.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/pageSlug' }
+        - { $ref: '#/components/parameters/versionNumber' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale: { type: string }
+      responses:
+        '200':
+          description: Restored into the draft.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/collections/{key}/items:
+    get:
+      operationId: listAdminItems
+      tags: [admin-content]
+      summary: Items of a collection, for any site
+      description: 'Scope: content:read. `view` defaults to draft, as on the client tier.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemStatusQuery' }
+        - { $ref: '#/components/parameters/itemViewQuery' }
+        - { $ref: '#/components/parameters/localeQuery' }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Items.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Item' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createAdminItem
+      tags: [admin-content]
+      summary: Create an item, for any site
+      description: 'Scope: content:write. Always born a draft.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/collectionKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                slug: { $ref: '#/components/schemas/Slug' }
+                position: { type: integer, minimum: 0, maximum: 9999 }
+                locale: { type: string }
+                values: { type: object, additionalProperties: { $ref: '#/components/schemas/ContentValue' } }
+      responses:
+        '201':
+          description: The created item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/collections/{key}/items/reorder:
+    post:
+      operationId: reorderAdminItems
+      tags: [admin-content]
+      summary: Set the complete item order, for any site
+      description: 'Scope: content:write. The complete set, or a 400.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/collectionKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids: { type: array, minItems: 1, maxItems: 500, uniqueItems: true, items: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Applied.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/collections/{key}/items/{itemId}:
+    get:
+      operationId: getAdminItem
+      tags: [admin-content]
+      summary: One item, for any site
+      description: 'Scope: content:read.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemIdPath' }
+        - { $ref: '#/components/parameters/itemViewQuery' }
+        - { $ref: '#/components/parameters/localeQuery' }
+      responses:
+        '200':
+          description: The item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateAdminItem
+      tags: [admin-content]
+      summary: Partially update an item, for any site
+      description: 'Scope: content:write. Values merge; a null slug clears it.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemIdPath' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                slug:
+                  oneOf: [{ $ref: '#/components/schemas/Slug' }, { type: 'null' }]
+                position: { type: integer, minimum: 0, maximum: 9999 }
+                locale: { type: string }
+                values: { type: object, additionalProperties: { $ref: '#/components/schemas/ContentValue' } }
+      responses:
+        '200':
+          description: The updated item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      operationId: deleteAdminItem
+      tags: [admin-content]
+      summary: Hard-delete an item, for any site
+      description: >
+        Scope: content:write. Reference-counted against dataset records; force=true leaves them
+        dangling and is audited as forced. Archive is the everyday path.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemIdPath' }
+        - { $ref: '#/components/parameters/forceQuery' }
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/collections/{key}/items/{itemId}/publish:
+    post:
+      operationId: publishAdminItem
+      tags: [admin-content]
+      summary: Publish an item, for any site
+      description: 'Scope: content:publish. Fires the revalidation webhook. Un-archives an archived item.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemIdPath' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale: { type: string }
+      responses:
+        '200':
+          description: The published item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/collections/{key}/items/{itemId}/archive:
+    post:
+      operationId: archiveAdminItem
+      tags: [admin-content]
+      summary: Archive an item, for any site
+      description: 'Scope: content:write. Off the website, recoverable, keeps its dataset records.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - { $ref: '#/components/parameters/collectionKey' }
+        - { $ref: '#/components/parameters/itemIdPath' }
+      responses:
+        '200':
+          description: The archived item.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Item' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ── Transfer, revalidation, audit, stats (5) ─────────────────────────────
+  /api/admin/sites/{id}/export:
+    get:
+      operationId: exportSite
+      tags: [admin-transfer]
+      summary: The whole site as one document
+      description: >
+        Scope: content:read. Structure, values in every locale, collections with their items, and
+        dataset DEFINITIONS. Records are never included — they have no backup but the database's
+        own.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      responses:
+        '200':
+          description: The document.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/ImportDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: importSite
+      tags: [admin-transfer]
+      summary: Apply a site document
+      description: >
+        Scope: content:write. mode=merge (default) or replace — REPLACE DELETES THE SITE'S ENTIRE
+        STRUCTURE AND CONTENT. Writes DRAFTS ONLY and never publishes, so it cannot change what
+        visitors see by itself; but it overwrites unpublished drafts, and the next publish of a
+        page carries everything it wrote live. On a merge, an omitted key on a MENTIONED section
+        or field is a written null — keep structure and values in one document. Values are
+        validated against each field's declared type and EVERY problem is reported at once.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+        - name: mode
+          in: query
+          required: false
+          schema: { type: string, enum: [merge, replace], default: merge }
+        - { $ref: '#/components/parameters/confirmQuery' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImportDocument' }
+      responses:
+        '200':
+          description: What the import created and updated.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/admin/sites/{id}/revalidate:
+    post:
+      operationId: refireRevalidation
+      tags: [admin-ops]
+      summary: Re-fire the revalidation webhook by hand
+      description: >
+        Scope: content:publish. Every field is optional; a bodyless POST re-sends "revalidate
+        everything", which is what a receiver should read an absent slug as. `collection` is
+        REQUIRED when type is collection_item. Use it after failedRevalidations moves on
+        GET /api/admin/health.
+      security: [{ adminKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/siteIdPath' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string, enum: [page, collection_item], default: page }
+                slug: { $ref: '#/components/schemas/Slug' }
+                collection: { $ref: '#/components/schemas/Slug' }
+      responses:
+        '200':
+          description: The delivery outcome — delivered, skipped, status, attempts, reason.
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: object } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/audit:
+    get:
+      operationId: listAudit
+      tags: [admin-ops]
+      summary: The append-only write trail
+      description: >
+        Scope: audit:read. Newest first. There is deliberately no write and no delete endpoint.
+        The targetType+targetId pair and action+date-window are index-served; filtering on
+        anything else is a scan. metadata is an ALLOWLISTED summary per action — never a raw body,
+        never a plaintext key, never a record's values.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: actorType
+          in: query
+          required: false
+          schema: { type: string, enum: [admin_key, client_key, system] }
+          description: Both writing tiers land in one trail, so "which tier did this" is a real filter.
+        - name: actorId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - name: targetType
+          in: query
+          required: false
+          schema: { type: string, enum: [site, site_key, page, section, field, collection, collection_item, asset, dataset, record, admin_key] }
+        - name: targetId
+          in: query
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - { $ref: '#/components/parameters/fromQuery' }
+        - { $ref: '#/components/parameters/toQuery' }
+        - { $ref: '#/components/parameters/limitQuery' }
+        - { $ref: '#/components/parameters/offsetQuery' }
+      responses:
+        '200':
+          description: Audit entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total, limit, offset]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/stats/overview:
+    get:
+      operationId: getStatsOverview
+      tags: [admin-ops]
+      summary: Size-of-the-world counters
+      description: >
+        Scope: sites:read. Unfiltered rollups, plus publishes in the window — counted from
+        page_versions, which IS the publish record.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
+      responses:
+        '200':
+          description: Counters.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }

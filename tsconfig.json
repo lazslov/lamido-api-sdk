@@ -1,0 +1,17 @@
+{
+  // Type-check everything in the repository in one pass. Emit is tsdown's job;
+  // each package's own tsconfig.json exists for editors and for that build.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "packages/*/tsdown.config.ts",
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

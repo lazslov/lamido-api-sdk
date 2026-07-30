@@ -1,0 +1,17 @@
+# Patterns without a leading slash match at every depth, so these cover
+# packages/*/ as well as the root — phase 1 §5.3 requires .env* ignored everywhere.
+node_modules/
+dist/
+.env
+.env.*
+
+# pnpm pack output, and the temp directory audit-tarballs unpacks into.
+*.tgz
+.audit-tarballs/
+
+# Real tenant slugs must never be committed; the leak guard reads them from here.
+.leakguard-slugs
+
+coverage/
+*.tsbuildinfo
+.DS_Store

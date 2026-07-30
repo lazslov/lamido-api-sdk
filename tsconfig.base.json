@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    // ES2022 is the floor Node 18.17 clears, and every edge runtime with it.
+    "target": "ES2022",
+    // DOM is present for the platform APIs the SDK is built on — fetch, Request,
+    // AbortController, crypto.subtle — not for any browser-only surface.
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // Every import is erasable on its own line, so the emitted CJS and ESM
+    // agree about what is a type and what is a value.
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    "declaration": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

@@ -1,0 +1,7 @@
+# LF everywhere, in the repository and in every working copy.
+#
+# `pnpm generate:types` normalises its output to LF so the committed types are identical on
+# every platform. Without this, Git would hand a Windows checkout CRLF files, the generator
+# would rewrite them as LF, and CI's `git diff --exit-code` step would fail on a difference
+# that is nothing but line endings.
+* text=auto eol=lf

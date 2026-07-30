@@ -76,10 +76,15 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ### Tests are mandatory
 - **Always** write tests alongside the implementation.
-- Run `npm run test` after writing a test and confirm it passes before reporting work as done.
-- Test files live flat under `test/`, named after the concern they guard — `test/theme.test.ts`,
-  `test/payment-money.test.ts`. There is no `src/` directory and no per-layer subdirectory; Vitest
-  collects `test/**/*.test.ts`. Module stubs go in `test/stubs/`.
+- Run `pnpm test` after writing a test and confirm it passes before reporting work as done.
+- Test files are named after the concern they guard — `test/theme.test.ts`,
+  `packages/payment/test/money.test.ts` — and live flat in a `test/` directory, never in a
+  per-layer subdirectory. Module stubs go in `test/stubs/`.
+- This is a pnpm workspace, so `test/` exists at two levels and Vitest collects both:
+  - `packages/<pkg>/test/**/*.test.ts` for a package's own behaviour, next to its `src/`;
+  - `test/**/*.test.ts` at the root for repository-level concerns — the guardrails in
+    `scripts/lib/`, and invariants compared *across* the four packages.
+- `pnpm verify` is the full gate: lint, leak guard, type-check, test, build, tarball audit.
 
 ## Memory
 
