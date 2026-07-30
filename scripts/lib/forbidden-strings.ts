@@ -70,7 +70,12 @@ const placeholderTail = /^(YOUR|EXAMPLE)_/;
 
 /** True when a URL's host is a documentation placeholder or an allowed reference. */
 function isAllowedHost(hostWithPort: string): boolean {
-  const host = hostWithPort.replace(/:\d+$/, "").toLowerCase();
+  const host = hostWithPort
+    .replace(/:\d+$/, "")
+    // A trailing dot is sentence punctuation from prose, or an absolute-FQDN root label.
+    // Either way it is not part of the name being checked.
+    .replace(/\.+$/, "")
+    .toLowerCase();
   if (allowedHosts.has(host)) return true;
   // Any subdomain of the documentation domains, e.g. content.example.com.
   return host.endsWith(".example.com") || host.endsWith(".example.org");

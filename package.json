@@ -12,6 +12,7 @@
     "build": "pnpm -r build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:node-baseline": "node --test packages/*/test/node-baseline.mjs",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "contracts:import": "tsx scripts/import-contracts.ts",
@@ -19,7 +20,7 @@
     "generate:types": "tsx scripts/generate-types.ts",
     "check:leaks": "tsx scripts/check-forbidden-strings.ts",
     "audit:tarballs": "tsx scripts/audit-tarballs.ts",
-    "verify": "pnpm lint && pnpm check:leaks && pnpm typecheck && pnpm test && pnpm build && pnpm -r check:package && pnpm audit:tarballs"
+    "verify": "pnpm lint && pnpm check:leaks && pnpm typecheck && pnpm test && pnpm build && pnpm test:node-baseline && pnpm -r check:package && pnpm audit:tarballs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

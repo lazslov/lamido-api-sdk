@@ -1,0 +1,12 @@
+{
+  "name": "valid-unicode",
+  "describes": "a body with Hungarian accented characters — UTF-8 byte length is where a naive implementation diverges",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event\":\"invoice.issued\",\"buyer\":\"Árvíztűrő Tükörfúrógép Kft.\",\"note\":\"Öt szép szűzlány őrült írót nyúz\"}",
+  "timestamp": "1770000000",
+  "signature": "sha256=b10be669ed71b424cb726e36ddb8dffb35305d7d9e0490d0f8499ca1f6497c80",
+  "nowSeconds": 1770000000,
+  "expect": {
+    "ok": true
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "stale-timestamp-future",
+  "describes": "skew in the other direction, which must be rejected just as firmly",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event\":\"page.published\",\"slug\":\"about\"}",
+  "timestamp": "1770000301",
+  "signature": "sha256=d05b31a04d850e1e63f8a51102d76dffde00e83f6b339c51fabbc6e5f529bef3",
+  "nowSeconds": 1770000000,
+  "expect": {
+    "ok": false,
+    "reason": "stale_timestamp"
+  }
+}

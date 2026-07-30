@@ -53,3 +53,36 @@ jobs:
 
       - name: Tarball audit
         run: pnpm audit:tarballs
+
+      # Handed to the runtime-baseline job below, so it does not rebuild.
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: packages/*/dist
+          retention-days: 1
+
+  # The packages support Node 18.17+, but Vitest 4 requires ^20.19 || >=22.12 and cannot run
+  # there. This job runs the node:test baseline against the built artifact on every supported
+  # runtime, which is what proves the tarball works where its `engines` field says it does.
+  runtime-baseline:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["18.17", "20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: packages
+
+      - name: Node ${{ matrix.node-version }} baseline
+        run: node --test packages/*/test/node-baseline.mjs

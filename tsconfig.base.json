@@ -4,8 +4,9 @@
     // ES2022 is the floor Node 18.17 clears, and every edge runtime with it.
     "target": "ES2022",
     // DOM is present for the platform APIs the SDK is built on — fetch, Request,
-    // AbortController, crypto.subtle — not for any browser-only surface.
-    "lib": ["ES2022", "DOM"],
+    // AbortController, crypto.subtle — not for any browser-only surface. DOM.Iterable adds the
+    // iteration those types really have at runtime, such as Headers.entries().
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
 

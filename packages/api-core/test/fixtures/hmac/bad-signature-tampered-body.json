@@ -1,0 +1,13 @@
+{
+  "name": "bad-signature-tampered-body",
+  "describes": "the signature of one body presented with another",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event\":\"page.published\",\"slug\":\"pricing\"}",
+  "timestamp": "1770000000",
+  "signature": "sha256=d628e516e09b630f3f7bb66e0d7bee42949fa419ee9a75822934cca72ddcbe9c",
+  "nowSeconds": 1770000000,
+  "expect": {
+    "ok": false,
+    "reason": "bad_signature"
+  }
+}

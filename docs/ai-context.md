@@ -51,11 +51,43 @@ in `plans/phase-1-foundations.md`.
 - **`biome.jsonc`, not `biome.json`** — Biome will not parse comments in a `.json` config, and
   the ignore entries need their reasons stated.
 
+## Phase 2 decisions, and where they deviate from the plan
+
+Phase 2 is complete: `@lamido/api-core` exports the eight primitives its plan lists.
+
+- **`ServiceConfig` fields are all optional.** The plan's snippet shows `baseUrl` and `apiKey`
+  as required, but the same section calls `createContentClient(config?)` with no argument, which
+  only works if a partial config can fall back to the environment. Explicit values still win.
+- **`ReadMode` is `{ kind; withMeta? }`, not a five-member union.** Same semantics, and the
+  plan's own text says every mode accepts `withMeta`, which a union would have to repeat.
+- **`request` is overloaded on `withMeta`** so the return type narrows to `ResponseMeta<T>`
+  without a cast at the call site.
+- **`resolveConfig` throws; there is no `tryResolveConfig`.** The plan lists one core helper, so
+  each package's `tryCreate…` catches `NotConfiguredError` and returns `null`.
+- **`assertServerOnly` takes an optional `envVar`.** The plan's rationale requires the message to
+  name the variable to move, which its two-option signature could not do.
+- **`details` on `LamidoApiError` is a `declare` field.** A plain optional class field emits
+  `details = undefined` under ES2022 semantics, making `"details" in error` true on every error;
+  absence is the honest signal that the service sent no detail.
+- **Node 18 is verified by `node:test`, not Vitest.** Vitest 4 requires Node ^20.19 || >=22.12,
+  so it cannot run on the 18.17 floor the packages declare. `packages/*/test/node-baseline.mjs`
+  runs against `dist/` on 18.17, 20 and 22 in a CI matrix job — which also means what is checked
+  there is the artifact a consumer installs, not the source.
+- **The HMAC fixtures were generated with `node:crypto`**, deliberately a different
+  implementation from the `crypto.subtle` one under test. `test/fixtures/hmac/generate.mjs`
+  regenerates them; the committed JSON is the pinned artifact.
+- **Core is 430 lines of code plus 404 of TSDoc.** The plan's 600–800 guide is about
+  service-specific behaviour leaking in; `test/public-surface.test.ts` asserts none has, and the
+  overage is the doc-comment density CLAUDE.md requires.
+- **`lib` now includes `DOM.Iterable`**, for `Headers.entries()` when merging request headers.
+
+## Settled
+
+- **Licence: MIT, `Copyright (c) 2026 Lamido`.** Confirmed 2026-07-30. Applies to all four
+  packages; the same `LICENSE` file sits at the root and in each package.
+
 ## Open questions
 
-- **Licence.** All four packages are MIT with `Copyright (c) 2026 Lamido`, chosen so the
-  packages are publishable and `publint` is clean. The licence and the copyright holder were
-  never specified — confirm before phase 8 publishes anything.
 - **The knowledge base has an unmerged fix.** Branch `fix/openapi-yaml-scalars` in
   `../knowledge-base` quotes two `description` scalars that contained `: ` inside backticks,
   which made `content-service/openapi.yaml` and `payment-service/openapi.yaml` unparseable as

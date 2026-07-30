@@ -52,6 +52,12 @@ describe("the leak guard", () => {
     expect(scanText("registry=https://registry.npmjs.org/")).toEqual([]);
   });
 
+  it("passes on a documentation host at the end of a sentence", () => {
+    // The trailing dot is punctuation, not part of the hostname. Getting this wrong makes the
+    // guard cry wolf on prose, which is how a guard stops being trusted.
+    expect(scanText("Expected something like https://service.example.com.")).toEqual([]);
+  });
+
   it("fails on a configured tenant slug, matched whole-word and case-insensitively", () => {
     expect(rules("const site = 'Northwind';", ["northwind"])).toContain("tenant-slug");
     // A substring is not a slug: "northwindow" is a different word.

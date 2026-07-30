@@ -1,0 +1,13 @@
+{
+  "name": "stale-timestamp-past",
+  "describes": "a correctly signed body replayed 301 seconds later — one second past tolerance",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event\":\"page.published\",\"slug\":\"about\"}",
+  "timestamp": "1769999699",
+  "signature": "sha256=1884f39ba3025268fefcf40bd894c3ad42bfee597d4d8acee9ee347b77e54fce",
+  "nowSeconds": 1770000000,
+  "expect": {
+    "ok": false,
+    "reason": "stale_timestamp"
+  }
+}

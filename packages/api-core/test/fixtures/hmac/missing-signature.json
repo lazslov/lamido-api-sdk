@@ -1,0 +1,13 @@
+{
+  "name": "missing-signature",
+  "describes": "no signature header at all",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event\":\"page.published\",\"slug\":\"about\"}",
+  "timestamp": "1770000000",
+  "signature": null,
+  "nowSeconds": 1770000000,
+  "expect": {
+    "ok": false,
+    "reason": "missing_signature"
+  }
+}

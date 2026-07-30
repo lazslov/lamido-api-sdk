@@ -1,0 +1,12 @@
+{
+  "name": "valid-leading-zero-timestamp",
+  "describes": "a timestamp with a leading zero: it must enter the digest as the string it arrived as, not Number() re-stringified",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event\":\"page.published\",\"slug\":\"about\"}",
+  "timestamp": "01770000000",
+  "signature": "sha256=8d0edaae51c87207124cfb678298575aba463a746e22af8a60cc7a69994a235f",
+  "nowSeconds": 1770000000,
+  "expect": {
+    "ok": true
+  }
+}

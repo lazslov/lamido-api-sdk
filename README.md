@@ -11,9 +11,10 @@ repository, published to npm as four packages and installed into client-website 
 | `@lamido/payment` | payment-service: Stripe and Barion behind one merchant API |
 
 The build plan, and the reasoning behind four packages rather than one, is in
-[docs/plans/](docs/plans/). **Phase 1 is complete:** the repository builds, tests and audits
-four publishable packages that export nothing but a version constant. The API surfaces
-arrive in phases 2–6.
+[docs/plans/](docs/plans/). **Phases 1 and 2 are complete:** the repository builds, tests and
+audits four publishable packages, and `@lamido/api-core` carries the transport, error base,
+configuration, HMAC verifier, paginator and idempotency plumbing the three service packages
+share. The service surfaces arrive in phases 3–5 and the framework adapters in phase 6.
 
 ## Working on it
 
@@ -29,6 +30,7 @@ pnpm verify        # lint, leak guard, type-check, test, build, tarball audit
 | `pnpm generate:types` | regenerate `packages/*/src/generated/schema.ts`; output is committed |
 | `pnpm check:leaks` | fail on a deployment host, credential or tenant slug in anything packable |
 | `pnpm audit:tarballs` | pack every package and inspect what npm would actually ship |
+| `pnpm test:node-baseline` | run the built artifact on the minimum supported runtime (needs `pnpm build` first) |
 
 The knowledge base is a separate repository and deliberately not a submodule. Scripts that
 need it take a path, fall back to `LAMIDO_KB_PATH`, then to a `knowledge-base` sibling
