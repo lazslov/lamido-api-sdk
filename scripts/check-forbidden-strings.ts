@@ -21,8 +21,20 @@ import { isTextFile, listFiles } from "./lib/walk.js";
  * What gets scanned: everything that ships, plus the pinned contracts that sit one
  * `"files"` mistake away from shipping. `docs/` and `scripts/` are excluded — neither is
  * packed, and both quote the forbidden strings while explaining them.
+ *
+ * `test/fixtures/doc-examples/` is in scope for a different reason. Those files are
+ * *derived from the knowledge base*, whose documents carry the real deployment hosts and
+ * credential-shaped placeholders — the extractor rewrites both on the way in, and this is
+ * what proves it did. They cannot reach a tarball (`"files"` names only `dist`), but this
+ * repository is bound for a public remote, and a committed `content.lamido.hu` is exactly
+ * what the guard exists to stop. The rest of `test/` stays out: several suites there quote
+ * the forbidden patterns deliberately, as the data that proves the guard still matches them.
  */
-const scanRoots = [path.join(repoRoot, "packages"), contractsDir];
+const scanRoots = [
+  path.join(repoRoot, "packages"),
+  contractsDir,
+  path.join(repoRoot, "test", "fixtures", "doc-examples"),
+];
 
 /** Single files worth scanning that fall outside those roots. */
 const scanFiles = [path.join(repoRoot, "README.md")];

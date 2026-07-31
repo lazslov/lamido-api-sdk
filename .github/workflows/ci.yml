@@ -42,6 +42,18 @@ jobs:
           pnpm generate:types
           git diff --exit-code
 
+      # Same guard for the documented examples, and it only runs where the knowledge base is
+      # checked out — it is not a submodule, so its absence is normal rather than a failure.
+      # Without this the fixtures would quietly describe last month's API.
+      - name: Documented examples match the knowledge base
+        run: |
+          if [ -d ../knowledge-base ]; then
+            pnpm examples:import
+            git diff --exit-code
+          else
+            echo "no knowledge-base checkout beside the repository; skipping"
+          fi
+
       - name: Test
         run: pnpm test
 

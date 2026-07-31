@@ -19,6 +19,7 @@
     "contracts:import": "tsx scripts/import-contracts.ts",
     "contracts:drift": "tsx scripts/check-contract-drift.ts",
     "generate:types": "tsx scripts/generate-types.ts",
+    "examples:import": "tsx scripts/import-doc-examples.ts",
     "check:leaks": "tsx scripts/check-forbidden-strings.ts",
     "audit:tarballs": "tsx scripts/audit-tarballs.ts",
     "deps:audit": "tsx scripts/audit-dependencies.ts",

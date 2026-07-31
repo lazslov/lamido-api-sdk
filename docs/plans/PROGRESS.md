@@ -9,9 +9,9 @@ four packages and all four subpaths, four clean tarballs, zero transitive runtim
 example projects exist and build, and the live suite is written. Nothing is published and nothing is
 pushed.
 
-**What's next:** three of phase 7's criteria are **blocked on things outside this repository** —
-sandbox credentials, a Vercel deployment, and a first push. [../live-testing.md](../live-testing.md) is
-the checklist for the first two. One unblocked item remains: the doc-example fixtures.
+**What's next:** everything unblocked in phase 7 is done. The three remaining criteria are **blocked on
+things outside this repository** — sandbox credentials, a Vercel deployment, and a first push.
+[../live-testing.md](../live-testing.md) is the checklist for the first two.
 
 | # | Phase | State |
 |---|---|---|
@@ -168,10 +168,11 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
       tests pass in each *(727 tests, subpaths included)*
 - [x] HMAC fixtures pass under Node 18, Node 20, and a stripped environment with no
       `node:crypto`, `Buffer` or `process` *(satisfied in phase 2)*
-- [ ] **Every JSON example in the three doc folders parses into its declared SDK type** — *the one
-      unblocked item still outstanding. Needs an extraction script over the knowledge base's fenced
-      JSON blocks, sanitised into committed fixtures, plus a per-example type assertion. Not started;
-      deliberately not half-done, because a partial version would report green over unchecked examples.*
+- [x] Every JSON example in the three doc folders parses into its declared SDK type — *128 extracted by
+      `pnpm examples:import` into committed, sanitised fixtures. Key lists are verified **by the
+      compiler** against each SDK type, divergence is checked in **both** directions, and every example
+      must be claimed by a type or by a stated out-of-scope reason — so a new upstream example fails
+      until somebody says what it is. Both assertion directions were mutation-tested.*
 - [x] Type-level tests pass, including every "must be a compile error" case *(each is a
       `@ts-expect-error`, so `pnpm typecheck` is what runs them; plus the three error unions'
       exhaustive `switch` in `test/error-codes.test.ts`)*

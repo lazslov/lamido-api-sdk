@@ -68,8 +68,15 @@ const credentialPattern = /\b(cpk|csk|cad|isk|iad|pmk|pad|whsec)_([A-Za-z0-9_-]{
 /** Placeholder tails that mark a documentation example rather than a real key. */
 const placeholderTail = /^(YOUR|EXAMPLE)_/;
 
-/** True when a URL's host is a documentation placeholder or an allowed reference. */
-function isAllowedHost(hostWithPort: string): boolean {
+/**
+ * True when a URL's host is a documentation placeholder or an allowed reference.
+ *
+ * @remarks
+ * Exported so the doc-example extractor can rewrite anything this would reject, rather than keeping a
+ * second list of what counts as allowed. Two lists would drift, and the one that drifted would be the
+ * sanitiser — which fails *open*.
+ */
+export function isAllowedHost(hostWithPort: string): boolean {
   const host = hostWithPort
     .replace(/:\d+$/, "")
     // A trailing dot is sentence punctuation from prose, or an absolute-FQDN root label.

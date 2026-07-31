@@ -7,6 +7,9 @@
       "!**/dist",
       // Machine output. The leak guard still scans these files — only Biome skips them.
       "!packages/*/src/generated",
+      // Also machine output, and formatted by the extractor that writes it. If Biome reformatted these,
+      // CI's "regenerating leaves the tree clean" check would fail on whitespace forever.
+      "!test/fixtures/doc-examples",
       // Pinned upstream contracts are not ours to format.
       "!contracts",
       // A Next build's own output, in the smoke project. Minified machine code, and Biome would

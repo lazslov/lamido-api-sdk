@@ -1,0 +1,880 @@
+[
+  {
+    "file": "README.md",
+    "line": 74,
+    "context": "Either key works on this tier; a browser fetch must use the publishable one.",
+    "json": {
+      "data": {
+        "page": {
+          "slug": "home",
+          "title": "Kezdőlap",
+          "locale": "hu",
+          "version": 8,
+          "publishedAt": "2026-07-28T09:12:44.101Z"
+        },
+        "sections": [
+          {
+            "key": "hero",
+            "type": "hero",
+            "fields": {
+              "title": "Minden gyermek egy **csoda.**",
+              "image": {
+                "url": "https://…",
+                "alt": "Hero kép",
+                "width": 1600,
+                "height": 900
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 71,
+    "context": "`GET /api/admin/me` — what may this key do?",
+    "json": {
+      "data": {
+        "id": "…",
+        "label": "lamido-admin-prod",
+        "scopes": [
+          "*"
+        ],
+        "allowedIps": [],
+        "active": true,
+        "lastUsedAt": "…",
+        "createdAt": "…"
+      }
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 497,
+    "context": "`GET /api/admin/health`",
+    "json": {
+      "data": {
+        "status": "ok",
+        "db": "ok",
+        "blobConfigured": true,
+        "sites": 1,
+        "pagesWithUnpublishedDrafts": 0,
+        "orphanAssets": 0,
+        "orphanAssetsOlderThanHours": 24,
+        "failedRevalidations": 0,
+        "danglingRefs": 0
+      }
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 531,
+    "context": "`POST /api/admin/sites/:id/revalidate`",
+    "json": {
+      "type": "page",
+      "slug": "home"
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 57,
+    "context": "`GET /api/client/me` — confirm the key on boot",
+    "json": {
+      "data": {
+        "site": {
+          "id": "…",
+          "slug": "csodacsoport",
+          "name": "CsodaCsoport Alapítvány",
+          "defaultLocale": "hu",
+          "locales": [
+            "hu"
+          ],
+          "allowedOrigins": [
+            "https://redacted.example.com"
+          ],
+          "revalidateUrl": "https://redacted.example.com/api/revalidate",
+          "hasRevalidateSecret": true,
+          "externalRef": null,
+          "active": true,
+          "createdAt": "…",
+          "updatedAt": "…"
+        },
+        "key": {
+          "id": "…",
+          "siteId": "…",
+          "kind": "secret",
+          "label": "csodacsoport-web",
+          "keyLast4": "9f3a",
+          "active": true,
+          "lastUsedAt": "…",
+          "createdAt": "…"
+        }
+      }
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 310,
+    "context": "Versions",
+    "json": {
+      "data": [
+        {
+          "version": 8,
+          "note": "…",
+          "publishedBy": "csodacsoport/csodacsoport-web",
+          "createdAt": "…"
+        }
+      ],
+      "total": 8,
+      "limit": 20,
+      "offset": 0
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 371,
+    "context": "The item object",
+    "json": {
+      "id": "3f1c…",
+      "collectionKey": "news",
+      "slug": "elso_hir",
+      "position": 0,
+      "status": "draft",
+      "publishedAt": null,
+      "createdAt": "…",
+      "updatedAt": "…",
+      "values": {
+        "title": "Első hír"
+      }
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 393,
+    "context": "Item rules",
+    "json": {
+      "error": {
+        "code": "conflict",
+        "message": "3 record(s) reference this item — archive it instead, or repeat with ?force=true to leave them dangling",
+        "details": {
+          "recordCount": 3,
+          "itemId": "…"
+        }
+      }
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 425,
+    "context": "Step 1 — `POST /api/client/assets/upload-token`",
+    "json": {
+      "data": {
+        "token": "vercel_blob_client_…",
+        "pathname": "sites/csodacsoport/hero.jpg",
+        "allowedContentTypes": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/avif"
+        ],
+        "maximumSizeInBytes": 15728640
+      }
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 464,
+    "context": "Step 3 — `POST /api/client/assets`",
+    "json": {
+      "data": {
+        "id": "0f2c…",
+        "siteId": "…",
+        "pathname": "sites/csodacsoport/hero-Xy7.jpg",
+        "url": "https://…",
+        "contentType": "image/jpeg",
+        "size": 482113,
+        "width": 1600,
+        "height": 900,
+        "uploadedBy": "csodacsoport/csodacsoport-web",
+        "createdAt": "…",
+        "references": 0
+      }
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 561,
+    "context": "The record object",
+    "json": {
+      "id": "8a3e…",
+      "datasetKey": "donations",
+      "externalId": "cs_test_a1b2c3",
+      "data": {
+        "amountForint": 5000,
+        "beneficiaryId": "3f1c…",
+        "manual": false
+      },
+      "withheld": [
+        "donorName"
+      ],
+      "occurredAt": "2026-03-01T12:00:00.000Z",
+      "createdAt": "…",
+      "updatedAt": "…"
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 216,
+    "context": "7. Unknown fields — and the three exceptions",
+    "json": {
+      "error": {
+        "code": "validation_error",
+        "message": "One or more content values could not be stored",
+        "details": {
+          "unknownKeys": [
+            "hero.titel"
+          ],
+          "invalid": [
+            {
+              "key": "celok.stats",
+              "message": "Entry 0, \"icon\": …"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "data-model.md",
+    "line": 380,
+    "context": "The record field spec",
+    "json": {
+      "key": "amountForint",
+      "type": "number",
+      "label": "Összeg",
+      "required": true,
+      "summable": true,
+      "integer": true,
+      "min": 1
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 116,
+    "context": "PATCH {{base}}/api/client/pages/{{pageSlug}}/values",
+    "json": {
+      "locale": "hu",
+      "values": {
+        "hero.title": "Minden gyermek egy **csoda.**",
+        "hero.stats": [
+          {
+            "value": "17",
+            "label": "támogatott"
+          },
+          {
+            "value": "5",
+            "label": "intézmény"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 133,
+    "context": "PATCH {{base}}/api/client/pages/{{pageSlug}}/values",
+    "json": {
+      "values": {
+        "hero.titel": "typo"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 140,
+    "context": "PATCH {{base}}/api/client/pages/{{pageSlug}}/values",
+    "json": {
+      "values": {
+        "hero.image": {
+          "assetId": "{{assetId}}",
+          "alt": "Hero kép"
+        }
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 147,
+    "context": "POST {{base}}/api/client/pages/{{pageSlug}}/publish",
+    "json": {
+      "note": "Rólunk szöveg pontosítás"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 180,
+    "context": "POST {{base}}/api/client/collections/{{collectionKey}}/items",
+    "json": {
+      "slug": "elso_hir",
+      "values": {
+        "title": "Első hír",
+        "body": "Egy **félkövér** szó és egy [link](/rolunk)."
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 194,
+    "context": "PATCH {{base}}/api/client/collections/{{collectionKey}}/items/{{itemId}}",
+    "json": {
+      "values": {
+        "title": "Első hír (javított)"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 209,
+    "context": "POST {{base}}/api/client/collections/{{collectionKey}}/items/reorder",
+    "json": {
+      "ids": [
+        "{{itemId}}"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 222,
+    "context": "POST {{base}}/api/client/assets/upload-token",
+    "json": {
+      "filename": "hero.jpg",
+      "contentType": "image/jpeg"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 232,
+    "context": "POST {{base}}/api/client/assets",
+    "json": {
+      "pathname": "sites/YOUR_SITE_SLUG/hero-REPLACE.jpg",
+      "url": "https://redacted.example.com/sites/YOUR_SITE_SLUG/hero-REPLACE.jpg",
+      "contentType": "image/jpeg",
+      "size": 482113,
+      "width": 1600,
+      "height": 900
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 261,
+    "context": "POST {{base}}/api/client/datasets/{{datasetKey}}/records",
+    "json": {
+      "externalId": "cs_test_YOUR_SESSION_ID",
+      "occurredAt": "2026-03-01T12:00:00Z",
+      "data": {
+        "amountForint": 5000,
+        "manual": false,
+        "donorName": "Kovács Anna"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 273,
+    "context": "POST {{base}}/api/client/datasets/{{datasetKey}}/records",
+    "json": {
+      "externalId": "cs_test_YOUR_SESSION_ID",
+      "occurredAt": "2026-03-01T12:00:00Z",
+      "data": {
+        "amountForint": 5000,
+        "manual": false,
+        "donorName": "Kovács Anna"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 284,
+    "context": "POST {{base}}/api/client/datasets/{{datasetKey}}/records",
+    "json": {
+      "data": {
+        "amountForintt": 5000
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 303,
+    "context": "PATCH {{base}}/api/client/datasets/{{datasetKey}}/records/{{recordId}}",
+    "json": {
+      "data": {
+        "amountForint": 6000
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 338,
+    "context": "POST {{base}}/api/admin/admin-keys",
+    "json": {
+      "label": "reporting",
+      "scopes": [
+        "sites:read",
+        "audit:read"
+      ],
+      "allowedIps": [
+        "203.0.113.7/32"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 344,
+    "context": "PATCH {{base}}/api/admin/admin-keys/{{adminKeyId}}",
+    "json": {
+      "scopes": [
+        "sites:read"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 361,
+    "context": "POST {{base}}/api/admin/sites",
+    "json": {
+      "slug": "acme_foundation",
+      "name": "Acme Foundation",
+      "defaultLocale": "hu",
+      "locales": [
+        "hu"
+      ],
+      "allowedOrigins": [
+        "https://redacted.example.com",
+        "http://localhost:3000"
+      ],
+      "revalidateUrl": "https://redacted.example.com/api/revalidate",
+      "revalidateSecret": "REPLACE_WITH_32_PLUS_RANDOM_CHARS",
+      "externalRef": "YOUR_ADMIN_CLIENT_ID",
+      "keyLabel": "acme-web"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 381,
+    "context": "PATCH {{base}}/api/admin/sites/{{siteId}}",
+    "json": {
+      "allowedOrigins": [
+        "https://redacted.example.com"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 400,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/keys",
+    "json": {
+      "kind": "secret",
+      "label": "acme-web-2"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 419,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/pages",
+    "json": {
+      "slug": "home",
+      "title": "Kezdőlap",
+      "position": 0
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 425,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/pages/reorder",
+    "json": {
+      "ids": [
+        "{{pageId}}"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 435,
+    "context": "PATCH {{base}}/api/admin/pages/{{pageId}}",
+    "json": {
+      "title": "Kezdőlap",
+      "active": true
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 449,
+    "context": "POST {{base}}/api/admin/pages/{{pageId}}/sections",
+    "json": {
+      "key": "hero",
+      "type": "hero",
+      "label": "Hero",
+      "position": 0
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 455,
+    "context": "POST {{base}}/api/admin/pages/{{pageId}}/sections/reorder",
+    "json": {
+      "ids": [
+        "{{sectionId}}"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 461,
+    "context": "PATCH {{base}}/api/admin/sections/{{sectionId}}",
+    "json": {
+      "active": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 474,
+    "context": "POST {{base}}/api/admin/sections/{{sectionId}}/fields",
+    "json": {
+      "key": "title",
+      "type": "text",
+      "label": "Címsor",
+      "required": true,
+      "position": 0
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 482,
+    "context": "POST {{base}}/api/admin/sections/{{sectionId}}/fields",
+    "json": {
+      "key": "stats",
+      "type": "list",
+      "label": "Számok",
+      "position": 1,
+      "itemSchema": [
+        {
+          "key": "value",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "label",
+          "type": "text"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 497,
+    "context": "POST {{base}}/api/admin/sections/{{sectionId}}/fields/reorder",
+    "json": {
+      "ids": [
+        "{{fieldId}}"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 504,
+    "context": "PATCH {{base}}/api/admin/fields/{{fieldId}}",
+    "json": {
+      "label": "Címsor",
+      "required": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 516,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/collections",
+    "json": {
+      "key": "news",
+      "name": "Hírek",
+      "itemSchema": [
+        {
+          "key": "title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "body",
+          "type": "richtext"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 532,
+    "context": "PATCH {{base}}/api/admin/collections/{{collectionId}}",
+    "json": {
+      "name": "Hírek és események"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 543,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/assets/upload-token",
+    "json": {
+      "filename": "hero.jpg",
+      "contentType": "image/jpeg"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 549,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/assets",
+    "json": {
+      "pathname": "sites/YOUR_SITE_SLUG/hero-REPLACE.jpg",
+      "url": "https://redacted.example.com/sites/YOUR_SITE_SLUG/hero-REPLACE.jpg",
+      "contentType": "image/jpeg",
+      "size": 482113
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 578,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/datasets",
+    "json": {
+      "key": "donations",
+      "name": "Adományok",
+      "publicAggregate": true,
+      "retentionDays": null,
+      "recordSchema": [
+        {
+          "key": "amountForint",
+          "type": "number",
+          "required": true,
+          "summable": true,
+          "integer": true,
+          "min": 1
+        },
+        {
+          "key": "beneficiaryId",
+          "type": "ref",
+          "groupable": true,
+          "ref": {
+            "collection": "beneficiaries",
+            "policy": "store"
+          }
+        },
+        {
+          "key": "manual",
+          "type": "boolean",
+          "groupable": true
+        },
+        {
+          "key": "donorName",
+          "type": "text",
+          "sensitive": true,
+          "maxLength": 200
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 598,
+    "context": "PATCH {{base}}/api/admin/datasets/{{datasetId}}",
+    "json": {
+      "retentionDays": 1825
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 626,
+    "context": "PATCH {{base}}/api/admin/sites/{{siteId}}/pages/{{pageSlug}}/values",
+    "json": {
+      "values": {
+        "hero.title": "Staff-edited headline"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 633,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/pages/{{pageSlug}}/publish",
+    "json": {
+      "note": "staff publish"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 654,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/collections/{{collectionKey}}/items",
+    "json": {
+      "values": {
+        "title": "Staff-created draft"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 660,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/collections/{{collectionKey}}/items/reorder",
+    "json": {
+      "ids": [
+        "{{itemId}}"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 669,
+    "context": "PATCH {{base}}/api/admin/sites/{{siteId}}/collections/{{collectionKey}}/items/{{itemId}}",
+    "json": {
+      "values": {
+        "title": "Staff correction"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 694,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/import?mode=merge",
+    "json": {
+      "pages": [
+        {
+          "slug": "home",
+          "title": "Kezdőlap",
+          "position": 0,
+          "sections": [
+            {
+              "key": "hero",
+              "type": "hero",
+              "label": "Hero",
+              "position": 0,
+              "fields": [
+                {
+                  "key": "title",
+                  "type": "text",
+                  "label": "Címsor",
+                  "required": true,
+                  "position": 0,
+                  "values": {
+                    "hu": {
+                      "draft": "Imported headline"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "collections": [],
+      "datasets": []
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 730,
+    "context": "POST {{base}}/api/admin/sites/{{siteId}}/revalidate",
+    "json": {
+      "type": "page",
+      "slug": "{{pageSlug}}"
+    }
+  },
+  {
+    "file": "website-api.md",
+    "line": 129,
+    "context": "`GET /api/content/pages` — the published page list",
+    "json": {
+      "data": [
+        {
+          "slug": "home",
+          "title": "Kezdőlap",
+          "version": 8,
+          "publishedAt": "2026-07-28T09:12:44.101Z"
+        }
+      ]
+    }
+  },
+  {
+    "file": "website-api.md",
+    "line": 139,
+    "context": "`GET /api/content/pages/:slug` — the page document",
+    "json": {
+      "data": {
+        "page": {
+          "slug": "home",
+          "title": "Kezdőlap",
+          "locale": "hu",
+          "version": 8,
+          "publishedAt": "2026-07-28T09:12:44.101Z"
+        },
+        "sections": [
+          {
+            "key": "hero",
+            "type": "hero",
+            "fields": {
+              "title": "Minden gyermek egy **csoda.**",
+              "image": {
+                "url": "https://….public.blob.vercel-storage.com/…",
+                "alt": "Hero kép",
+                "width": 1600,
+                "height": 900
+              },
+              "stats": [
+                {
+                  "value": "17",
+                  "label": "támogatott"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "file": "website-api.md",
+    "line": 183,
+    "context": "`GET /api/content/collections/:key` — the published list",
+    "json": {
+      "data": [
+        {
+          "id": "3f1c…",
+          "collectionKey": "news",
+          "slug": "elso_hir",
+          "position": 0,
+          "status": "published",
+          "publishedAt": "…",
+          "createdAt": "…",
+          "updatedAt": "…",
+          "values": {
+            "title": "Első hír",
+            "body": "Egy **félkövér** szó."
+          }
+        }
+      ],
+      "total": 12,
+      "limit": 20,
+      "offset": 0
+    }
+  },
+  {
+    "file": "website-api.md",
+    "line": 216,
+    "context": "`GET /api/content/datasets/:key/aggregate` — the live total",
+    "json": {
+      "data": [
+        {
+          "key": "9f1c…",
+          "count": 12,
+          "sum": {
+            "amountForint": 145000
+          }
+        }
+      ],
+      "total": 7,
+      "limit": 100,
+      "offset": 0
+    }
+  }
+]

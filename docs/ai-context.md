@@ -333,12 +333,31 @@ push. [live-testing.md](live-testing.md) is the operator checklist for the first
 - **Two new tarball rules:** an OpenAPI document matched **by name wherever it sits** rather than only
   under `contracts/`, and a `tsconfig`. Neither has any business shipping, and a rule that depends on
   which directory someone copied a file into is not a rule.
-- **The doc-example fixtures are not started.** The remaining unblocked criterion. It needs an extraction
-  script over the knowledge base's fenced JSON blocks, sanitised into committed fixtures (the KB docs
-  carry the real deployment hosts, so the leak guard would reject them raw), plus a per-example type
-  assertion — and the mapping from example to type cannot be inferred from a fenced block, so it is
-  hand-curated work. Left undone rather than half-done: a partial version reports green over unchecked
-  examples, which is worse than an open checkbox.
+- **The doc-example fixtures check *key sets*, not value types, and the key lists are compiler-verified.**
+  "Does this JSON parse into that type?" is a question about a compile-time type and a runtime value, and
+  a `json as Invoice` cast answers it by fiat. The mechanism that makes it real is a mapped type plus
+  `satisfies`: a hand-written key list annotated `satisfies AllKeys<Invoice>` is checked in both
+  directions by `tsc` — a missing key makes it unassignable, an extra key trips the excess-property
+  check — and is *also* an ordinary object a test can iterate. Writing the first drafts by hand and
+  letting the compiler reject them is how every list here was arrived at. Value types are deliberately
+  not checked: a runtime check deep enough to mean anything would be a second hand-maintained copy of
+  every type, and it would be the copy that drifted.
+- **Every extracted example must be *claimed*.** By a type, or by an explicit out-of-scope reason —
+  admin tier, an elided snippet, a structure definition only staff can write. Without that rule the
+  suite reports green over examples nobody has looked at, which is worse than an open checkbox. A new
+  example upstream now fails until someone classifies it.
+- **Elided examples are dropped at extraction.** The docs abbreviate long objects with a literal ellipsis
+  key — `"…": "all other Invoice fields"` — which is unhelpfully **valid JSON**. It parses, and checking
+  it would fail on every field the author left out, permanently. That is a documentation choice, not a
+  contract change. Seven were dropped, including the only `CancelledInvoice` example upstream has.
+- **The extractor rewrites every host the leak guard would reject, not a named list.** Running it the
+  first way turned up a **real client's domain** in the documents' examples, plus a PSP sandbox host and
+  a Vercel Blob host. None is a secret, but a tenant's identity is not ours to commit and this repository
+  is bound for a public remote. `isAllowedHost` is imported from the guard rather than restated: two
+  copies would drift, and the one that drifted would be the sanitiser, which fails **open**.
+- **`test/fixtures/doc-examples/` was added to the leak guard's scan roots.** It only scanned `packages/`
+  and `contracts/` before. The rest of `test/` stays out, because several suites there quote the
+  forbidden patterns deliberately — as the data proving the guard still matches them.
 
 ## Build tooling: the tsdown configs are `.mjs`
 
@@ -372,10 +391,13 @@ Two related workspace-resolution notes, both needed the moment a service package
 
 ## Open questions
 
-- **The doc-example fixtures**, above. The only unblocked phase 7 criterion left.
 - **Nothing is pushed, so CI has never run.** Every gate has been verified locally instead. The `next`
   devDependency now makes a clean install ~150 MB heavier, which is worth knowing before the first
   CI run.
+- **A real client's domain appears in the knowledge base's own examples** — found by the leak guard once
+  the doc-example fixtures brought those documents into scope. The SDK's extractor rewrites it, so nothing
+  leaks from here, but the *knowledge base* still carries it. That is a fix for that repository, through
+  its own PR flow, and it is not this repository's to make.
 
 ## Settled since
 
