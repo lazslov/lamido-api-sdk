@@ -22,6 +22,19 @@ export const secretKeyVar = "CONTENT_SERVICE_SECRET_KEY";
 export const publishableKeyVar = "CONTENT_SERVICE_PUBLISHABLE_KEY";
 
 /**
+ * The revalidation webhook's shared secret.
+ *
+ * @remarks
+ * Not an API key: it is the string staff passed as `revalidateSecret` when the site was created, and
+ * it signs deliveries in **one** direction — the service to you. It is per site, which is why a
+ * receiver does not need to check the payload's `site` field.
+ *
+ * Rotating it on the service without updating it here rejects every delivery, silently, until both
+ * agree.
+ */
+export const revalidateSecretVar = "CONTENT_REVALIDATE_SECRET";
+
+/**
  * Read an environment variable on a runtime that may not have `process`.
  *
  * @param name - The variable.

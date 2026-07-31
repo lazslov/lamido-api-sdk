@@ -3,9 +3,9 @@
 Consumer SDK for payment-service — Stripe and Barion behind one uniform merchant-tier API,
 using each merchant's own PSP credentials.
 
-**Status: phase 5.** All seven merchant endpoints, the money type, RFC 7807 triage, webhook
-verification and the reconciliation backstop. The Next.js webhook route handler arrives in
-phase 6 — see `docs/plans/` in the repository.
+**Status: phase 6.** All seven merchant endpoints, the money type, RFC 7807 triage, webhook
+verification, the reconciliation backstop, and the webhook route handler on
+`@lamido/payment/next`.
 
 ## Install
 
@@ -211,6 +211,53 @@ export async function POST(request: Request) {
 
 `listWebhookDeliveries()` answers "why haven't I received the event?" without a support ticket —
 including *your* HTTP status on the last attempt, which is usually where the problem is.
+
+## `@lamido/payment/next` — the route handler, written for you
+
+The whole route, with every rule above enforced rather than remembered:
+
+```ts
+// app/api/webhooks/payment/route.ts
+export const runtime = "nodejs"; // an edge runtime may transform the body, which breaks the HMAC
+
+import { createPaymentWebhookHandler } from "@lamido/payment/next";
+
+export const POST = createPaymentWebhookHandler({
+  alreadyProcessed: (id) => db.webhookEvents.exists(id),
+  markProcessed: (id) => db.webhookEvents.insert(id),
+  onEvent: async (event) => {
+    await queue.push({ type: event.event_type, paymentId: event.payment.id });
+  },
+});
+```
+
+**`alreadyProcessed` and `markProcessed` are required parameters.** Delivery is at-least-once, the
+dedupe is not optional, and the SDK owns no storage — so the most it can do is make forgetting them a
+compile error rather than a doubled fulfilment you find out about from a customer's second charge.
+Back them with a unique constraint in your own database, not an in-memory set: that set is empty
+again on the next cold start.
+
+| Answer | When |
+| --- | --- |
+| `401` | verification failed — the body names the edge runtime, which is the cause far more often than a wrong secret |
+| `400` | verified, but the body is not an event |
+| `200` `duplicate` | already processed. `onEvent` is **not** called — a duplicate is a success, the sender's job is done |
+| `200` `accepted` | enqueued and marked |
+| `500` | `onEvent` threw. `markProcessed` is **not** reached, so the sender retries |
+
+`onEvent` runs only after the dedupe passes, and `markProcessed` only after `onEvent` resolves — a
+crash in between yields a redelivery, which is the safe direction. Outside production the handler
+warns once if `onEvent` takes over 3 seconds, because the production symptom of a slow one is
+dead-lettering days later.
+
+This subpath imports **nothing** from `next`: the handler takes a `Request` and answers a `Response`,
+so it runs unchanged in any Web-standard runtime, and this package declares no peer dependency. It
+lives on `./next` because that is where you would look for a route handler, and because
+`export const runtime = "nodejs"` is the Next-specific line that keeps the signature valid.
+
+An unset `PAYMENT_SERVICE_WEBHOOK_SECRET` answers `500` on delivery rather than throwing at import: a
+route module that throws on import takes the whole route tree down, and would stop the site building
+with an empty environment.
 
 ## The reconciliation backstop
 

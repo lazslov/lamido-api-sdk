@@ -12,7 +12,13 @@
     // must resolve api-core the way a consumer does, so the emitted `.d.ts` keeps importing from
     // the package name instead of inlining a copy of its types.
     "paths": {
-      "@lamido/api-core": ["./packages/api-core/src/index.ts"]
+      "@lamido/api-core": ["./packages/api-core/src/index.ts"],
+      // `next` ships no `exports` map, so a NodeNext resolver cannot find an extension-less
+      // subpath — a Next project's own tsconfig uses `moduleResolution: "bundler"`, which can.
+      // Mapped rather than importing `next/cache.js`, because `next/cache` is the specifier every
+      // Next codebase writes and the one that survives Next adding an `exports` map later. This is
+      // type resolution only: `next` is a peer dependency and stays external in the build output.
+      "next/cache": ["./node_modules/next/cache.d.ts"]
     }
   },
   // The tsdown configs are deliberately absent: they are plain `.mjs` so that Node itself can load

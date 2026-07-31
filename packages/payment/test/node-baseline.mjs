@@ -8,8 +8,11 @@
  * `node:test` and `node:assert`, available since Node 18, and imports `dist/` rather than `src/`, so
  * what it proves is that the tarball a consumer installs works on the runtime it claims.
  *
- * Deliberately small: the money type, the webhook verifier on this runtime's Web Crypto, and one
- * create that carries its idempotency key. The behaviour itself is the Vitest suites' job.
+ * Deliberately small: the money type, the webhook verifier on this runtime's Web Crypto, one create that
+ * carries its idempotency key, and the `./next` subpath — which is here because it is the only place
+ * that can prove the route handler needs no `next` at all. `import()` of it would throw if it did.
+ * (`@lamido/content/next` does need `next`, and proving *that* installs cleanly without it is phase 7's
+ * `examples/node-script` fixture.) The behaviour itself is the Vitest suites' job.
  */
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -111,4 +114,30 @@ test("a create carries its idempotency key to fetch", async () => {
   assert.equal(calls[0].url, "https://payment.example.com/v1/payments");
   assert.equal(calls[0].init.headers["Idempotency-Key"], "order-12345-attempt-1");
   assert.equal(calls[0].init.mode, undefined);
+});
+
+test("the ./next subpath imports and runs with no framework installed", async () => {
+  // The point of this case is the import itself: if the handler reached for `next` anywhere, this line
+  // would throw — which is why this package declares no peer dependency.
+  const { createPaymentWebhookHandler } = await import(
+    pathToFileURL(path.join(here, "..", "dist", "next", "index.js")).href
+  );
+
+  const marked = [];
+  const handler = createPaymentWebhookHandler({
+    secret: "whsec_EXAMPLE_TEST_SECRET_0123456789",
+    alreadyProcessed: async (id) => marked.includes(id),
+    markProcessed: async (id) => void marked.push(id),
+    onEvent: async () => {},
+  });
+
+  // An unsigned delivery, so this exercises the verification path without pinning a signature here —
+  // the signed cases are the Vitest suite's, and the fixtures are api-core's.
+  const answer = await handler(
+    new Request("https://site.example.com/api/webhooks/payment", { method: "POST", body: "{}" }),
+  );
+
+  assert.equal(answer.status, 401);
+  assert.match(await answer.text(), /runtime = "nodejs"/);
+  assert.deepEqual(marked, []);
 });

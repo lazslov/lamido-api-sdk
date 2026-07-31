@@ -230,6 +230,65 @@ triage, the webhook verifier and the reconciliation helper.
   being enforced fails the build. Note that the directive applies to the **following line**, so
   those calls are kept short enough that the formatter cannot wrap them out from under it.
 
+## Phase 6 decisions, and where they deviate from the plan
+
+Phase 6 is complete: `@lamido/content/next` ships the three cache modes, the revalidation handler and
+the server-action error shape; `@lamido/payment/next` ships the webhook handler.
+
+- **`next` is a root devDependency, and the subpaths import `next/cache` statically.** The alternative
+  considered was injecting `revalidateTag` as a parameter, which would have needed no dependency at
+  all — rejected because phase 1 §3 declares the peer, and phase 7's `examples/next-site` needs Next
+  installed anyway. *(Confirmed with the user before implementing.)* It sits at the **root** rather
+  than in `packages/content`, matching how `@types/node` and `vitest` already reach the packages, so
+  the published manifests carry only `dependencies` and `peerDependencies`.
+- **`next/cache` needs a `paths` mapping to type-check, and `external` to build.** Next ships no
+  `exports` map, so a NodeNext resolver cannot find an extension-less subpath — a Next project's own
+  tsconfig uses `moduleResolution: "bundler"`, which can. The root tsconfig maps `next/cache` to
+  Next's `cache.d.ts`; `packages/content/tsdown.config.mjs` then has to mark `next` **external**,
+  because otherwise rolldown follows the same mapping and emits
+  `import … from "next/cache.d.ts"` — which resolves nowhere in a consumer's project. Importing
+  `next/cache.js` instead would have avoided both, and was rejected: `next/cache` is the specifier
+  every Next codebase writes and the one that survives Next adding an `exports` map later.
+- **Only `@lamido/content` declares the peer dependency.** `@lamido/payment/next` imports nothing from
+  `next` — its handler takes a `Request` and answers a `Response` — so claiming a peer there would be
+  a warning a consumer cannot act on. `test/next-isolation.test.ts` asserts the whole import graph:
+  `next` appears only under a `src/next/` directory, only in content, and only as `next/cache`.
+- **`revalidateAfterWrite` checks for `updateTag` rather than importing it.** `updateTag` arrived in
+  **Next 16** while the declared peer range is `>=14`, so a static named import would make the entire
+  subpath unimportable on 14 and 15. The check is `"updateTag" in cache` before the property read —
+  `in` is also what the question really is, and a bare read is what trips a test runner's mocked-module
+  proxy. The `revalidateTag` fallback passes `"max"`, Next 16's now-required cache-life profile, which
+  is an ignored extra argument on the versions that lack it. Confirmed against Next 16.2.12's own
+  implementation, which warns on the one-argument form and throws from `updateTag` outside a server
+  action — so the plan's "not interchangeable" is enforced by Next, not just documented.
+- **Both handlers resolve their secret per request, not at construction.** A route module that threw on
+  import would take the whole route tree down, and would stop a site building with an empty
+  environment — which phase 7 requires and is how a new contributor runs a client project. An unset
+  secret is a `500` on delivery, with the variable named.
+- **The payment handler answers `500` itself when `onEvent` throws** rather than re-throwing. The exit
+  criterion asks for a `500`; relying on the framework's error boundary would only produce one in
+  Next, and this handler is a plain Web handler. `markProcessed` stays unreached either way.
+- **`SaveResult.error` is a `ContentErrorCode`, not free prose.** The plan's snippet types it
+  `error: string`; a code is assignable to that and strictly more useful, because the sentences belong
+  in each site's own voice and language. `NotConfiguredError` is checked separately from
+  `ContentApiError` — it is core's class, so an `instanceof ContentApiError` test alone collapsed it to
+  `internal_error` and lost the whole point of the `status: 0` sentinel.
+- **`asSaveResult` maps only `validation_error` into `fields`.** A publish `conflict`'s
+  `details.missing` entries are `"<section>.<field>"` paths across a whole page rather than fields of
+  the form just submitted, and each one wants to be a link — so the site reads them off the caught
+  error. That is what the exit criterion asks for, and widening it would have been a guess.
+- **The gateway declares its own `NextFetchInit`.** Next augments the global `RequestInit` only inside
+  a Next project's compilation, and this package is built outside one. The three inits are named locals
+  rather than inline literals, which is what keeps assigning them to `defaultInit: RequestInit` legal
+  without a cast.
+- **The two fixture-project exit criteria are deferred to phase 7**, which already owns
+  `examples/next-site` and `examples/node-script` in its §5. *(Confirmed with the user.)* What stands in
+  for them meanwhile: `test/next-isolation.test.ts` for the import graph, an end-to-end Vitest case
+  driving gateway → signed POST → busted tag against a stubbed `revalidateTag`, and a Node 18 baseline
+  case that imports `@lamido/payment/next` from `dist/` and runs it.
+- **`sharp: false` in `pnpm-workspace.yaml`.** It arrives with `next` and its native build is dead
+  weight here — nothing in this repository runs Next or optimises an image.
+
 ## Build tooling: the tsdown configs are `.mjs`
 
 Phase 1 chose `tsdown --config-loader tsx` because tsdown's native loader cannot resolve

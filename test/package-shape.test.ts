@@ -72,8 +72,31 @@ describe.each(packageDirs)("packages/%s", (dir) => {
   });
 
   it("declares only the subpaths its phase has built", () => {
-    const expected = dir === "content" ? [".", "./fields"] : ["."];
-    expect(Object.keys(manifest.exports as Record<string, unknown>)).toEqual(expected);
+    const subpaths: Record<string, string[]> = {
+      content: [".", "./fields", "./next"],
+      payment: [".", "./next"],
+    };
+    expect(Object.keys(manifest.exports as Record<string, unknown>)).toEqual(
+      subpaths[dir] ?? ["."],
+    );
+  });
+
+  it("declares next as an optional peer only where a subpath imports it", () => {
+    // `@lamido/content/next` imports `next/cache`. `@lamido/payment/next` does not — its handler takes
+    // a `Request` and answers a `Response` — so claiming a peer there would be a warning a consumer
+    // cannot act on. Optional, so installing either package in an Astro or plain-Node project is quiet.
+    const peers = manifest.peerDependencies as Record<string, string> | undefined;
+    const meta = manifest.peerDependenciesMeta as
+      | Record<string, { optional?: boolean }>
+      | undefined;
+
+    if (dir === "content") {
+      expect(peers).toEqual({ next: ">=14" });
+      expect(meta).toEqual({ next: { optional: true } });
+    } else {
+      expect(peers).toBeUndefined();
+      expect(meta).toBeUndefined();
+    }
   });
 
   it("maps every subpath for the legacy resolver too", () => {

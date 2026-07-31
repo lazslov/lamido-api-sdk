@@ -4,9 +4,9 @@ Consumer SDK for content-service — pages, sections and collections for content
 the application data a client site would otherwise need a database for, and images on the
 CDN.
 
-**Status: phase 3.** Both consumer tiers and the field-descriptor layer are here. The Next.js
-cache modes and the revalidation route handler arrive in phase 6 — see `docs/plans/` in the
-repository.
+**Status: phase 6.** Both consumer tiers, the field-descriptor layer on `@lamido/content/fields`,
+and the Next.js App Router adapter on `@lamido/content/next` — three cache modes, the revalidation
+route handler and the server-action error shape.
 
 ## Install
 
@@ -183,6 +183,110 @@ revalidateTag(CONTENT_TAG); // the tag your reads set — a mismatch fails silen
 The event is reachable only through a valid verdict, so verifying before parsing is structural.
 `slug: null` means invalidate everything, and `version` is `null` on a collection item *and* on
 a whole-site re-fire. You do not need to check `site`: the signing secret is per site.
+
+In a Next.js app you do not need to write any of that — see below.
+
+## `@lamido/content/next` — the Next.js App Router adapter
+
+`next` is an **optional peer dependency**, and only this subpath imports it. Installing this package
+in an Astro, Remix or plain-Node project neither warns nor breaks, and `"sideEffects": false` lets a
+bundler drop the subpath when it is unused.
+
+### One gateway module, three cache modes
+
+```ts
+// lib/content.ts
+import "server-only";
+import { createNextContentGateway } from "@lamido/content/next";
+
+export const { published, live, client, tag } = createNextContentGateway();
+```
+
+| Mode | For | What it sets |
+| --- | --- | --- |
+| `published` | pages, collections, site settings | `{ next: { tags: [tag] } }` — the webhook busts it |
+| `live` | a dataset aggregate; a live total | `{ next: { revalidate: 10 } }` — a **short window** |
+| `client` | every write, and every draft read | `{ cache: "no-store" }` |
+
+> **RULE — never `cache: "no-store"` in a route's render path.** It does not mean "this one query is
+> uncached"; it opts the **whole route** out of static rendering, so every visitor hits your origin
+> and this service.
+
+That is the bug `live` exists to have prevented. The reference build reached for `no-store` for a
+perfectly honest reason — a live total must not be a minute stale — and silently un-statified its
+homepage. Three things made it brutal: the production symptom is a latency and cost regression rather
+than an error, a **keyless local build hides it entirely** (nothing fetches, so nothing goes
+dynamic), and it is invisible in a code review of the diff.
+
+So `no-store` is not something `published` or `live` can be asked for. It is on `client`, the write
+tier — which is never in a render path by construction. Ten seconds on `live` is what the service
+declares for the same data; the one value not to reach for is `0`.
+
+### The revalidation route
+
+```ts
+// app/api/revalidate/route.ts
+import { createRevalidationHandler } from "@lamido/content/next";
+import { tag } from "@/lib/content";
+
+export const POST = createRevalidationHandler({ tag });
+```
+
+It reads the raw body before anything parses it, answers `400` for a stale timestamp or an
+unreadable body and `401` for a bad signature, busts the tag, then calls your optional `onPublish`.
+
+> **RULE — the tag you bust must be the tag your reads set.** If your fetches say
+> `tags: ["content"]` and your receiver busts `` `content:${body.site}` ``, the webhook answers
+> `200`, nothing is invalidated, and the only symptom is content going stale for exactly as long as
+> your time-based fallback — **with no error anywhere.**
+
+Both sides default to the same exported `CONTENT_TAG`, so passing the gateway's `tag` through keeps
+them one value rather than two string literals in two files. `site` is deliberately **not** compared:
+the signing secret is per site, so a valid signature already proves which tenant sent it, and a check
+would only break when a slug is renamed.
+
+Treat a delivery as idempotent — it is retried once with the identical body, timestamp and signature,
+and a failure never fails the publish. So `onPublish` must be fast, and must not be the only path by
+which your site learns something changed.
+
+An unset `CONTENT_REVALIDATE_SECRET` answers `500` on delivery rather than throwing at import: a
+route module that throws on import takes the whole route tree down, and would stop the site building
+with an empty environment.
+
+### Server actions: return errors, never throw them
+
+> **RULE — a write action returns a result object.** A thrown server-action message is **redacted in
+> production**, so a rejected save reaches the editor as an opaque generic failure and the one thing
+> they needed — *which field, and why* — is gone.
+
+```ts
+"use server";
+import { asSaveResult, revalidateAfterWrite } from "@lamido/content/next";
+import { client, tag } from "@/lib/content";
+
+export async function saveAbout(submitted: Record<string, unknown>) {
+  const prepared = prepareValues(ABOUT, submitted, page.section("about").fields);
+  if (!prepared.ok) return { ok: false as const, error: "validation_error" as const };
+  if (Object.keys(prepared.values).length === 0) return { ok: true as const };
+
+  return asSaveResult(async () => {
+    await client.patchValues("home", prepared.values);
+    revalidateAfterWrite(tag);
+  });
+}
+```
+
+`asSaveResult` never throws. Its `error` is the service's **stable code**, not prose — the sentences
+belong in your voice and your language, not in a dependency — and `fields` carries a
+`validation_error`'s `unknownKeys` and `invalid[]` so a form can render errors next to inputs instead
+of one toast. `not_configured` arrives through the same channel as a real `401`, so you need one
+translator rather than two.
+
+`revalidateAfterWrite` uses `updateTag` where the installed Next has it, giving the editor
+read-your-own-writes in the same request, and falls back to `revalidateTag`. **They are not
+interchangeable:** Next throws if `updateTag` is called from a route handler, which is why the
+webhook handler uses the other one. Nothing in this SDK calls either from inside a write method —
+that would be framework work in a transport.
 
 ## Licence
 

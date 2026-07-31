@@ -3,13 +3,14 @@
 Live status of the eight phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are:** phases 1–5 are complete and verified locally — `pnpm verify` is green, including
-`publint` and `attw` on all four packages and on the `@lamido/content/fields` subpath. Nothing is
-published, and nothing is pushed.
+**Where we are:** every build phase — 1 through 6 — is complete and verified locally. `pnpm verify` is
+green, including `publint` and `attw` on all four packages and on all four declared subpaths
+(`@lamido/content/fields`, `@lamido/content/next`, `@lamido/payment/next`). Nothing is published, and
+nothing is pushed.
 
-**What's next:** phase 6 (framework adapters) is the only build phase left, and is what the plan's
-suggested first cut — 1 + 2 + 3 + 6 as `0.1.0` — needs. It covers content and payment only;
-invoice-service has no webhooks, so `@lamido/invoice` has no `./next` subpath to add.
+**What's next:** phase 7 (verification) is unblocked, and its §5 consumer smoke projects now carry two
+exit criteria handed over from phase 6 — see that phase's notes below. The plan's suggested first cut,
+1 + 2 + 3 + 6 as `0.1.0`, is now buildable.
 
 | # | Phase | State |
 |---|---|---|
@@ -18,8 +19,8 @@ invoice-service has no webhooks, so `@lamido/invoice` has no `./next` subpath to
 | 3 | [`@lamido/content`](phase-3-content.md) | ✅ done |
 | 4 | [`@lamido/invoice`](phase-4-invoice.md) | ✅ done |
 | 5 | [`@lamido/payment`](phase-5-payment.md) | ✅ done |
-| 6 | [Framework adapters](phase-6-next-adapters.md) | ⬜ next |
-| 7 | [Verification](phase-7-verification.md) | ⬜ blocked on 2–6 |
+| 6 | [Framework adapters](phase-6-next-adapters.md) | ✅ done |
+| 7 | [Verification](phase-7-verification.md) | ⬜ next |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | ⬜ blocked on 7 |
 
 Deviations from the plans and the reasoning behind them are in
@@ -124,28 +125,40 @@ Deviations from the plans and the reasoning behind them are in
 - [x] `createPaymentClient` throws in a browser, with rotation named in the message
 - [x] No request sets `mode` — grep-asserted
 
-## ⬜ Phase 6 — Framework adapters *(3 and 5 are done; this is the last build phase)*
+## ✅ Phase 6 — Framework adapters
 
-- [ ] Both packages install cleanly with no `next` present and no peer warning; the main entry
-      imports nothing from `next` — asserted by a fixture project in CI
-- [ ] Mode A sets `{ next: { tags: [tag] } }`, mode B `{ next: { revalidate: 10 } }`, mode C
+- [x] Both packages install cleanly with no `next` present and no peer warning; the main entry
+      imports nothing from `next` *(the import graph is asserted in `test/next-isolation.test.ts`, and
+      `@lamido/payment/next` is imported from `dist/` on Node 18 with nothing but core installed. The
+      **fixture project** is phase 7's `examples/node-script` — see the note below)*
+- [x] Mode A sets `{ next: { tags: [tag] } }`, mode B `{ next: { revalidate: 10 } }`, mode C
       `{ cache: "no-store" }`
-- [ ] No way to obtain a `no-store` read from `published` or `live` — type-level assertion
-- [ ] Gateway tag and handler tag come from one exported constant, asserted equal by default
-- [ ] Revalidation handler verifies before parsing; `400` stale, `401` bad signature, `200` +
+- [x] No way to obtain a `no-store` read from `published` or `live` — type-level assertion
+- [x] Gateway tag and handler tag come from one exported constant, asserted equal by default
+- [x] Revalidation handler verifies before parsing; `400` stale, `401` bad signature, `200` +
       `revalidateTag` valid; survives `slug: null` and `version: null`; does not compare `site`
-- [ ] The payment handler cannot be constructed without `alreadyProcessed` and `markProcessed`
-- [ ] A duplicate `X-Event-Id` answers `200` without calling `onEvent`
-- [ ] `markProcessed` is not called when `onEvent` throws, and the response is `500`
-- [ ] A body mutated after signing yields `401` naming the edge-runtime cause
-- [ ] `asSaveResult` never throws, and maps `validation_error` details into `fields`
-- [ ] End-to-end fixture: an App Router app renders through mode A, receives a signed
-      revalidation POST, and busts the tag its reads set
+- [x] The payment handler cannot be constructed without `alreadyProcessed` and `markProcessed`
+- [x] A duplicate `X-Event-Id` answers `200` without calling `onEvent`
+- [x] `markProcessed` is not called when `onEvent` throws, and the response is `500`
+- [x] A body mutated after signing yields `401` naming the edge-runtime cause
+- [x] `asSaveResult` never throws, and maps `validation_error` details into `fields`
+- [x] End-to-end fixture: an App Router app renders through mode A, receives a signed
+      revalidation POST, and busts the tag its reads set *(the chain — gateway read → signed POST →
+      the tag the read set, busted — runs in `packages/content/test/next-handler.test.ts` against a
+      stubbed `revalidateTag`. The **real App Router app** is phase 7's `examples/next-site`)*
 
-## ⬜ Phase 7 — Verification *(needs 2–6)*
+> **Two criteria above are satisfied by in-repo tests and handed to phase 7 for their fixture-project
+> half,** which its §5 already owns. Confirmed with the user rather than assumed; the reasoning is in
+> [../ai-context.md](../ai-context.md).
+
+## ⬜ Phase 7 — Verification *(2–6 are done; this is next)*
+
+Its §5 also carries phase 6's two fixture-project criteria: `examples/node-script` proves both packages
+install and `require` with no `next` present, and `examples/next-site` is the real App Router app that
+renders through mode A and receives a signed revalidation POST.
 
 - [ ] Unit suite covers every exported function in all four packages; the four credential-leak
-      tests pass in each *(done for all four; only the phase 6 subpaths remain)*
+      tests pass in each *(done for all four, subpaths included)*
 - [x] HMAC fixtures pass under Node 18, Node 20, and a stripped environment with no
       `node:crypto`, `Buffer` or `process` *(satisfied in phase 2)*
 - [ ] Every JSON example in the three doc folders parses into its declared SDK type

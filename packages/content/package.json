@@ -35,12 +35,25 @@
         "types": "./dist/fields/index.d.cts",
         "default": "./dist/fields/index.cjs"
       }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next/index.d.ts",
+        "default": "./dist/next/index.js"
+      },
+      "require": {
+        "types": "./dist/next/index.d.cts",
+        "default": "./dist/next/index.cjs"
+      }
     }
   },
   "typesVersions": {
     "*": {
       "fields": [
         "./dist/fields/index.d.ts"
+      ],
+      "next": [
+        "./dist/next/index.d.ts"
       ]
     }
   },
@@ -55,5 +68,13 @@
   },
   "dependencies": {
     "@lamido/api-core": "workspace:^"
+  },
+  "peerDependencies": {
+    "next": ">=14"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    }
   }
 }

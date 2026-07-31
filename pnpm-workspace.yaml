@@ -6,3 +6,7 @@ packages:
 allowBuilds:
   esbuild: true
   "@biomejs/biome": true
+  # sharp arrives with the `next` devDependency, which is here only so the `./next`
+  # subpaths can type-check against real `next/cache` types. Nothing in this repository
+  # runs Next or optimises an image, so its native build is dead weight.
+  sharp: false
