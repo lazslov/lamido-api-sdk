@@ -11,10 +11,11 @@ repository, published to npm as four packages and installed into client-website 
 | `@lamido/payment` | payment-service: Stripe and Barion behind one merchant API |
 
 The build plan, and the reasoning behind four packages rather than one, is in
-[docs/plans/](docs/plans/). **Phases 1 and 2 are complete:** the repository builds, tests and
-audits four publishable packages, and `@lamido/api-core` carries the transport, error base,
-configuration, HMAC verifier, paginator and idempotency plumbing the three service packages
-share. The service surfaces arrive in phases 3–5 and the framework adapters in phase 6.
+[docs/plans/](docs/plans/). **Phases 1–5 are complete:** the repository builds, tests and audits
+four publishable packages, `@lamido/api-core` carries the transport, error base, configuration,
+HMAC verifier, paginator and idempotency plumbing the three service packages share, and all three
+service surfaces are implemented. The framework adapters arrive in phase 6; live status per phase
+is in [docs/plans/PROGRESS.md](docs/plans/PROGRESS.md).
 
 ## Working on it
 

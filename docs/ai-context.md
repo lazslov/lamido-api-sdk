@@ -133,6 +133,62 @@ Phase 3 is complete: `@lamido/content` ships both consumer tiers, the field-desc
   A cross-package test in `test/package-shape.test.ts` now requires a mapping for every declared
   subpath.
 
+## Phase 4 decisions, and where they deviate from the plan
+
+Phase 4 is complete: `@lamido/invoice` ships the six client-tier endpoints plus `/api/health`, the
+`IsoDate` type, the outbound checks and the `stornoNumber` split.
+
+- **`InvoiceNotDownloadableError` is an exported subclass**, which the plan's Public API surface block
+  does not list. §6 requires the cancelled-invoice case to surface as "a named error", and the two
+  alternatives were a subclass or a flag on `InvoiceApiError`. The subclass won: `instanceof` reads
+  better at the call site than `error.notDownloadable === true`, and it carries `invoiceStatus`.
+  *(Confirmed with the user before implementing.)* It is raised on **both** `/pdf` and
+  `/download-link`, because client-api §5 says they share the state requirement.
+- **Detection of that error is path-based, not message-based.** A `400 bad_request` on `/pdf` or
+  `/download-link` is the only way the service expresses it, and those are the only two endpoints
+  with that requirement. `invoiceStatus` *is* lifted out of the message (`"(status: cancelled)"`),
+  which is the one place this package reads prose — exposed as a hint, never branched on, and `null`
+  when the wording changes. A test asserts `errors.ts` is the only module that reads it.
+- **`vatRate` is validated by pattern, not against a closed list.** The docs name `"27"`/`"5"`/
+  `"18"`/`"0"` and the codes `"AAM"`/`"TAM"`/`"EU"`, then say "other codes" pass through. An
+  allowlist would reject a legitimate rate with no workaround, which is the worse direction to be
+  wrong in; the pattern still catches every documented mistake (`"27%"`, `" 27"`, `"27.0"`, `"aam"`,
+  a bare number). *(Also confirmed with the user.)*
+- **`CancelledInvoice.stornoNumber` is `readonly stornoNumber?: string`, not the plan's
+  `readonly stornoNumber: string`.** client-api §6 says the key may be **absent** when the provider
+  returned none, and that the cancel still succeeded — so a non-optional `string` would be a type
+  that lies. The exit criterion ("type-checks from `cancelInvoice`") is satisfied either way.
+- **The request types are hand-written; the response types are aliases.** `openapi-typescript` marks
+  a *defaulted* property required, so the generated `CreateInvoiceRequest` demands `paymentMethod`,
+  `currency`, `language`, `eInvoice`, `items[].unit` and `partner.address.country` — six values the
+  service is happy to choose. Aliasing it would force all six on every caller. `test/type-safety.test.ts`
+  asserts a populated `CreateInvoiceInput` still `satisfies` the generated type once those defaults
+  are supplied, so a renamed or retyped wire field fails the type-check the way an alias would.
+- **`InvoiceList` omits `total` rather than declaring `total?: undefined`.** The plan's §5 wording
+  says the latter, but `total?: undefined` makes `.total` legal (of type `undefined`), and the exit
+  criterion requires reading it to be a **type error**. Omitting the key is what achieves that, and
+  the type is still assignable to core's `Page<T>` for `collectAll`.
+- **`listAllInvoices` is a client method taking `pageSize` / `maxPages`.** The exit criterion writes
+  it as `listAllInvoices()` with no arguments, which rules out payment's standalone-function shape.
+  The two `CollectAllOptions` fields are forwarded because `collectAll` *throws* at its loop breaker
+  rather than truncating — without them a tenant with more than 10 000 invoices has no way past it.
+- **`getHealth` returns the degraded `503` body instead of throwing**, which phase 4's plan does not
+  ask for but phase 3's did. The same endpoint shape, the same trap, and invoice-service's own README
+  lists "the `degraded` health body still arrives with a `503` that most clients throw on" under what
+  still bites. Same private-error-subclass detour as `@lamido/content`, for the same reason: the
+  alternative is a second `fetch` call in the package.
+- **`getInvoicePdf` reduces the provider's filename to its last path segment.** The value originates
+  at szamlazz or Billingo and ends up in a consumer's own `Content-Disposition` or on disk; a `../`
+  in it would be a traversal, and nothing upstream promises it is clean. `filename*=UTF-8''…` is
+  preferred over `filename=` when both are present, and the fallback is `invoice-<id>.pdf`.
+- **`INVOICE_SERVICE_CLIENT_KEY` is the SDK's proposal.** The knowledge base documents
+  `INVOICE_SERVICE_BASE_URL` and leaves the key's variable name to the integrator; this is the name
+  the plan proposes and the package reads.
+- **A 502 outside a create gets different advice from one on a create.** The new-key rule applies
+  only where a key was spent, so a `502` from `cancelInvoice` says the provider was reached and
+  refused and that nothing changed here. Advice is attached for `500` and `502` only — the two the
+  plan's §8 names — and every other code carries the service's message verbatim.
+
 ## Phase 5 decisions, and where they deviate from the plan
 
 Phase 5 is complete: `@lamido/payment` ships the seven merchant endpoints, the money type, RFC 7807

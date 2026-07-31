@@ -3,20 +3,20 @@
 Live status of the eight phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are:** phases 1, 2, 3 and 5 are complete and verified locally — `pnpm verify` is green,
-including `publint` and `attw` on the `@lamido/content/fields` subpath. Nothing is published, and
-nothing is pushed.
+**Where we are:** phases 1–5 are complete and verified locally — `pnpm verify` is green, including
+`publint` and `attw` on all four packages and on the `@lamido/content/fields` subpath. Nothing is
+published, and nothing is pushed.
 
-**What's next:** phase 6 (framework adapters) is now unblocked, and is what the plan's suggested
-first cut — 1 + 2 + 3 + 6 as `0.1.0` — needs. Phase 4 (`@lamido/invoice`) is independent of both
-and can follow.
+**What's next:** phase 6 (framework adapters) is the only build phase left, and is what the plan's
+suggested first cut — 1 + 2 + 3 + 6 as `0.1.0` — needs. It covers content and payment only;
+invoice-service has no webhooks, so `@lamido/invoice` has no `./next` subpath to add.
 
 | # | Phase | State |
 |---|---|---|
 | 1 | [Foundations](phase-1-foundations.md) | ✅ done |
 | 2 | [`@lamido/api-core`](phase-2-api-core.md) | ✅ done |
 | 3 | [`@lamido/content`](phase-3-content.md) | ✅ done |
-| 4 | [`@lamido/invoice`](phase-4-invoice.md) | ⬜ next |
+| 4 | [`@lamido/invoice`](phase-4-invoice.md) | ✅ done |
 | 5 | [`@lamido/payment`](phase-5-payment.md) | ✅ done |
 | 6 | [Framework adapters](phase-6-next-adapters.md) | ⬜ next |
 | 7 | [Verification](phase-7-verification.md) | ⬜ blocked on 2–6 |
@@ -82,20 +82,23 @@ Deviations from the plans and the reasoning behind them are in
       *(the `null` and the degraded read are covered; "a site renders" waits for the example
       project in [phase 7](phase-7-verification.md))*
 
-## ⬜ Phase 4 — `@lamido/invoice`
+## ✅ Phase 4 — `@lamido/invoice`
 
-- [ ] All six client-tier endpoints plus `/api/health` callable; no admin endpoint
-- [ ] `createInvoice` reports `replayed: true` on a 200 and `false` on a 201, with no overload
+- [x] All six client-tier endpoints plus `/api/health` callable; no admin endpoint
+- [x] `createInvoice` reports `replayed: true` on a 200 and `false` on a 201, with no overload
       that omits the idempotency key
-- [ ] `invoice.stornoNumber` is a compile error from `getInvoice`, type-checks from `cancelInvoice`
-- [ ] `isoDate("2026-13-45")` and `isoDate("25/07/2026")` both throw locally
-- [ ] `listInvoices(...).total` is a type error; `listAllInvoices()` terminates on a short page
+- [x] `invoice.stornoNumber` is a compile error from `getInvoice`, type-checks from `cancelInvoice`
+      *(typed `stornoNumber?: string` there — the provider may return none and the cancel still
+      succeeded, so a required `string` would be a type that lies; see ../ai-context.md)*
+- [x] `isoDate("2026-13-45")` and `isoDate("25/07/2026")` both throw locally
+- [x] `listInvoices(...).total` is a type error; `listAllInvoices()` terminates on a short page
       with no `total`
-- [ ] `getInvoicePdf` returns bytes and a filename; the cancelled-invoice case is a named error
-- [ ] `getHealth()` returns `{ status: "ok" }` and is not run through a `data` unwrapper
-- [ ] `grossAmount` is `number | null`, with no helper converting to payment's minor-unit string
-- [ ] No `mode` is set on any request — grep-asserted
-- [ ] `provider_error` is `retryable: true`, and its doc comment states the new-key rule
+- [x] `getInvoicePdf` returns bytes and a filename; the cancelled-invoice case is a named error
+      *(`InvoiceNotDownloadableError`, on `/download-link` too — it shares the state requirement)*
+- [x] `getHealth()` returns `{ status: "ok" }` and is not run through a `data` unwrapper
+- [x] `grossAmount` is `number | null`, with no helper converting to payment's minor-unit string
+- [x] No `mode` is set on any request — grep-asserted
+- [x] `provider_error` is `retryable: true`, and its doc comment states the new-key rule
 
 ## ✅ Phase 5 — `@lamido/payment`
 
@@ -121,7 +124,7 @@ Deviations from the plans and the reasoning behind them are in
 - [x] `createPaymentClient` throws in a browser, with rotation named in the message
 - [x] No request sets `mode` — grep-asserted
 
-## ⬜ Phase 6 — Framework adapters *(3 and 5 are done; this is next)*
+## ⬜ Phase 6 — Framework adapters *(3 and 5 are done; this is the last build phase)*
 
 - [ ] Both packages install cleanly with no `next` present and no peer warning; the main entry
       imports nothing from `next` — asserted by a fixture project in CI
@@ -142,7 +145,7 @@ Deviations from the plans and the reasoning behind them are in
 ## ⬜ Phase 7 — Verification *(needs 2–6)*
 
 - [ ] Unit suite covers every exported function in all four packages; the four credential-leak
-      tests pass in each *(done for `api-core`, `content` and `payment`)*
+      tests pass in each *(done for all four; only the phase 6 subpaths remain)*
 - [x] HMAC fixtures pass under Node 18, Node 20, and a stripped environment with no
       `node:crypto`, `Buffer` or `process` *(satisfied in phase 2)*
 - [ ] Every JSON example in the three doc folders parses into its declared SDK type
