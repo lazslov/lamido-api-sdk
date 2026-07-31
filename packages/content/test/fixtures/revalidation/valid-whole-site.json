@@ -1,0 +1,20 @@
+{
+  "name": "valid-whole-site",
+  "describes": "a null slug, which means revalidate everything — a staff re-fire or a slugless item",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"site\":\"acme_foundation\",\"type\":\"page\",\"slug\":null,\"collection\":null,\"version\":null,\"publishedAt\":\"2026-07-28T09:12:44.101Z\"}",
+  "timestamp": "1785168000",
+  "signature": "sha256=b1fa2f62f0ba55f13b9d4bed796e22ae071b0c69704e47a6d5f2c49466db3c0c",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": true,
+    "event": {
+      "site": "acme_foundation",
+      "type": "page",
+      "slug": null,
+      "collection": null,
+      "version": null,
+      "publishedAt": "2026-07-28T09:12:44.101Z"
+    }
+  }
+}

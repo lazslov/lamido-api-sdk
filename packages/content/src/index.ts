@@ -2,18 +2,120 @@
  * `@lamido/content` — consumer SDK for content-service.
  *
  * @remarks
- * Phase 1 ships the package shell only. The website and client tiers, the field-descriptor
- * layer and asset handling arrive in `docs/plans/phase-3-content.md`; the Next.js cache
- * modes in phase 6. Request and response *shapes* are already generated into
- * `src/generated/schema.ts` from the pinned contract, and phase 3 curates them into named
- * aliases carrying the behaviour the OpenAPI document cannot express.
+ * Two tiers, two constructors, because there are two credentials with different blast radii:
+ *
+ * - {@link createWebsiteClient} reads **published** content through `/api/content/*` with a `cpk_`
+ *   publishable key (browser-safe) or a `csk_` secret key (not).
+ * - {@link createContentClient} reads drafts and writes through `/api/client/*` with a `csk_` key,
+ *   server-side only.
+ *
+ * The admin tier is deliberately absent: structure is defined by Lamido staff, not by an editor, and
+ * a `cad_` key reaches every site.
+ *
+ * The field-descriptor layer — the types, the coercions and `prepareValues` — lives in
+ * `@lamido/content/fields`, which imports nothing and is safe in a client component.
+ *
+ * @example
+ * ```ts
+ * import "server-only";
+ * import { createWebsiteClient } from "@lamido/content";
+ * import { asImage, asText } from "@lamido/content/fields";
+ *
+ * const content = createWebsiteClient();
+ * const page = await content.getPage("home");           // null when unpublished
+ * const hero = page?.section("hero") ?? { fields: {} };  // never null for a missing section
+ * const title = asText(hero.fields, "title");            // "" rather than undefined
+ * ```
  */
+
+export type { AggregateMetric, AggregateQuery } from "./aggregate.js";
+export type { AssetMethods, AssetRegistration, UploadTokenRequest } from "./client/assets.js";
+export type {
+  CollectionMethods,
+  ItemListOptions,
+  ItemOptions,
+  ItemPatch,
+  NewItem,
+  ReorderOptions,
+} from "./client/collections.js";
+export {
+  type ContentClient,
+  createContentClient,
+  tryCreateContentClient,
+} from "./client/create.js";
+export type {
+  DatasetMethods,
+  NewRecord,
+  RecordListOptions,
+  RecordOptions,
+  RecordPatch,
+} from "./client/datasets.js";
+export type { IdentityMethods } from "./client/identity.js";
+export type {
+  PageListOptions,
+  PageMethods,
+  PublishOptions,
+  RenderedPageOptions,
+} from "./client/pages.js";
+export {
+  ContentApiError,
+  type ContentErrorCode,
+  type ContentErrorDetails,
+} from "./errors.js";
+export type { ListOptions, LocaleOptions, RequestOptions } from "./options.js";
+export type { PageSection, PublishedPage } from "./page.js";
+export type {
+  AggregateGroup,
+  ClientIdentity,
+  ClientPage,
+  CollectionItem,
+  CollectionSummary,
+  ContentAsset,
+  ContentDocument,
+  ContentHealth,
+  ContentImage,
+  ContentList,
+  ContentRow,
+  ContentSite,
+  ContentValue,
+  ContentView,
+  DatasetRecord,
+  DatasetSummary,
+  DeleteResult,
+  ImageContentType,
+  ItemStatus,
+  PageDocument,
+  PageDocumentSection,
+  PageStructure,
+  PageVersion,
+  PublishedPageSummary,
+  PublishResult,
+  RecordData,
+  RecordInsert,
+  RestoreResult,
+  RevertResult,
+  UploadToken,
+  VersionSummary,
+} from "./types.js";
+export {
+  type RevalidationEvent,
+  type RevalidationInput,
+  type RevalidationVerdict,
+  signatureHeader,
+  timestampHeader,
+  verifyRevalidationWebhook,
+} from "./webhook.js";
+export {
+  createWebsiteClient,
+  tryCreateWebsiteClient,
+} from "./website/create.js";
+export type { WebsiteClient } from "./website/reads.js";
 
 /**
  * The version of this package, as published.
  *
  * @remarks
- * Kept in step with `package.json` by a test, so a release cannot ship a constant that
- * disagrees with the tarball it came from.
+ * Kept in step with `package.json` by a test, so a release cannot ship a constant that disagrees
+ * with the tarball it came from.
  */
 export const VERSION = "0.1.0";

@@ -1,15 +1,16 @@
-import type { UserConfig } from "tsdown";
-
 /**
  * Build options shared by every published package, so the output shape cannot drift
- * between them. Each package's `tsdown.config.ts` passes these through unchanged.
+ * between them. Each package's `tsdown.config.mjs` passes these through unchanged.
  *
- * @remarks
- * Each package builds with `tsdown --config-loader tsx`: tsdown's default loader imports the
- * config natively, which cannot resolve this file through the `.js` specifier that NodeNext
- * requires. The tsx loader performs that mapping.
+ * Plain `.mjs`, not TypeScript, and imported by a `.mjs` config: tsdown loads a config with a bare
+ * `import()`, so both files have to be loadable by Node itself on every version that builds this
+ * repository. A `.ts` config needs either Node's own type stripping (22.18+, so not the Node 20 CI
+ * runs on) or tsdown's `--config-loader tsx`, whose loader hooks fail on Node 24. Neither is a
+ * dependency worth having for twenty lines of options that no type checks better than a failing
+ * build already does.
  *
  * @see docs/plans/phase-1-foundations.md §3
+ * @type {import("tsdown").UserConfig}
  */
 export const sharedOptions = {
   entry: ["src/index.ts"],
@@ -24,7 +25,5 @@ export const sharedOptions = {
   // The packages are `"type": "module"`, so ESM is plain `.js` and only CJS needs an
   // explicit extension. Keeps each exports map readable.
   outExtensions: ({ format }) =>
-    format === "es"
-      ? { js: ".js" as const, dts: ".d.ts" as const }
-      : { js: ".cjs" as const, dts: ".d.cts" as const },
-} satisfies UserConfig;
+    format === "es" ? { js: ".js", dts: ".d.ts" } : { js: ".cjs", dts: ".d.cts" },
+};

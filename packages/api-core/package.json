@@ -33,7 +33,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsdown --config-loader tsx",
+    "build": "tsdown",
     "check:package": "publint && attw --pack ."
   },
   "dependencies": {}

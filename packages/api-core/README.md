@@ -44,7 +44,7 @@ Every failed call throws one.
 
 ```ts
 try {
-  await content.pages.get("about");
+  await content.getPage("about");
 } catch (error) {
   if (error instanceof LamidoApiError) {
     error.status;       // HTTP status, or 0 when the request was never made

@@ -33,4 +33,15 @@ describe("buildQuery", () => {
   it("keeps numbers, including zero", () => {
     expect(buildQuery({ offset: 0 })).toBe("?offset=0");
   });
+
+  it("repeats an array parameter rather than joining it", () => {
+    // content-service's `eq` filter is repeatable; a comma-joined value would be one bad filter.
+    expect(buildQuery({ eq: ["manual:false", "beneficiaryId:3f1c"] })).toBe(
+      "?eq=manual%3Afalse&eq=beneficiaryId%3A3f1c",
+    );
+  });
+
+  it("drops an empty array entirely", () => {
+    expect(buildQuery({ eq: [], limit: 5 })).toBe("?limit=5");
+  });
 });

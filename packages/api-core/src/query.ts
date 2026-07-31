@@ -1,5 +1,15 @@
-/** Query parameters as an endpoint function supplies them. */
-export type QueryInit = Record<string, string | number | boolean | null | undefined>;
+/**
+ * Query parameters as an endpoint function supplies them.
+ *
+ * @remarks
+ * An array value is serialised as a **repeated** parameter, not as a comma-joined one, because
+ * that is the form content-service's `eq` filter takes (`?eq=a:1&eq=b:2`, at most three). A
+ * service wanting comma-joined values gets a string from its endpoint function instead.
+ */
+export type QueryInit = Record<
+  string,
+  string | number | boolean | null | undefined | readonly (string | number | boolean)[]
+>;
 
 /**
  * Serialise query parameters.
@@ -18,7 +28,12 @@ export function buildQuery(query: QueryInit | undefined): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === null || value === undefined) continue;
-    params.set(key, typeof value === "boolean" ? String(value) : String(value));
+    if (Array.isArray(value)) {
+      // Appended in order: a service that caps repeats reports which one it rejected by index.
+      for (const entry of value) params.append(key, String(entry));
+      continue;
+    }
+    params.set(key, String(value));
   }
 
   const serialised = params.toString();

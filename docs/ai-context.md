@@ -81,6 +81,83 @@ Phase 2 is complete: `@lamido/api-core` exports the eight primitives its plan li
   overage is the doc-comment density CLAUDE.md requires.
 - **`lib` now includes `DOM.Iterable`**, for `Headers.entries()` when merging request headers.
 
+## Phase 3 decisions, and where they deviate from the plan
+
+Phase 3 is complete: `@lamido/content` ships both consumer tiers, the field-descriptor layer on a
+`./fields` subpath, and the revalidation verifier.
+
+- **`FieldType` has all seven types the service has, not the plan's five.** The plan ports the type
+  model from `site-integration §3` verbatim, where it is `text | richtext | url | image | list` —
+  one site's subset. The service's contract has `number` and `boolean` too, and because
+  `prepareValues` iterates the *descriptor*, a type the table cannot express is a field that can
+  never be saved. Same reasoning extends `ListEntryDescriptor.type` to every type except `list`,
+  which is exactly what the service's item schema accepts. *(Confirmed with the user before
+  implementing.)*
+- **`prepareValues` parses the string forms of `number` and `boolean`.** `"1500"` and `"true"`
+  become `1500` and `true`; anything else is a per-field error. A `FormData` submission has no
+  other shape to offer, and the strict patterns mean `""` is an error rather than a silent `0`.
+- **`reorderItems` takes the complete set as a required argument.** Its exit criterion — throws
+  locally on an incomplete array, before any request — is unsatisfiable otherwise: the SDK cannot
+  know what "complete" means without either being told or making the round trip the check exists to
+  save. The caller passes the list it just rendered from. *(Also confirmed with the user.)*
+- **`getCollectionItem` exists, though the plan's §2 table omits it.** The exit criterion asks for
+  *every* website-tier endpoint, and `GET /api/content/collections/:key/items/:idOrSlug` is one of
+  the six the tier documents.
+- **Only a documented `404` becomes `null`.** `getPage`, `getCollection`, `getCollectionItem`,
+  `getRecord` and the *website* aggregate answer `null`; every client-tier read of a page, an item
+  or a dataset aggregate throws, because there a `404` means a wrong slug or key rather than absent
+  content. The plan's sentence about the aggregate returning `null` "when the read failed" is
+  deliberately not implemented — swallowing a `500` would hide an outage, and the plan's own rule
+  says a `404` maps to `null` only where the documentation calls it normal.
+- **An `image` key in a submission always counts as a change.** A read document carries the
+  resolved `{ url, alt, width, height }` and never the `assetId`, so equality cannot be proven.
+  Documented on `prepareValues`, with the service's own advice: give an image its own save action.
+- **A never-set field submitted as `""` is not a change.** Otherwise opening a form and pressing
+  Save would write a blank draft for every field nobody has ever filled in — and arm a publish
+  across the whole page, which is the exact accident the empty-diff rule exists to prevent.
+- **`getHealth` smuggles a `503` back through the transport's error path.** A private error
+  subclass carries the degraded body and is caught immediately. The alternative was a second
+  `fetch` call in the package — a second place the credential is attached — which is a worse trade
+  than the detour.
+- **`buildQuery` in `@lamido/api-core` now serialises an array as a repeated parameter.** Needed by
+  content-service's `eq` filter (`?eq=a:1&eq=b:2`, at most three), and phase 2 had no shape for it.
+  Backwards compatible; `metrics` stays comma-joined because that is what the service wants.
+- **`parseContentError` is typed as returning `ContentApiError`, not core's `ErrorParser`.** It
+  still satisfies that type where it is used, and a caller reading `details.unknownKeys` at the one
+  place the shape is known should not need a cast.
+- **Client methods are flat, not namespaced.** `content.getPage("home")`, not
+  `content.pages.get("home")` — the plan names every method that way. Two examples in `api-core`'s
+  doc comments used the namespaced form and were corrected.
+- **`typesVersions` maps the `./fields` subpath.** A pre-`exports` TypeScript resolution reads
+  nothing else, so without it `attw`'s node10 column reports the subpath as resolving to no types.
+  A cross-package test in `test/package-shape.test.ts` now requires a mapping for every declared
+  subpath.
+
+## Build tooling: the tsdown configs are `.mjs`
+
+Phase 1 chose `tsdown --config-loader tsx` because tsdown's native loader cannot resolve
+`../../tsdown.base.js` — the specifier NodeNext requires for a `.ts` file. **That loader breaks on
+Node 24**: tsx's CJS hook fails to read `node:fs?tsx-namespace=…`, so `pnpm build` died before
+compiling anything.
+
+`tsdown.base.ts` and the four `tsdown.config.ts` files are therefore now `.mjs`, and the build
+scripts are plain `tsdown`. Both files are loadable by Node itself on **every** version that builds
+this repository, which a `.ts` config is not: it needs either Node's own type stripping (22.18+, so
+not the Node 20 CI runs on) or a loader hook. The `@type` JSDoc on `sharedOptions` keeps the editor
+hover; nothing else is lost, because a wrong option fails the build immediately. They are out of
+`tsconfig.json`'s `include` as a result.
+
+Two related workspace-resolution notes, both needed the moment a service package imported
+`@lamido/api-core`:
+
+- **`tsconfig.json` maps `@lamido/api-core` to its source** so `pnpm typecheck` runs from a clean
+  clone. Deliberately *not* in each package's own `tsconfig.json`: tsdown reads those, and it must
+  resolve core the way a consumer does, or the emitted `.d.ts` would inline a copy of core's types
+  instead of importing them. Verified — `packages/content/dist/index.d.ts` imports from
+  `"@lamido/api-core"`.
+- **`vitest.config.ts` aliases the same specifier** to core's source, so the suites run without a
+  build. `test:node-baseline` is the one that exercises `dist/`.
+
 ## Settled
 
 - **Licence: MIT, `Copyright (c) 2026 Lamido`.** Confirmed 2026-07-30. Applies to all four
@@ -88,8 +165,9 @@ Phase 2 is complete: `@lamido/api-core` exports the eight primitives its plan li
 
 ## Open questions
 
-- **The knowledge base has an unmerged fix.** Branch `fix/openapi-yaml-scalars` in
-  `../knowledge-base` quotes two `description` scalars that contained `: ` inside backticks,
-  which made `content-service/openapi.yaml` and `payment-service/openapi.yaml` unparseable as
-  YAML. Committed locally, not pushed. Until it merges, a fresh clone of the knowledge base
-  cannot generate types, and `pnpm contracts:drift` will report the pinned copies as ahead.
+- **The local knowledge-base clone is behind its own remote.** The YAML-scalar fix that phase 1
+  needed is merged — `origin/main` is `b428f53`, the commit `contracts/CONTRACTS.json` pins — but the
+  clone's local `main` sits at `184f7a0`, which predates `content-service/` existing in the
+  repository at all. Phase 3 read its reference docs out of `origin/main` with `git show`. **Run
+  `git pull` in `../knowledge-base` before `pnpm contracts:import` or `pnpm contracts:drift`**, or
+  either will look at a tree with no content-service in it.

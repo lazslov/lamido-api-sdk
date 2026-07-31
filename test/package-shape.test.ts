@@ -55,13 +55,43 @@ describe.each(packageDirs)("packages/%s", (dir) => {
     expect(manifest.type).toBe("module");
   });
 
-  it("exports types for both module systems", () => {
-    expect(manifest.exports).toEqual({
-      ".": {
-        import: { types: "./dist/index.d.ts", default: "./dist/index.js" },
-        require: { types: "./dist/index.d.cts", default: "./dist/index.cjs" },
-      },
-    });
+  it("exports types for both module systems, on every subpath it declares", () => {
+    // Named per condition rather than through one shared "types" key: that is what makes `attw`
+    // clean on all four resolution modes. A subpath arrives with the phase that builds it, so the
+    // expectation is derived from the declared keys rather than fixed at one entry.
+    const entries = Object.entries(manifest.exports as Record<string, unknown>);
+    expect(entries.length).toBeGreaterThan(0);
+
+    for (const [subpath, conditions] of entries) {
+      const stem = subpath === "." ? "index" : `${subpath.slice(2)}/index`;
+      expect(conditions).toEqual({
+        import: { types: `./dist/${stem}.d.ts`, default: `./dist/${stem}.js` },
+        require: { types: `./dist/${stem}.d.cts`, default: `./dist/${stem}.cjs` },
+      });
+    }
+  });
+
+  it("declares only the subpaths its phase has built", () => {
+    const expected = dir === "content" ? [".", "./fields"] : ["."];
+    expect(Object.keys(manifest.exports as Record<string, unknown>)).toEqual(expected);
+  });
+
+  it("maps every subpath for the legacy resolver too", () => {
+    // A pre-`exports` TypeScript resolution reads "typesVersions" and nothing else, so a subpath
+    // missing from it resolves to no types at all — which is what `attw`'s node10 column reports.
+    const subpaths = Object.keys(manifest.exports as Record<string, unknown>).filter(
+      (subpath) => subpath !== ".",
+    );
+    const mapped =
+      (manifest.typesVersions as Record<string, Record<string, string[]>>)?.["*"] ?? {};
+
+    for (const subpath of subpaths) {
+      const name = subpath.slice(2);
+      expect(mapped[name], `${subpath} is missing from typesVersions`).toEqual([
+        `./dist/${name}/index.d.ts`,
+      ]);
+    }
+    expect(Object.keys(mapped)).toEqual(subpaths.map((subpath) => subpath.slice(2)));
   });
 
   it("exports a VERSION matching its package.json", async () => {

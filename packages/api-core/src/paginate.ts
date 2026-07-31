@@ -35,7 +35,9 @@ export interface CollectAllOptions {
  *
  * @example
  * ```ts
- * const pages = await collectAll(({ limit, offset }) => content.pages.list({ limit, offset }));
+ * const items = await collectAll(({ limit, offset }) =>
+ *   content.getCollection("news", { limit, offset }).then((page) => page ?? { items: [], total: 0 }),
+ * );
  * ```
  */
 export async function collectAll<T>(

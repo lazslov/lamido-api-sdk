@@ -1,0 +1,20 @@
+{
+  "name": "valid-collection-item",
+  "describes": "a collection item, whose version is null because items have no versions",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"site\":\"acme_foundation\",\"type\":\"collection_item\",\"slug\":\"elso_hir\",\"collection\":\"news\",\"version\":null,\"publishedAt\":\"2026-07-28T09:12:44.101Z\"}",
+  "timestamp": "1785168000",
+  "signature": "sha256=b5a0e644671bee91d6bac3c7335eeb9749d1da631065c6eb6c187c3a6a9cc9ac",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": true,
+    "event": {
+      "site": "acme_foundation",
+      "type": "collection_item",
+      "slug": "elso_hir",
+      "collection": "news",
+      "version": null,
+      "publishedAt": "2026-07-28T09:12:44.101Z"
+    }
+  }
+}

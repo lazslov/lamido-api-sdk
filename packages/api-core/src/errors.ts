@@ -37,7 +37,7 @@ export interface ApiErrorInit {
  * @example
  * ```ts
  * try {
- *   await content.pages.get("about");
+ *   await content.getPage("about");
  * } catch (error) {
  *   if (error instanceof LamidoApiError && error.status === 404) return renderNotFound();
  *   throw error;

@@ -1,0 +1,13 @@
+{
+  "name": "bad-signature-tampered-slug",
+  "describes": "the signature of one body presented with another — the slug was edited in flight",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"site\":\"acme_foundation\",\"type\":\"page\",\"slug\":\"pricing\",\"collection\":null,\"version\":8,\"publishedAt\":\"2026-07-28T09:12:44.101Z\"}",
+  "timestamp": "1785168000",
+  "signature": "sha256=d2d4d0951d154c203911154cd56a558ebaa1991ac2911fc6681cb88bde2b3af2",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": false,
+    "reason": "bad_signature"
+  }
+}

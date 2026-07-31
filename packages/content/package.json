@@ -25,6 +25,23 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./fields": {
+      "import": {
+        "types": "./dist/fields/index.d.ts",
+        "default": "./dist/fields/index.js"
+      },
+      "require": {
+        "types": "./dist/fields/index.d.cts",
+        "default": "./dist/fields/index.cjs"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "fields": [
+        "./dist/fields/index.d.ts"
+      ]
     }
   },
   "files": [
@@ -33,7 +50,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsdown --config-loader tsx",
+    "build": "tsdown",
     "check:package": "publint && attw --pack ."
   },
   "dependencies": {

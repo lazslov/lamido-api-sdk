@@ -1,0 +1,13 @@
+{
+  "name": "missing-signature",
+  "describes": "no signature header at all — an unsigned POST is one any stranger could forge",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"site\":\"acme_foundation\",\"type\":\"page\",\"slug\":\"home\",\"collection\":null,\"version\":8,\"publishedAt\":\"2026-07-28T09:12:44.101Z\"}",
+  "timestamp": "1785168000",
+  "signature": null,
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": false,
+    "reason": "missing_signature"
+  }
+}

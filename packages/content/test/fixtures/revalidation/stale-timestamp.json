@@ -1,0 +1,13 @@
+{
+  "name": "stale-timestamp",
+  "describes": "a correctly signed delivery replayed 301 seconds later, one second past tolerance",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"site\":\"acme_foundation\",\"type\":\"page\",\"slug\":\"home\",\"collection\":null,\"version\":8,\"publishedAt\":\"2026-07-28T09:12:44.101Z\"}",
+  "timestamp": "1785167699",
+  "signature": "sha256=543d3ee9a588beabcc44c756c39bb122654eed48f87522cc4191e7a5d7c4e5f8",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": false,
+    "reason": "stale_timestamp"
+  }
+}

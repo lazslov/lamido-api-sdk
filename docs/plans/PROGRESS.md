@@ -3,20 +3,22 @@
 Live status of the eight phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are:** phases 1 and 2 are complete and verified locally. Nothing is published, and
-nothing is pushed — branch `phase-1-foundations`, commits `195a913` and `af64491`.
+**Where we are:** phases 1, 2 and 3 are complete and verified locally — `pnpm verify` is green,
+including `publint` and `attw` on the new `@lamido/content/fields` subpath. Nothing is
+published, and nothing is pushed.
 
-**What's next:** phase 3 (`@lamido/content`). Phases 3, 4 and 5 are independent of each other;
-the plan's suggested first cut is 1 + 2 + 3 + 6 published as `0.1.0`.
+**What's next:** phase 4 (`@lamido/invoice`) or phase 5 (`@lamido/payment`) — they and phase 3
+are independent of each other. Phase 6 needs 3 and 5, and the plan's suggested first cut is
+1 + 2 + 3 + 6 published as `0.1.0`, so phase 5 is the shorter path to a release.
 
 | # | Phase | State |
 |---|---|---|
 | 1 | [Foundations](phase-1-foundations.md) | ✅ done |
 | 2 | [`@lamido/api-core`](phase-2-api-core.md) | ✅ done |
-| 3 | [`@lamido/content`](phase-3-content.md) | ⬜ next |
-| 4 | [`@lamido/invoice`](phase-4-invoice.md) | ⬜ not started |
-| 5 | [`@lamido/payment`](phase-5-payment.md) | ⬜ not started |
-| 6 | [Framework adapters](phase-6-next-adapters.md) | ⬜ blocked on 3 and 5 |
+| 3 | [`@lamido/content`](phase-3-content.md) | ✅ done |
+| 4 | [`@lamido/invoice`](phase-4-invoice.md) | ⬜ next |
+| 5 | [`@lamido/payment`](phase-5-payment.md) | ⬜ next |
+| 6 | [Framework adapters](phase-6-next-adapters.md) | ⬜ blocked on 5 |
 | 7 | [Verification](phase-7-verification.md) | ⬜ blocked on 2–6 |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | ⬜ blocked on 7 |
 
@@ -60,23 +62,25 @@ Deviations from the plans and the reasoning behind them are in
 
 ---
 
-## ⬜ Phase 3 — `@lamido/content` (next)
+## ✅ Phase 3 — `@lamido/content`
 
-- [ ] Every website-tier and client-tier consumer endpoint is callable. Admin endpoints absent
-- [ ] `getPage` on an unpublished slug returns `null`; a 401 from the same call throws
-- [ ] `page.section("nope")` returns an empty section, not `null`, and does not throw
-- [ ] `asText` returns `""` for both an absent key and a stored `""`, and a test asserts a
+- [x] Every website-tier and client-tier consumer endpoint is callable. Admin endpoints absent
+- [x] `getPage` on an unpublished slug returns `null`; a 401 from the same call throws
+- [x] `page.section("nope")` returns an empty section, not `null`, and does not throw
+- [x] `asText` returns `""` for both an absent key and a stored `""`, and a test asserts a
       stored `""` is not replaced by a default
-- [ ] `prepareValues` drops a key absent from the descriptor, returns `{}` when nothing changed,
+- [x] `prepareValues` drops a key absent from the descriptor, returns `{}` when nothing changed,
       preserves a stored option outside `options`, and rejects a bad `url` with a per-field error
-- [ ] No exported method writes a whole document or a whole list — grep-asserted
-- [ ] `reorderItems` throws locally on an incomplete array, before any request
-- [ ] `createRecord` reports `created: false` on a replay rather than throwing
-- [ ] `getHealth` returns the degraded body on a 503 instead of throwing
-- [ ] `verifyRevalidationWebhook` passes fixtures covering `slug: null` and `version: null`
-- [ ] `createContentClient` throws in a browser with a `csk_`; `createWebsiteClient` with a
+- [x] No exported method writes a whole document or a whole list — grep-asserted
+- [x] `reorderItems` throws locally on an incomplete array, before any request
+- [x] `createRecord` reports `created: false` on a replay rather than throwing
+- [x] `getHealth` returns the degraded body on a 503 instead of throwing
+- [x] `verifyRevalidationWebhook` passes fixtures covering `slug: null` and `version: null`
+- [x] `createContentClient` throws in a browser with a `csk_`; `createWebsiteClient` with a
       `cpk_` does not
-- [ ] `tryCreateContentClient()` with no env returns `null`, and a site built on it renders
+- [x] `tryCreateContentClient()` with no env returns `null`, and a site built on it renders
+      *(the `null` and the degraded read are covered; "a site renders" waits for the example
+      project in [phase 7](phase-7-verification.md))*
 
 ## ⬜ Phase 4 — `@lamido/invoice`
 
@@ -136,7 +140,7 @@ Deviations from the plans and the reasoning behind them are in
 ## ⬜ Phase 7 — Verification *(needs 2–6)*
 
 - [ ] Unit suite covers every exported function in all four packages; the four credential-leak
-      tests pass in each *(done for `api-core`)*
+      tests pass in each *(done for `api-core` and `content`)*
 - [x] HMAC fixtures pass under Node 18, Node 20, and a stripped environment with no
       `node:crypto`, `Buffer` or `process` *(satisfied in phase 2)*
 - [ ] Every JSON example in the three doc folders parses into its declared SDK type
@@ -169,10 +173,12 @@ Deviations from the plans and the reasoning behind them are in
 
 Things outside any phase's exit criteria that still need a decision or an action.
 
-- [ ] **Push the knowledge-base fix.** Branch `fix/openapi-yaml-scalars` in `../knowledge-base`
-      (commit `b428f53`) quotes two `description` scalars that made
-      `content-service/openapi.yaml` and `payment-service/openapi.yaml` unparseable as YAML.
-      Committed locally, never pushed. Until it merges, a fresh KB clone cannot generate types.
-- [ ] **Push this repository's work.** Two commits sit on `phase-1-foundations` with no remote
-      branch, so CI has never actually run — every step has been verified locally instead.
+- [x] **The knowledge-base fix is merged.** `fix/openapi-yaml-scalars` (commit `b428f53`) is now
+      `origin/main` in `../knowledge-base`, so a fresh clone can generate types again. Note that
+      the local clone's `main` is *behind* that — it sits at `184f7a0`, which predates
+      `content-service/` existing at all. Run `git pull` there before `pnpm contracts:drift`.
+- [ ] **Push this repository's work.** The commits sit on a local branch with no remote, so CI has
+      never actually run — every step has been verified locally instead.
+- [ ] **Node 20 in CI has not built the `.mjs` tsdown configs.** The change below was verified on
+      Node 24 here; the first push is what proves it on the version CI uses.
 - [x] **Licence confirmed:** MIT, `Copyright (c) 2026 Lamido`.
