@@ -8,7 +8,10 @@
       // Machine output. The leak guard still scans these files — only Biome skips them.
       "!packages/*/src/generated",
       // Pinned upstream contracts are not ours to format.
-      "!contracts"
+      "!contracts",
+      // A Next build's own output, in the smoke project. Minified machine code, and Biome would
+      // otherwise report the comma operator and unused parameters in it as findings of ours.
+      "!examples/*/.next"
     ]
   },
   "formatter": {

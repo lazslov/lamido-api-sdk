@@ -61,6 +61,15 @@ const forbiddenArtifacts: readonly { readonly pattern: RegExp; readonly why: str
   { pattern: /^contracts\//i, why: "a pinned upstream contract" },
   { pattern: /(^|\/)(test|tests|__tests__|fixtures)\//i, why: "a test or fixture directory" },
   { pattern: /\.test\.[cm]?[jt]sx?$/i, why: "a test file" },
+  // Matched by name wherever it sits, not only under `contracts/`. `servers:` is stripped on import, so
+  // a packed contract is not automatically a leak — but the document has no business shipping either
+  // way, and the rule that catches it must not depend on which directory someone copied it into.
+  {
+    pattern: /\.(openapi|swagger)\.ya?ml$|(^|\/)(openapi|swagger)\.(ya?ml|json)$/i,
+    why: "an OpenAPI document, which no consumer needs and which carries upstream host templates",
+  },
+  // A tsconfig names paths on the machine that built it and is not part of a published surface.
+  { pattern: /(^|\/)tsconfig(\..+)?\.json$/i, why: "a TypeScript config" },
 ];
 
 /** True when a first path segment is one npm force-includes. */

@@ -3,14 +3,15 @@
 Live status of the eight phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are:** every build phase — 1 through 6 — is complete and verified locally. `pnpm verify` is
-green, including `publint` and `attw` on all four packages and on all four declared subpaths
-(`@lamido/content/fields`, `@lamido/content/next`, `@lamido/payment/next`). Nothing is published, and
-nothing is pushed.
+**Where we are:** every build phase — 1 through 6 — is complete. Phase 7 is mostly built: `pnpm verify`
+is green (727 unit tests, 21 Node-18 baseline tests, 9 consumer smoke checks, `publint` + `attw` on all
+four packages and all four subpaths, four clean tarballs, zero transitive runtime dependencies), both
+example projects exist and build, and the live suite is written. Nothing is published and nothing is
+pushed.
 
-**What's next:** phase 7 (verification) is unblocked, and its §5 consumer smoke projects now carry two
-exit criteria handed over from phase 6 — see that phase's notes below. The plan's suggested first cut,
-1 + 2 + 3 + 6 as `0.1.0`, is now buildable.
+**What's next:** three of phase 7's criteria are **blocked on things outside this repository** —
+sandbox credentials, a Vercel deployment, and a first push. [../live-testing.md](../live-testing.md) is
+the checklist for the first two. One unblocked item remains: the doc-example fixtures.
 
 | # | Phase | State |
 |---|---|---|
@@ -20,7 +21,7 @@ exit criteria handed over from phase 6 — see that phase's notes below. The pla
 | 4 | [`@lamido/invoice`](phase-4-invoice.md) | ✅ done |
 | 5 | [`@lamido/payment`](phase-5-payment.md) | ✅ done |
 | 6 | [Framework adapters](phase-6-next-adapters.md) | ✅ done |
-| 7 | [Verification](phase-7-verification.md) | ⬜ next |
+| 7 | [Verification](phase-7-verification.md) | 🟡 built, partly unproven |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | ⬜ blocked on 7 |
 
 Deviations from the plans and the reasoning behind them are in
@@ -151,24 +152,44 @@ Deviations from the plans and the reasoning behind them are in
 > half,** which its §5 already owns. Confirmed with the user rather than assumed; the reasoning is in
 > [../ai-context.md](../ai-context.md).
 
-## ⬜ Phase 7 — Verification *(2–6 are done; this is next)*
+## 🟡 Phase 7 — Verification *(built; three criteria blocked outside this repository)*
 
-Its §5 also carries phase 6's two fixture-project criteria: `examples/node-script` proves both packages
-install and `require` with no `next` present, and `examples/next-site` is the real App Router app that
-renders through mode A and receives a signed revalidation POST.
+Its §5 also carried phase 6's two fixture-project criteria, and both are now met: `examples/node-script`
+proves the packages resolve through the `require` condition with an empty environment, and
+`examples/next-site` is a real App Router app rendering through mode A with the revalidation route and a
+server action.
 
-- [ ] Unit suite covers every exported function in all four packages; the four credential-leak
-      tests pass in each *(done for all four, subpaths included)*
+**What cannot be finished here, and why:** the live suite needs sandbox credentials for three services;
+`x-vercel-cache: HIT` needs a deployment; "CI green" needs a push. The first two have a checklist in
+[../live-testing.md](../live-testing.md) — the short version is that the *contract* suite runs fine
+against services on `localhost`, and only the caching claim genuinely needs Vercel.
+
+- [x] Unit suite covers every exported function in all four packages; the four credential-leak
+      tests pass in each *(727 tests, subpaths included)*
 - [x] HMAC fixtures pass under Node 18, Node 20, and a stripped environment with no
       `node:crypto`, `Buffer` or `process` *(satisfied in phase 2)*
-- [ ] Every JSON example in the three doc folders parses into its declared SDK type
-- [ ] Type-level tests pass, including every "must be a compile error" case
-- [ ] `audit-tarballs` passes on all four packages, and its negative tests prove it still
-      detects each forbidden pattern
-- [ ] `pnpm test:live` passes against sandbox/dev tenants for all three services
-- [ ] Both example projects build, and both build with an empty environment
-- [ ] `examples/next-site` shows `x-vercel-cache: HIT` on a second `curl -sI` of a mode-A route
-- [ ] CI green with zero runtime dependencies per `pnpm why`, except the `@lamido/api-core` edge
+- [ ] **Every JSON example in the three doc folders parses into its declared SDK type** — *the one
+      unblocked item still outstanding. Needs an extraction script over the knowledge base's fenced
+      JSON blocks, sanitised into committed fixtures, plus a per-example type assertion. Not started;
+      deliberately not half-done, because a partial version would report green over unchecked examples.*
+- [x] Type-level tests pass, including every "must be a compile error" case *(each is a
+      `@ts-expect-error`, so `pnpm typecheck` is what runs them; plus the three error unions'
+      exhaustive `switch` in `test/error-codes.test.ts`)*
+- [x] `audit-tarballs` passes on all four packages, and its negative tests prove it still
+      detects each forbidden pattern *(`test/audit-detects.test.ts` plants each one and asserts it is
+      caught, then asserts a clean package still passes)*
+- [ ] `pnpm test:live` passes against sandbox/dev tenants for all three services — **written, never
+      run.** 22 cases across the three services, gated on env and skipping loudly with none set. Needs
+      a provisioned sandbox: [../live-testing.md](../live-testing.md) is the checklist.
+- [x] Both example projects build, and both build with an empty environment *(`examples/node-script`
+      runs in `pnpm verify`; `examples/next-site` builds in CI, and its `/` comes out prerendered —
+      asserted from the build's own prerender manifest, not by grepping output)*
+- [ ] `examples/next-site` shows `x-vercel-cache: HIT` on a second `curl -sI` of a mode-A route —
+      **blocked:** that header is produced by Vercel's edge and by nothing else, so it needs a
+      deployment. The build-time half (the route is still prerendered) *is* asserted in CI.
+- [ ] CI green with zero runtime dependencies per `pnpm why`, except the `@lamido/api-core` edge —
+      `pnpm deps:audit` asserts the dependency half locally and is wired into CI. **"CI green" itself
+      is blocked on the first push**, which is the carried-forward item below.
 
 ## ⬜ Phase 8 — Release & drift *(needs 7)*
 

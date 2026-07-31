@@ -13,6 +13,12 @@
     // the package name instead of inlining a copy of its types.
     "paths": {
       "@lamido/api-core": ["./packages/api-core/src/index.ts"],
+      // The live suite imports the service packages the way a consumer does, by name, because that is
+      // the surface it is verifying. Mapped to source for the same reason as core: so a check runs from
+      // a clean clone. Each package's own tsconfig maps none of these.
+      "@lamido/content": ["./packages/content/src/index.ts"],
+      "@lamido/invoice": ["./packages/invoice/src/index.ts"],
+      "@lamido/payment": ["./packages/payment/src/index.ts"],
       // `next` ships no `exports` map, so a NodeNext resolver cannot find an extension-less
       // subpath — a Next project's own tsconfig uses `moduleResolution: "bundler"`, which can.
       // Mapped rather than importing `next/cache.js`, because `next/cache` is the specifier every
@@ -28,6 +34,8 @@
     "packages/*/test/**/*.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
-    "vitest.config.ts"
+    "live/**/*.ts",
+    "vitest.config.ts",
+    "vitest.live.config.ts"
   ]
 }

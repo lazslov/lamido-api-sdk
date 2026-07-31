@@ -18,7 +18,7 @@
  * offered, and the honest requirement behind it (a live total must not be a minute stale) was real.
  */
 
-import type { ServiceConfig } from "@lamido/api-core";
+import { NotConfiguredError, type ServiceConfig } from "@lamido/api-core";
 import { type ContentClient, createContentClient } from "../client/create.js";
 import { createWebsiteClient } from "../website/create.js";
 import type { WebsiteClient } from "../website/reads.js";
@@ -150,4 +150,39 @@ export function createNextContentGateway(config: NextGatewayConfig = {}): NextCo
     client: createContentClient({ ...service, defaultInit: uncachedInit }),
     tag,
   };
+}
+
+/**
+ * The same gateway, or `null` when nothing is configured.
+ *
+ * @param config - As {@link createNextContentGateway}.
+ * @returns The gateway, or `null`.
+ * @throws `Error` for a leaked key in a browser. That is not a missing configuration.
+ * @remarks
+ * This is what lets a site **build and render with no `CONTENT_SERVICE_*` variables set at all** — which
+ * is how a new contributor runs the project, and a first-class requirement rather than a nicety.
+ *
+ * It matters more here than on the plain constructors. A gateway is idiomatically constructed at **module
+ * scope** in one `lib/content.ts`, and a Next build imports that module while prerendering — so a throw
+ * there is not a degraded page, it is a failed build with no environment to explain it.
+ *
+ * @example
+ * ```ts
+ * // lib/content.ts
+ * import "server-only";
+ * export const content = tryCreateNextContentGateway();
+ *
+ * // app/page.tsx
+ * const page = (await content?.published.getPage("home")) ?? null;   // placeholders when unset
+ * ```
+ */
+export function tryCreateNextContentGateway(
+  config: NextGatewayConfig = {},
+): NextContentGateway | null {
+  try {
+    return createNextContentGateway(config);
+  } catch (error) {
+    if (error instanceof NotConfiguredError) return null;
+    throw error;
+  }
 }

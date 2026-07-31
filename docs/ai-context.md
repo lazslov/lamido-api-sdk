@@ -289,6 +289,57 @@ the server-action error shape; `@lamido/payment/next` ships the webhook handler.
 - **`sharp: false` in `pnpm-workspace.yaml`.** It arrives with `next` and its native build is dead
   weight here — nothing in this repository runs Next or optimises an image.
 
+## Phase 7 decisions, and where they deviate from the plan
+
+Phase 7 is built but not fully proven — three criteria need a sandbox tenant, a Vercel deployment and a
+push. [live-testing.md](live-testing.md) is the operator checklist for the first two.
+
+- **The live suite is written and has never run.** 22 cases, gated on env, skipping *loudly*: the report
+  is a `globalSetup` rather than a `beforeAll`, because a `beforeAll` inside a skipped suite never runs
+  and Vitest intercepts console output from inside tests — so with no credentials the warning would have
+  been exactly as silent as the thing it exists to warn about.
+- **`failure()` rather than `.catch(e => e)`.** Every negative case goes through a helper that **throws
+  when the call succeeds**. A `.catch` that returns the error compares `undefined` to `undefined` and
+  passes on a `200`, which for a suite whose whole job is asserting *which* refusal arrives would be
+  worthless.
+- **Writes are off by default (`LIVE_ALLOW_WRITES`).** Not because a sandbox key is unsafe — mode is a
+  property of the credential and `PAYMENT_PROVIDERS_ALLOW_LIVE` is `false` outside production — but
+  because **payment-service's preview and production share one `DATABASE_URL` and one
+  `PUBLIC_BASE_URL`.** A payment created from a preview is a real production row. "It looked like a
+  sandbox" is not a guard.
+- **No live case publishes, and no live case issues an invoice.** A publish makes every unpublished draft
+  on that page live; an invoice create is a real document reported to NAV. The content write case reads a
+  value and patches it back **unchanged** — and only a *string* value, because an image reads as the
+  resolved `{ url, alt, width, height }` and writes as `{ assetId, alt }`, so patching a read image back
+  is not a round trip at all. The compiler caught that one.
+- **`tryCreateNextContentGateway` was added here, not in phase 6.** Phase 7's "both examples build with an
+  empty environment" is unsatisfiable without it: a gateway is idiomatically constructed at *module scope*
+  in one `lib/content.ts`, and a Next build imports that module while prerendering — so the strict
+  constructor's throw is a failed build, not a degraded page.
+- **`examples/node-script` cannot prove "next is not installed".** The first version asserted
+  `require("@lamido/content/next")` throws. It does not: pnpm hoists the repository's own `next`
+  devDependency to the root and Node's resolution walks up into it, so no project inside this workspace
+  can simulate its absence. The assertion now checks the *built artifact* — no main entry's shipped CJS
+  contains a `require("next…")` — which is the thing that actually matters to an Astro consumer. The real
+  isolation proof is phase 8's `pnpm add` smoke, outside the monorepo.
+- **`pnpm deps:audit` must exclude declared peers, and must run from the root with `--filter`.** Two
+  findings, both non-obvious: an unfiltered `pnpm list` inside a workspace package reports the *whole
+  workspace*, and `pnpm list --prod` **does** report a resolved peer — `next` is satisfied by the root
+  devDependency, which dragged fifty packages of Next's tree into `@lamido/content`'s graph. An optional
+  peer is by definition the consumer's choice, so it and its subtree are skipped by name.
+- **The static-route check reads `prerender-manifest.json`, not the build's console output.** The manifest
+  is the build's own record of what it prerendered. Grepping `○ (Static)` out of stdout would break on any
+  reporter change, on a route whose name wraps, and on a colour setting.
+- **Two new tarball rules:** an OpenAPI document matched **by name wherever it sits** rather than only
+  under `contracts/`, and a `tsconfig`. Neither has any business shipping, and a rule that depends on
+  which directory someone copied a file into is not a rule.
+- **The doc-example fixtures are not started.** The remaining unblocked criterion. It needs an extraction
+  script over the knowledge base's fenced JSON blocks, sanitised into committed fixtures (the KB docs
+  carry the real deployment hosts, so the leak guard would reject them raw), plus a per-example type
+  assertion — and the mapping from example to type cannot be inferred from a fenced block, so it is
+  hand-curated work. Left undone rather than half-done: a partial version reports green over unchecked
+  examples, which is worse than an open checkbox.
+
 ## Build tooling: the tsdown configs are `.mjs`
 
 Phase 1 chose `tsdown --config-loader tsx` because tsdown's native loader cannot resolve
@@ -321,9 +372,18 @@ Two related workspace-resolution notes, both needed the moment a service package
 
 ## Open questions
 
-- **The local knowledge-base clone is behind its own remote.** The YAML-scalar fix that phase 1
-  needed is merged — `origin/main` is `b428f53`, the commit `contracts/CONTRACTS.json` pins — but the
-  clone's local `main` sits at `184f7a0`, which predates `content-service/` existing in the
-  repository at all. Phase 3 read its reference docs out of `origin/main` with `git show`. **Run
-  `git pull` in `../knowledge-base` before `pnpm contracts:import` or `pnpm contracts:drift`**, or
-  either will look at a tree with no content-service in it.
+- **The doc-example fixtures**, above. The only unblocked phase 7 criterion left.
+- **Nothing is pushed, so CI has never run.** Every gate has been verified locally instead. The `next`
+  devDependency now makes a clean install ~150 MB heavier, which is worth knowing before the first
+  CI run.
+
+## Settled since
+
+- **The knowledge-base clone is current.** `../knowledge-base` is at `b428f53` — `origin/main`, and the
+  commit `contracts/CONTRACTS.json` pins — with `content-service/`, `invoice-service/` and
+  `payment-service/` all present in the working tree. The earlier note about a local `main` at `184f7a0`
+  is stale; phases 4, 6 and 7 read their reference docs straight from the working tree.
+- **All three services are cloned on this machine** as siblings — `../content-service`,
+  `../invoice-service`, `../payment-service` — which is what makes the live suite runnable against
+  `localhost` rather than needing anything deployed. `../devora` is a candidate consumer site, currently
+  with no service integration wired up.

@@ -1,5 +1,9 @@
 packages:
   - "packages/*"
+  # Consumer smoke projects. Never published — each declares `"private": true` — and each proves
+  # something no suite inside the repository can: that a real consumer resolves these packages the
+  # way a consumer does. See docs/plans/phase-7-verification.md §5.
+  - "examples/*"
 
 # pnpm refuses to run install scripts unless the package is listed here.
 # Only build-time tooling appears; no published package has an install script.

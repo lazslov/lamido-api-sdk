@@ -1,0 +1,23 @@
+{
+  "name": "@lamido-examples/next-site",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Smoke test: an App Router site reading through cache mode A, with the revalidation route and a server action.",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "verify:static": "node assert-static.mjs",
+    "dev": "next dev",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@lamido/content": "workspace:*",
+    "next": "^16.2.12",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
+  }
+}

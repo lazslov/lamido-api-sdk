@@ -38,6 +38,7 @@ export {
   LIVE_REVALIDATE_SECONDS,
   type NextContentGateway,
   type NextGatewayConfig,
+  tryCreateNextContentGateway,
 } from "./gateway.js";
 export { createRevalidationHandler, type RevalidationHandlerOptions } from "./handler.js";
 export { revalidateAfterWrite } from "./revalidate.js";

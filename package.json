@@ -12,6 +12,7 @@
     "build": "pnpm -r build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "test:node-baseline": "node --test packages/*/test/node-baseline.mjs",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
@@ -20,7 +21,8 @@
     "generate:types": "tsx scripts/generate-types.ts",
     "check:leaks": "tsx scripts/check-forbidden-strings.ts",
     "audit:tarballs": "tsx scripts/audit-tarballs.ts",
-    "verify": "pnpm lint && pnpm check:leaks && pnpm typecheck && pnpm test && pnpm build && pnpm test:node-baseline && pnpm -r check:package && pnpm audit:tarballs"
+    "deps:audit": "tsx scripts/audit-dependencies.ts",
+    "verify": "pnpm lint && pnpm check:leaks && pnpm typecheck && pnpm test && pnpm build && pnpm test:node-baseline && pnpm --filter @lamido-examples/node-script smoke && pnpm -r check:package && pnpm audit:tarballs && pnpm deps:audit"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

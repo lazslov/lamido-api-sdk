@@ -54,6 +54,17 @@ jobs:
       - name: Tarball audit
         run: pnpm audit:tarballs
 
+      # The zero-dependency claim, asserted against the resolved graph rather than against each
+      # manifest. `pnpm why` walks what was actually installed, so a transitive runtime dependency
+      # arriving through api-core would fail here and nowhere else.
+      - name: Zero runtime dependencies
+        run: pnpm deps:audit
+
+      # A real consumer, resolving the packages the way a consumer does: plain Node, CJS require, no
+      # framework, and an empty environment. Fast enough to belong in this job.
+      - name: Consumer smoke — plain Node
+        run: pnpm --filter @lamido-examples/node-script smoke
+
       # Handed to the runtime-baseline job below, so it does not rebuild.
       - name: Upload build output
         uses: actions/upload-artifact@v4
@@ -86,3 +97,36 @@ jobs:
 
       - name: Node ${{ matrix.node-version }} baseline
         run: node --test packages/*/test/node-baseline.mjs
+
+  # Kept out of `verify` so a local `pnpm verify` stays seconds rather than paying a Next build. This
+  # is the fixture half of phase 6's peer-dependency criterion: `next` resolves, the `./next` subpath
+  # resolves, and the mode-A route still prerenders.
+  examples:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The examples consume `dist/`, not source.
+      - run: pnpm build
+
+      # No CONTENT_SERVICE_* variables are set in this job, deliberately. Building with an empty
+      # environment is a first-class requirement, not a nicety: it is how a new contributor runs a
+      # client project, and a build that needs a credential cannot be one.
+      - name: next-site builds with an empty environment
+        run: pnpm --filter @lamido-examples/next-site build
+
+      # Read out of the build's own prerender manifest. If `/` ever stops being prerendered, something
+      # opted the route out — the exact regression the three cache modes exist to prevent, and one that
+      # produces no error and no failing test anywhere else.
+      - name: The mode-A route is still static
+        run: pnpm --filter @lamido-examples/next-site verify:static

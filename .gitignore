@@ -5,6 +5,9 @@ dist/
 .env
 .env.*
 
+# A Next build's output, in examples/next-site.
+.next/
+
 # pnpm pack output, and the temp directory audit-tarballs unpacks into.
 *.tgz
 .audit-tarballs/
