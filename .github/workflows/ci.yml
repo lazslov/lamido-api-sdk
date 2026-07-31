@@ -110,6 +110,18 @@ jobs:
           name: dist
           path: packages
 
+      # Three of the four built entry points import `@lazslov/api-core` as a bare specifier, so Node
+      # needs somewhere to resolve it — and this job deliberately runs no `pnpm install`, because
+      # pnpm 11 refuses to start below Node 22.13 and this matrix goes down to 18.17. Hand-linking
+      # the workspace is enough precisely because no published package has a runtime dependency,
+      # which `deps:audit` in `verify` asserts against the resolved graph before this job runs.
+      - name: Link the workspace packages
+        run: |
+          mkdir -p node_modules/@lazslov
+          for pkg in api-core content invoice payment; do
+            ln -sfn "../../packages/$pkg" "node_modules/@lazslov/$pkg"
+          done
+
       - name: Node ${{ matrix.node-version }} baseline
         run: node --test packages/*/test/node-baseline.mjs
 

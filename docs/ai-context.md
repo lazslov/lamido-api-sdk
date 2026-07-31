@@ -383,7 +383,15 @@ token or a registry round trip cannot be met from here.
   every run since phase 3, ~25 seconds in, before a single script executed. Both pnpm jobs are now on
   Node 22 and the root `engines` says `>=22.13`. The **packages** still declare `>=18.17`, and the
   runtime-baseline matrix still proves 18.17/20/22 against `dist/` — that job runs `node --test`
-  directly and never touches pnpm, which is why it was unaffected and why it stays as it is.
+  directly and never touches pnpm, which is why the pnpm floor never reached it.
+- **The runtime-baseline job has to link the workspace by hand.** Running no `pnpm install` is the
+  point of that job — pnpm 11 cannot start on the 18.17 leg of the matrix — but three of the four
+  built entry points import `@lazslov/api-core` as a bare specifier, so with no `node_modules` in the
+  tree Node resolved nothing and `content`/`invoice`/`payment` failed with `ERR_MODULE_NOT_FOUND`
+  while `api-core`, which imports nothing, passed. A `node_modules/@lazslov/*` symlink per package
+  fixes it without an install. This is only sufficient because no published package has a runtime
+  dependency — `deps:audit` asserts that against the resolved graph in `verify`, which this job needs.
+  A local `pnpm test:node-baseline` never saw it: `pnpm install` had already made the links.
 - **`updateInternalDependencies: "minor"`, not the default `"patch"`.** With `"patch"`, a patch to
   `@lazslov/api-core` re-releases all three service packages — which is exactly the coordination the
   plan says publishing core separately exists to avoid. With `"minor"`, a core patch ships alone and
