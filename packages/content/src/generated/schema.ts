@@ -1556,6 +1556,22 @@ export interface paths {
          */
         get: operations["exportSite"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/sites/{id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         /**
          * Apply a site document
          * @description Scope: content:write. mode=merge (default) or replace — REPLACE DELETES THE SITE'S ENTIRE STRUCTURE AND CONTENT. Writes DRAFTS ONLY and never publishes, so it cannot change what visitors see by itself; but it overwrites unpublished drafts, and the next publish of a page carries everything it wrote live. On a merge, an omitted key on a MENTIONED section or field is a written null — keep structure and values in one document. Values are validated against each field's declared type and EVERY problem is reported at once.

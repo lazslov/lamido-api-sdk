@@ -6,7 +6,7 @@ import {
 } from "../scripts/lib/tarball-rules.js";
 
 /** The allowlist every package must declare. Kept here so the expectation is spelled out. */
-const requiredFiles = ["dist", "README.md", "LICENSE"];
+const requiredFiles = ["dist", "README.md", "LICENSE", "CHANGELOG.md"];
 
 /** A tarball that passes every rule, as the baseline each case deviates from. */
 function cleanTarball(overrides: Partial<TarballContents> = {}): TarballContents {
@@ -19,7 +19,14 @@ function cleanTarball(overrides: Partial<TarballContents> = {}): TarballContents
   };
   return {
     packageDir: "content",
-    files: ["package.json", "README.md", "LICENSE", "dist/index.js", "dist/index.d.ts"],
+    files: [
+      "package.json",
+      "README.md",
+      "LICENSE",
+      "CHANGELOG.md",
+      "dist/index.js",
+      "dist/index.d.ts",
+    ],
     manifest,
     ...overrides,
   };

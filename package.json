@@ -6,7 +6,7 @@
   "description": "Workspace root for the @lamido/* consumer SDK packages. Never published — see docs/plans/phase-1-foundations.md §1.",
   "packageManager": "pnpm@11.18.0",
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "pnpm -r build",
@@ -23,6 +23,10 @@
     "check:leaks": "tsx scripts/check-forbidden-strings.ts",
     "audit:tarballs": "tsx scripts/audit-tarballs.ts",
     "deps:audit": "tsx scripts/audit-dependencies.ts",
+    "changeset": "changeset",
+    "release:version": "changeset version",
+    "release:dry-run": "pnpm publish -r --dry-run --no-git-checks",
+    "release:publish": "pnpm publish -r --access public --provenance --no-git-checks",
     "verify": "pnpm lint && pnpm check:leaks && pnpm typecheck && pnpm test && pnpm build && pnpm test:node-baseline && pnpm --filter @lamido-examples/node-script smoke && pnpm -r check:package && pnpm audit:tarballs && pnpm deps:audit"
   },
   "devDependencies": {
@@ -36,6 +40,7 @@
     "tsdown": "^0.22.14",
     "tsx": "^4.23.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "yaml": "^2.9.0"
   }
 }

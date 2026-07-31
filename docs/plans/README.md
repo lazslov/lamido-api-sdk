@@ -6,7 +6,7 @@ published to npm and installed into client-website projects.
 **Audience of the SDK:** a website being built for a client, and the editor UI that ships
 with it. Not operator tooling.
 
-**Status:** phases 1 and 2 built; phase 3 next. Live checklist: [PROGRESS.md](PROGRESS.md).
+**Status:** all eight phases built; nothing published. Live checklist: [PROGRESS.md](PROGRESS.md).
 
 ---
 

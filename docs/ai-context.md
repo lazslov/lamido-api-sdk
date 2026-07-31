@@ -359,6 +359,76 @@ push. [live-testing.md](live-testing.md) is the operator checklist for the first
   and `contracts/` before. The rest of `test/` stays out, because several suites there quote the
   forbidden patterns deliberately — as the data proving the guard still matches them.
 
+## Phase 8 decisions, and where they deviate from the plan
+
+Phase 8's machinery is built. Nothing is published: the four criteria that need an npm account, a
+token or a registry round trip cannot be met from here.
+
+- **The `@lamido` scope is a user account, not an organisation.** The plan's first exit criterion says
+  "the `@lamido` npm organisation must exist and own the scope before the first publish". The registry
+  says something already owns it: `/-/org/lamido/user` answers `{"lamido":"owner"}` — the shape a *user*
+  scope returns, where an organisation (`vercel`, `okeoke`) returns `{}` and an unclaimed name 404s —
+  with zero packages published. Whether that account is ours is not answerable from this machine: the
+  local npm token is a legacy read-limited one that 403s even on `okeoke`, an organisation the account
+  demonstrably belongs to. So the criterion is not "create an organisation" but "confirm who owns the
+  scope", and it is the first item of `CONTRIBUTING.md`'s pre-publish checklist. If the answer is *not
+  ours*, four packages need renaming — cheap now, expensive after a publish.
+- **CI had never been green, for a reason unrelated to any phase.** `pnpm@11.18.0` refuses to run below
+  Node 22.13, and the workflow pinned Node 20 — so `actions/setup-node`'s `cache: pnpm` step crashed on
+  every run since phase 3, ~25 seconds in, before a single script executed. Both pnpm jobs are now on
+  Node 22 and the root `engines` says `>=22.13`. The **packages** still declare `>=18.17`, and the
+  runtime-baseline matrix still proves 18.17/20/22 against `dist/` — that job runs `node --test`
+  directly and never touches pnpm, which is why it was unaffected and why it stays as it is.
+- **`updateInternalDependencies: "minor"`, not the default `"patch"`.** With `"patch"`, a patch to
+  `@lamido/api-core` re-releases all three service packages — which is exactly the coordination the
+  plan says publishing core separately exists to avoid. With `"minor"`, a core patch ships alone and
+  reaches consumers through the `^` range; a core **minor** still bumps the three, because `^0.1.0`
+  does not admit `0.2.0` in 0.x semver.
+- **`CHANGELOG.md` ships inside the tarball**, so `"files"` and the tarball audit's expectation both
+  grew a fourth entry. The plan's stated goal — a consumer can answer "which version of the contract
+  does my installed SDK believe in?" without reading the SDK's git history — is only true if the file
+  is in `node_modules`. *(Confirmed with the user before widening the allowlist.)*
+- **The provenance line is enforced, not documented.** `changeset version` prepends a bare `## x.y.z`
+  heading, so `test/changelog-provenance.test.ts` fails until a human adds the line naming the
+  knowledge-base commit and the three `source_commit` values — read from `CONTRACTS.json` rather than
+  restated, because the restated copy is the one that would drift.
+- **The release workflow is asserted by a unit test.** `test/release-workflow.test.ts` checks the
+  ordering (gate → live suite → publish), the absence of `workflow_dispatch` and of any `inputs.`
+  reference, `id-token: write`, `cancel-in-progress: false`, and that `release:publish` carries
+  `--provenance` and `--access public`. Same reasoning as `test/audit-detects.test.ts`: a pipeline's
+  failure mode is that it quietly stops guarding and keeps reporting green, and every mistake it
+  prevents is permanent once a tarball is on npm. The assertions read the file's **text** with comment
+  lines stripped — the comments name the very things that must be absent, so checking raw text would
+  make each explanation a false positive, and the fix for that would be deleting the explanation.
+- **`LIVE_REQUIRE_CONFIGURED` was added to the live suite for the release to use.** The suite skips
+  loudly when unconfigured, which is right for a developer and wrong for a gate: a release with a
+  missing secret would skip every case and hand back the same green as a full pass. With the variable
+  set, an unconfigured service throws from `globalSetup`. The release also leaves `LIVE_ALLOW_WRITES`
+  unset, and the test asserts the string does not appear in the workflow at all.
+- **The drift reporter needed a real YAML parser**, so `yaml` is a new devDependency — dev-only, never
+  packed, and the audit enforces that. The alternative was an indentation-scanner over the pinned
+  documents, which is a YAML parser with a shorter test suite. What it buys is the difference between
+  "the contract differs" and "`POST /api/admin/sites/{id}/import` was added" — and an issue that says
+  only the former gets closed unread.
+- **The detector found real drift on its first run, and the contracts were re-pinned.** The knowledge
+  base had moved from `b428f53` to `82198f7`, where content-service's `importSite` was lifted out from
+  under the `/export` path onto its own. Admin tier, so no SDK surface changed, and all three
+  `source_commit` values were unchanged — the services had not moved, only the documentation was
+  corrected. Re-pinning was the right call rather than filing it: shipping `0.1.0` with a changelog
+  naming a knowledge-base commit that no longer holds the contract is the precise failure the
+  provenance line exists to prevent. The pin has since moved once more, to `0bca8b0` — the merged
+  write-back below — which changed no contract byte and no generated type. That second re-pin was
+  optional and taken deliberately: `kbCommit` names the commit a copy came *from*, so `82198f7` would
+  have stayed true, but leaving the SDK one commit behind the knowledge base means every later reader
+  has to work out whether the gap matters. One number is cheaper than that question.
+- **The knowledge-base write-back is one row, not three.** [phase 8 §4](plans/phase-8-release-and-drift.md#4-writing-back-to-the-knowledge-base)
+  asks for the "no SDK package" row "and the equivalent lines in the other two folders" — there are
+  none; invoice-service and payment-service never claimed to ship a client, and payment's only SDK
+  mentions are about Stripe's. Its second row is already satisfied too: both env-var names the plan
+  marked *proposed* (`CONTENT_SERVICE_PUBLISHABLE_KEY`, `INVOICE_SERVICE_CLIENT_KEY`) are already in
+  the knowledge base. The row names the **repository**, not an npm package, because nothing is
+  published yet — the commit message says so, and flags the second pass.
+
 ## Build tooling: the tsdown configs are `.mjs`
 
 Phase 1 chose `tsdown --config-loader tsx` because tsdown's native loader cannot resolve
@@ -391,9 +461,11 @@ Two related workspace-resolution notes, both needed the moment a service package
 
 ## Open questions
 
-- **Nothing is pushed, so CI has never run.** Every gate has been verified locally instead. The `next`
-  devDependency now makes a clean install ~150 MB heavier, which is worth knowing before the first
-  CI run.
+- **Who owns the `@lamido` npm scope.** See the phase 8 note above. Everything else about publishing is
+  ready; this is the one answer that could still require renaming four packages.
+- **CI has never produced a green run**, and until the next push it never executed a gate at all — see
+  the phase 8 note. Every gate has been verified locally instead. The `next` devDependency also makes a
+  clean install ~150 MB heavier, which is worth knowing before the first real CI run.
 - **A real client's domain appears in the knowledge base's own examples** — found by the leak guard once
   the doc-example fixtures brought those documents into scope. The SDK's extractor rewrites it, so nothing
   leaks from here, but the *knowledge base* still carries it. That is a fix for that repository, through

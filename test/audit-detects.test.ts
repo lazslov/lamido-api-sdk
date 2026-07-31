@@ -20,7 +20,7 @@ import { checkTarball, type PackedManifest } from "../scripts/lib/tarball-rules.
 const cleanManifest: PackedManifest = {
   name: "@lamido/content",
   version: "0.1.0",
-  files: ["dist", "README.md", "LICENSE"],
+  files: ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
   dependencies: { "@lamido/api-core": "^0.1.0" },
   exports: { ".": {}, "./fields": {}, "./next": {} },
 };
@@ -30,6 +30,7 @@ const cleanFiles = [
   "package.json",
   "README.md",
   "LICENSE",
+  "CHANGELOG.md",
   "dist/index.js",
   "dist/index.cjs",
   "dist/index.d.ts",

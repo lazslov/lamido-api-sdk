@@ -49,10 +49,10 @@ const alwaysIncluded = [/^package\.json$/i, /^readme(\..+)?$/i, /^licen[cs]e(\..
  * *from* that field, so the check could never fail. Widening what ships therefore takes a
  * deliberate edit here, which is a reviewable diff.
  */
-const requiredFilesField = ["dist", "README.md", "LICENSE"];
+const requiredFilesField = ["dist", "README.md", "LICENSE", "CHANGELOG.md"];
 
 /** Top-level entries a tarball may contain, besides the ones npm force-includes. */
-const expectedEntries = new Set(["dist"]);
+const expectedEntries = new Set(["dist", "CHANGELOG.md"]);
 
 /** Paths that must never be packed, whatever the allowlist happens to permit. */
 const forbiddenArtifacts: readonly { readonly pattern: RegExp; readonly why: string }[] = [

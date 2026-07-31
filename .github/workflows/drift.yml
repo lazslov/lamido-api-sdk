@@ -1,0 +1,98 @@
+name: Contract drift
+
+# Drift B of the protocol: the SDK against the knowledge base. Mechanical, so it is checked by a
+# machine on a schedule rather than by whoever happens to open the repository.
+#
+# Drift A — the knowledge base against the three services — is not detectable from here. It
+# surfaces as a failing live contract test during a release, and the rule then is that the
+# knowledge base is corrected first, in its own pull request.
+#
+# @see docs/plans/phase-8-release-and-drift.md §3
+on:
+  schedule:
+    # Monday morning, so a week's upstream changes are waiting at the start of a week rather than
+    # discovered by a release on a Friday.
+    - cron: "0 6 * * 1"
+  # Unlike the release workflow, a manual run here is wanted: it is how the detector itself is
+  # verified, by pointing it at an older knowledge-base commit on purpose.
+  workflow_dispatch:
+    inputs:
+      knowledge-base-ref:
+        description: "Knowledge-base ref to compare against (default: its main)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The knowledge base is deliberately not a submodule — pinning it in git would defeat the
+      # point of a job that asks whether the pin is stale. It is checked out beside the sources
+      # instead, and the script is told where.
+      - name: Check out the knowledge base
+        uses: actions/checkout@v4
+        with:
+          repository: lazslov/knowledge-base
+          ref: ${{ inputs.knowledge-base-ref }}
+          token: ${{ secrets.KNOWLEDGE_BASE_TOKEN }}
+          path: .knowledge-base
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Exits non-zero on drift, which is a finding rather than a broken job — hence the explicit
+      # exit-code capture. A failure with no report written is a real failure and re-raised below.
+      - name: Compare the pinned contracts
+        id: compare
+        env:
+          LAMIDO_KB_PATH: ${{ github.workspace }}/.knowledge-base
+        run: |
+          if pnpm contracts:drift --report=drift.md; then
+            echo "drifted=false" >> "$GITHUB_OUTPUT"
+          elif [ -f drift.md ]; then
+            echo "drifted=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "The drift check failed without producing a report." >&2
+            exit 1
+          fi
+
+      # Which knowledge-base commit this run actually compared against. Without it the issue says
+      # what moved but not what it moved to, and the first thing anyone reading it wants is the
+      # commit to pin.
+      - name: Record what was compared
+        if: steps.compare.outputs.drifted == 'true'
+        run: |
+          commit=$(git -C .knowledge-base rev-parse --short HEAD)
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "Compared against knowledge-base \`$commit\`, by [this run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+          } >> drift.md
+
+      # One open issue at a time. A weekly job that opens a fresh issue every Monday trains
+      # everyone to ignore it, so an unresolved drift gets a comment instead.
+      - name: Open or update the drift issue
+        if: steps.compare.outputs.drifted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create contract-drift --color BFD4F2 --description "The pinned contracts are behind the knowledge base" 2>/dev/null || true
+          existing=$(gh issue list --label contract-drift --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file drift.md
+          else
+            gh issue create --title "Contract drift: the pinned contracts are behind the knowledge base" --label contract-drift --body-file drift.md
+          fi

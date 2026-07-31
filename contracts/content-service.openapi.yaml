@@ -4393,6 +4393,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/admin/sites/{id}/import:
     post:
       operationId: importSite
       tags: [admin-transfer]

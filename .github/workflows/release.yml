@@ -1,0 +1,101 @@
+name: Release
+
+# A pushed tag is the only way to publish. There is deliberately **no `workflow_dispatch`** and
+# no input that skips a step: every gate below stands between a mistake and a permanent public
+# artifact, and npm's unpublish window is narrow enough that "we can undo it" is not true.
+# A release that needs a gate skipped is a release that should not happen.
+#
+# `test/release-workflow.test.ts` asserts that shape, so a later edit that adds a skip flag or
+# reorders the publish ahead of a gate fails the unit suite.
+on:
+  push:
+    tags: ["v*"]
+
+# Never two publishes at once, and never cancel one half-way: a cancelled run can leave
+# @lamido/api-core published and the three service packages not.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    # Scopes the npm token and the live-tenant credentials to this one job, and is where a
+    # required reviewer belongs. See CONTRIBUTING.md § Before the first publish.
+    environment: release
+
+    permissions:
+      # npm provenance is signed with a GitHub OIDC token. Without this the publish still
+      # succeeds, silently, without an attestation — which for packages that handle payment
+      # credentials is the whole point of the exercise.
+      id-token: write
+      # `changeset tag` pushes the per-package tags after a successful publish.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `changeset tag` reads existing tags to know what is already released.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          # Writes the .npmrc that NODE_AUTH_TOKEN is read through. No token is ever committed.
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile
+
+      # The full gate, identical to the one CI runs on every push: lint, leak guard, type-check,
+      # unit suite, build, Node 18 baseline, consumer smoke, publint + attw, tarball audit,
+      # zero-runtime-dependency check. Composed rather than duplicated — a gate added to `verify`
+      # is a gate the release gains for free, which is the only way the two stay in step.
+      - name: Verify
+        run: pnpm verify
+
+      # A hand-edited generated file is how a type quietly stops matching the service.
+      - name: Generated types match the pinned contracts
+        run: |
+          pnpm generate:types
+          git diff --exit-code
+
+      # The only suite that can notice a service has moved. `LIVE_REQUIRE_CONFIGURED` turns a
+      # missing secret into a failed release: without it an unconfigured run skips every case and
+      # reports the same green as a full pass, which is the one failure mode that would make this
+      # step decorative.
+      #
+      # Writes stay off. A release must not create a payment, and payment-service's preview and
+      # production share a database — see docs/live-testing.md.
+      - name: Live contract suite
+        env:
+          LIVE_REQUIRE_CONFIGURED: "true"
+          CONTENT_SERVICE_BASE_URL: ${{ secrets.CONTENT_SERVICE_BASE_URL }}
+          CONTENT_SERVICE_SECRET_KEY: ${{ secrets.CONTENT_SERVICE_SECRET_KEY }}
+          CONTENT_SERVICE_PUBLISHABLE_KEY: ${{ secrets.CONTENT_SERVICE_PUBLISHABLE_KEY }}
+          INVOICE_SERVICE_BASE_URL: ${{ secrets.INVOICE_SERVICE_BASE_URL }}
+          INVOICE_SERVICE_CLIENT_KEY: ${{ secrets.INVOICE_SERVICE_CLIENT_KEY }}
+          INVOICE_SERVICE_PROVIDER_CONFIG_ID: ${{ secrets.INVOICE_SERVICE_PROVIDER_CONFIG_ID }}
+          PAYMENT_SERVICE_URL: ${{ secrets.PAYMENT_SERVICE_URL }}
+          PAYMENT_SERVICE_KEY: ${{ secrets.PAYMENT_SERVICE_KEY }}
+        run: pnpm test:live
+
+      # Core first, then the three service packages — `pnpm publish -r` walks the workspace in
+      # dependency order, and a service package published against an unpublished core installs
+      # broken. Already-published versions are skipped, so re-running this is safe.
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm release:publish
+
+      # Per-package tags, so `@lamido/content@0.2.0` is findable in git history even though the
+      # release was triggered by one repository-level tag.
+      - name: Tag the published versions
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          pnpm exec changeset tag
+          git push --tags

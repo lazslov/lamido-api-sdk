@@ -156,14 +156,21 @@ export function skipReason(service: LiveTarget): string {
 /**
  * Print what this run can and cannot prove.
  *
+ * @throws When `LIVE_REQUIRE_CONFIGURED=true` and any service is unconfigured — see below.
  * @remarks
  * Loud on purpose. A live suite that silently skips everything reports green and proves nothing, which
  * is worse than no live suite at all: the green is what stops anyone looking.
+ *
+ * Loud is enough for a developer running this by hand, and **not** enough for the release workflow,
+ * which gates a publish on this suite. There, a missing secret would otherwise skip every case and hand
+ * back the same green as a full pass — so the release sets `LIVE_REQUIRE_CONFIGURED=true` and an
+ * unconfigured service becomes a failed release instead of an unverified one.
  */
 export function reportConfiguration(): void {
   const ready = targets.filter((service) => service.ready);
+  const required = read("LIVE_REQUIRE_CONFIGURED") === "true";
 
-  if (ready.length === 0) {
+  if (ready.length === 0 && !required) {
     console.warn(
       "\n  No live credentials found. This suite proves NOTHING until it runs against a\n" +
         "  provisioned sandbox tenant. See docs/live-testing.md.\n",
@@ -176,5 +183,16 @@ export function reportConfiguration(): void {
   }
   if (!allowWrites) {
     console.info("  – writes are off (set LIVE_ALLOW_WRITES=true to include them)");
+  }
+
+  if (required) {
+    const unconfigured = targets.filter((service) => !service.ready);
+    if (unconfigured.length > 0) {
+      throw new Error(
+        `LIVE_REQUIRE_CONFIGURED is set, so a skipped service is a failure:\n  ${unconfigured
+          .map(skipReason)
+          .join("\n  ")}`,
+      );
+    }
   }
 }

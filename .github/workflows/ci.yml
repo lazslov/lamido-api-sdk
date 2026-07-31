@@ -20,8 +20,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Node 20 LTS is the development runtime; the packages support 18.17+.
-          node-version: 20
+          # The toolchain's floor, not the packages'. pnpm 11 refuses to run below Node 22.13,
+          # and `cache: pnpm` shells out to pnpm — so a lower version here fails this step
+          # before a single script runs. What the *packages* support is 18.17+, and that is
+          # proven by the runtime-baseline matrix below rather than by this job.
+          node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -123,7 +126,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile

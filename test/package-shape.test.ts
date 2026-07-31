@@ -26,7 +26,7 @@ describe.each(packageDirs)("packages/%s", (dir) => {
   const manifest = manifestOf(dir);
 
   it("declares a files allowlist rather than relying on an ignore list", () => {
-    expect(manifest.files).toEqual(["dist", "README.md", "LICENSE"]);
+    expect(manifest.files).toEqual(["dist", "README.md", "LICENSE", "CHANGELOG.md"]);
   });
 
   it("passes the tarball rules on its declared shape", () => {
@@ -34,7 +34,14 @@ describe.each(packageDirs)("packages/%s", (dir) => {
     expect(
       checkTarball({
         packageDir: dir,
-        files: ["package.json", "README.md", "LICENSE", "dist/index.js", "dist/index.d.ts"],
+        files: [
+          "package.json",
+          "README.md",
+          "LICENSE",
+          "CHANGELOG.md",
+          "dist/index.js",
+          "dist/index.d.ts",
+        ],
         manifest,
       }),
     ).toEqual([]);

@@ -3,15 +3,23 @@
 Live status of the eight phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are:** every build phase — 1 through 6 — is complete. Phase 7 is mostly built: `pnpm verify`
-is green (727 unit tests, 21 Node-18 baseline tests, 9 consumer smoke checks, `publint` + `attw` on all
-four packages and all four subpaths, four clean tarballs, zero transitive runtime dependencies), both
-example projects exist and build, and the live suite is written. Nothing is published and nothing is
-pushed.
+**Where we are:** every build phase — 1 through 6 — is complete, and phase 8's machinery is built:
+changesets on independent versioning, a tag-triggered release workflow that cannot skip a gate, the
+weekly drift job, and a shipped `CHANGELOG.md` per package naming the contract it was verified against.
+`pnpm verify` is green (780 unit tests, 21 Node-18 baseline tests, 9 consumer smoke checks, `publint` +
+`attw` on all four packages and all four subpaths, four clean tarballs, zero transitive runtime
+dependencies). **Nothing is published.**
 
-**What's next:** everything unblocked in phase 7 is done. The three remaining criteria are **blocked on
-things outside this repository** — sandbox credentials, a Vercel deployment, and a first push.
-[../live-testing.md](../live-testing.md) is the checklist for the first two.
+**What's next:** everything that can be done inside this repository is done. What remains is
+**account-side and outside it** — an npm scope whose ownership is unconfirmed, sandbox credentials, a
+Vercel deployment, and pushing two branches. [CONTRIBUTING.md](../../CONTRIBUTING.md#before-the-first-publish)
+is the pre-publish checklist; [../live-testing.md](../live-testing.md) is the sandbox one.
+
+> **Finding — the `@lamido` npm scope is not an organisation, and may not be ours.** The registry
+> resolves it to an existing *account* scope with zero packages published; the plan's first exit
+> criterion assumes an organisation that would have to be created. Confirming ownership is the first
+> item on the pre-publish checklist, because renaming four packages is a change to make before a
+> publish, not after one.
 
 | # | Phase | State |
 |---|---|---|
@@ -22,7 +30,7 @@ things outside this repository** — sandbox credentials, a Vercel deployment, a
 | 5 | [`@lamido/payment`](phase-5-payment.md) | ✅ done |
 | 6 | [Framework adapters](phase-6-next-adapters.md) | ✅ done |
 | 7 | [Verification](phase-7-verification.md) | 🟡 built, partly unproven |
-| 8 | [Release & drift](phase-8-release-and-drift.md) | ⬜ blocked on 7 |
+| 8 | [Release & drift](phase-8-release-and-drift.md) | 🟡 built; publishing blocked outside the repo |
 
 Deviations from the plans and the reasoning behind them are in
 [../ai-context.md](../ai-context.md).
@@ -189,23 +197,44 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
       **blocked:** that header is produced by Vercel's edge and by nothing else, so it needs a
       deployment. The build-time half (the route is still prerendered) *is* asserted in CI.
 - [ ] CI green with zero runtime dependencies per `pnpm why`, except the `@lamido/api-core` edge —
-      `pnpm deps:audit` asserts the dependency half locally and is wired into CI. **"CI green" itself
-      is blocked on the first push**, which is the carried-forward item below.
+      `pnpm deps:audit` asserts the dependency half locally and is wired into CI. **The cause of CI
+      never being green is now fixed** (pnpm 11 refuses to run below Node 22.13; the workflow pinned
+      Node 20, so every run since phase 3 died in the `setup-node` step before a script ran). Proving
+      it takes the next push.
 
-## ⬜ Phase 8 — Release & drift *(needs 7)*
+## 🟡 Phase 8 — Release & drift *(machinery built; publishing blocked outside the repository)*
 
 - [ ] The `@lamido` npm organisation exists and owns the scope; 2FA on; automation token in
-      GitHub Actions secrets and in no file
-- [ ] Changesets configured for independent versioning; breaking-change table in `CONTRIBUTING.md`
-- [ ] A dry-run release produces exactly four tarballs with the expected file lists
-- [ ] The release workflow runs the leak audit and the live suite before publishing, and cannot
-      be skipped by a manual dispatch flag
-- [ ] All four packages publish with provenance, visible in `npm view`
+      GitHub Actions secrets and in no file — **not an organisation.** The registry resolves
+      `@lamido` to an *account* scope (`/-/org/lamido/user` → `{"lamido":"owner"}`, the shape a user
+      returns, against `{}` for an organisation) with no packages published. Ownership is
+      unconfirmed from here: the local npm token is legacy and read-limited. First item of
+      [CONTRIBUTING.md § Before the first publish](../../CONTRIBUTING.md#before-the-first-publish).
+- [x] Changesets configured for independent versioning; breaking-change table in `CONTRIBUTING.md`
+      *(`linked`/`fixed` empty, `access: public`, `privatePackages: false` so `examples/*` are never
+      versioned, and `updateInternalDependencies: "minor"` so a core **patch** reaches consumers
+      through the caret range without re-releasing three service packages)*
+- [x] A dry-run release produces exactly four tarballs with the expected file lists —
+      `pnpm release:dry-run` emits exactly four, core first; `pnpm audit:tarballs` is what checks the
+      contents, against a fixed expectation rather than against each manifest's own `"files"`
+- [x] The release workflow runs the leak audit and the live suite before publishing, and cannot
+      be skipped by a manual dispatch flag *(and `test/release-workflow.test.ts` asserts exactly
+      that — the ordering, the absence of `workflow_dispatch`, the `--provenance`, and that
+      `LIVE_REQUIRE_CONFIGURED` makes a missing secret fail the release rather than skip every case)*
+- [ ] All four packages publish with provenance, visible in `npm view` — **blocked** on the scope
+      question and a token
 - [ ] A fresh project outside the monorepo can `pnpm add @lamido/content`, set two env vars, and
-      read a page
-- [ ] The weekly drift job opens an issue when `CONTRACTS.json` is behind the knowledge base
-- [ ] Each `CHANGELOG.md` entry names the KB commit and the three `source_commit` values
-- [ ] The knowledge-base PR updating the "no SDK package" row is open or merged
+      read a page — **blocked**: it must resolve from the registry, so it cannot precede a publish
+- [ ] The weekly drift job opens an issue when `CONTRACTS.json` is behind the knowledge base —
+      **half proven.** The detector ran and found real drift on its first run (see the carried-forward
+      note below), and `pnpm contracts:drift --report=…` produced the issue body. The
+      *issue-opening* half needs the job to run on GitHub with a `KNOWLEDGE_BASE_TOKEN`.
+- [x] Each `CHANGELOG.md` entry names the KB commit and the three `source_commit` values —
+      enforced by `test/changelog-provenance.test.ts`, which reads them from `CONTRACTS.json` rather
+      than restating them, so a release that forgets the line fails before it ships
+- [x] The knowledge-base PR updating the "no SDK package" row is open or merged — **merged.**
+      `0bca8b0` is `origin/main` in `../knowledge-base`. One line of `content-service/conventions.md`
+      §9; front matter untouched, because the service did not move.
 
 ---
 
@@ -217,8 +246,29 @@ Things outside any phase's exit criteria that still need a decision or an action
       `origin/main` in `../knowledge-base`, so a fresh clone can generate types again. Note that
       the local clone's `main` is *behind* that — it sits at `184f7a0`, which predates
       `content-service/` existing at all. Run `git pull` there before `pnpm contracts:drift`.
-- [ ] **Push this repository's work.** The commits sit on a local branch with no remote, so CI has
-      never actually run — every step has been verified locally instead.
-- [ ] **Node 20 in CI has not built the `.mjs` tsdown configs.** The change below was verified on
-      Node 24 here; the first push is what proves it on the version CI uses.
+- [x] **The work is pushed** — `origin/phase-1-foundations` matches local HEAD. The earlier note here
+      was stale.
+- [ ] **CI has still never been green, and the reason was the toolchain, not the code.** Every run
+      since phase 3 failed in ~25 seconds: `pnpm@11.18.0` requires Node ≥22.13 and the workflow pinned
+      Node 20, so `actions/setup-node`'s `cache: pnpm` step crashed before a single script ran. Both
+      pnpm jobs now use Node 22 and the root `engines` says `>=22.13`. **Nothing else in this
+      repository has ever been executed by CI**, so the next push is the first real run of every gate.
+- [ ] **Node 22 in CI has not built the `.mjs` tsdown configs.** Verified on Node 24 here; the next
+      push is what proves it on the version CI uses.
+- [x] **The knowledge-base write-back is merged, and the pin follows it.** `docs/content-service-sdk-pointer`
+      fast-forwarded into `origin/main` as `0bca8b0`; `CONTRACTS.json` and all four changelogs now name
+      that commit. Re-pinning changed no contract byte and no generated type — `0bca8b0` touched one
+      line of prose — so the only thing that moved is the provenance, which is the point: one commit
+      answers "which knowledge base is this SDK built from", with nothing to reconcile at release time.
+- [x] **The pinned contracts were behind, and are now re-pinned.** The new drift reporter found it on
+      its first run: the knowledge base had moved past `b428f53` to `82198f7`, where content-service's `importSite`
+      operation was lifted out from under the `/export` path onto its own `/api/admin/sites/{id}/import`.
+      Admin tier, so no SDK surface changed — but `CONTRACTS.json` claimed `b428f53`, and the four
+      changelogs would have shipped 0.1.0 naming a contract the knowledge base no longer held. Both
+      services' `source_commit` values are unchanged, so the *services* did not move; only the
+      documentation was corrected.
+- [x] **Both env-var names the plan called *proposed* are already documented.**
+      `CONTENT_SERVICE_PUBLISHABLE_KEY` and `INVOICE_SERVICE_CLIENT_KEY` both appear in the knowledge
+      base, so [phase 8 §4](phase-8-release-and-drift.md#4-writing-back-to-the-knowledge-base)'s second
+      write-back row needs no PR. Only the "no SDK package" row does.
 - [x] **Licence confirmed:** MIT, `Copyright (c) 2026 Lamido`.

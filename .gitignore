@@ -12,6 +12,11 @@ dist/
 *.tgz
 .audit-tarballs/
 
+# Where the weekly drift job checks the knowledge base out, and the report it writes.
+# Both exist only on a runner; neither is ever committed.
+.knowledge-base/
+drift.md
+
 # Real tenant slugs must never be committed; the leak guard reads them from here.
 .leakguard-slugs
 
