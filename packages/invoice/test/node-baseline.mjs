@@ -3,10 +3,10 @@
  *
  * Run with `node --test packages/invoice/test/node-baseline.mjs` after `pnpm build`.
  *
- * Why this exists separately from the Vitest suites: Vitest 4 requires Node ^20.19 || >=22.12, so it
- * cannot run on Node 18.17 — the floor this package declares in `engines`. This file uses only
- * `node:test` and `node:assert`, available since Node 18, and imports `dist/` rather than `src/`, so
- * what it proves is that the tarball a consumer installs works on the runtime it claims.
+ * Why this exists separately from the Vitest suites: the CI leg that runs on the floor (Node 20.19)
+ * installs nothing at all, because pnpm 11 refuses to start below Node 22.13 — so `node:test`, which
+ * ships with the runtime, is the only runner available there. It also imports `dist/` rather than
+ * `src/`, so what it proves is that the tarball a consumer installs works on the runtime it claims.
  *
  * Deliberately small: the date type, one create carrying its key, and the storno the cancel returns.
  * The behaviour itself is the Vitest suites' job.

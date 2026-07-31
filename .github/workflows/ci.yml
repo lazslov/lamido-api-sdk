@@ -22,7 +22,7 @@ jobs:
         with:
           # The toolchain's floor, not the packages'. pnpm 11 refuses to run below Node 22.13,
           # and `cache: pnpm` shells out to pnpm — so a lower version here fails this step
-          # before a single script runs. What the *packages* support is 18.17+, and that is
+          # before a single script runs. What the *packages* support is 20.19+, and that is
           # proven by the runtime-baseline matrix below rather than by this job.
           node-version: 22
           cache: pnpm
@@ -88,16 +88,18 @@ jobs:
           path: packages/*/dist
           retention-days: 1
 
-  # The packages support Node 18.17+, but Vitest 4 requires ^20.19 || >=22.12 and cannot run
-  # there. This job runs the node:test baseline against the built artifact on every supported
-  # runtime, which is what proves the tarball works where its `engines` field says it does.
+  # The packages support Node 20.19+, and this job is what proves the tarball works where its
+  # `engines` field says it does: the node:test baseline, against the built artifact, on the floor
+  # and on the current LTS. It stays a separate job rather than folding into Vitest because pnpm 11
+  # cannot start below Node 22.13 — the 20.19 leg therefore runs with no install at all, and
+  # `node:test` is the only runner available under that constraint.
   runtime-baseline:
     needs: verify
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["18.17", "20", "22"]
+        node-version: ["20.19", "22"]
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +114,7 @@ jobs:
 
       # Three of the four built entry points import `@lazslov/api-core` as a bare specifier, so Node
       # needs somewhere to resolve it — and this job deliberately runs no `pnpm install`, because
-      # pnpm 11 refuses to start below Node 22.13 and this matrix goes down to 18.17. Hand-linking
+      # pnpm 11 refuses to start below Node 22.13 and this matrix goes down to 20.19. Hand-linking
       # the workspace is enough precisely because no published package has a runtime dependency,
       # which `deps:audit` in `verify` asserts against the resolved graph before this job runs.
       - name: Link the workspace packages

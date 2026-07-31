@@ -3,10 +3,10 @@
  *
  * Run with `node --test packages/payment/test/node-baseline.mjs` after `pnpm build`.
  *
- * Why this exists separately from the Vitest suites: Vitest 4 requires Node ^20.19 || >=22.12, so it
- * cannot run on Node 18.17 — the floor this package declares in `engines`. This file uses only
- * `node:test` and `node:assert`, available since Node 18, and imports `dist/` rather than `src/`, so
- * what it proves is that the tarball a consumer installs works on the runtime it claims.
+ * Why this exists separately from the Vitest suites: the CI leg that runs on the floor (Node 20.19)
+ * installs nothing at all, because pnpm 11 refuses to start below Node 22.13 — so `node:test`, which
+ * ships with the runtime, is the only runner available there. It also imports `dist/` rather than
+ * `src/`, so what it proves is that the tarball a consumer installs works on the runtime it claims.
  *
  * Deliberately small: the money type, the webhook verifier on this runtime's Web Crypto, one create that
  * carries its idempotency key, and the `./next` subpath — which is here because it is the only place

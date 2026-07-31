@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
-    // ES2022 is the floor Node 18.17 clears, and every edge runtime with it.
+    // ES2022 is the floor Node 20.19 clears, and every edge runtime with it.
     "target": "ES2022",
     // DOM is present for the platform APIs the SDK is built on — fetch, Request,
     // AbortController, crypto.subtle — not for any browser-only surface. DOM.Iterable adds the

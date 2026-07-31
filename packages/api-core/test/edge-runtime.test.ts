@@ -39,7 +39,7 @@ describe("core depends on no Node built-in", () => {
   });
 
   it("reaches for crypto only through globalThis", () => {
-    // `globalThis.crypto.subtle` is present on Node 18.17+ and on every edge runtime;
+    // `globalThis.crypto.subtle` is present on Node 20.19+ and on every edge runtime;
     // `require("crypto")` is present on neither uniformly.
     const offenders = sources().filter(({ text }) => /\brequire\(\s*["']crypto/.test(text));
     expect(offenders.map(({ file }) => file)).toEqual([]);

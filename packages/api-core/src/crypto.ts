@@ -3,7 +3,7 @@
  *
  * @remarks
  * Deliberately no `node:crypto`. `timingSafeEqual` throws on a length mismatch and does not
- * exist on edge runtimes, so the same source has to run on Node 18+ and on an edge worker.
+ * exist on edge runtimes, so the same source has to run on Node 20.19+ and on an edge worker.
  */
 
 const encoder = new TextEncoder();
@@ -13,7 +13,7 @@ function subtle(): SubtleCrypto {
   const webCrypto = globalThis.crypto;
   if (!webCrypto?.subtle) {
     throw new Error(
-      "globalThis.crypto.subtle is unavailable. @lazslov/api-core needs Web Crypto: Node 18.17+ or a modern edge runtime.",
+      "globalThis.crypto.subtle is unavailable. @lazslov/api-core needs Web Crypto: Node 20.19+ or a modern edge runtime. Node 18 exposes it only under --experimental-global-webcrypto.",
     );
   }
   return webCrypto.subtle;

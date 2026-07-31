@@ -3,11 +3,11 @@
  *
  * Run with `node --test packages/api-core/test/node-baseline.mjs` after `pnpm build`.
  *
- * Why this exists separately from the Vitest suites: Vitest 4 requires Node ^20.19 || >=22.12,
- * so it cannot run on Node 18.17 — which is the floor the packages declare in `engines`. This
- * file uses only `node:test` and `node:assert`, available since Node 18, and imports `dist/`
- * rather than `src/`, so what it proves is that the tarball a consumer installs works on the
- * runtime the tarball claims to support.
+ * Why this exists separately from the Vitest suites: the CI leg that runs on the floor (Node
+ * 20.19) installs nothing at all, because pnpm 11 refuses to start below Node 22.13 — so
+ * `node:test`, which ships with the runtime, is the only runner available there. It also imports
+ * `dist/` rather than `src/`, so what it proves is that the tarball a consumer installs works on
+ * the runtime the tarball claims to support.
  *
  * Deliberately small: it covers the two things most likely to break on an older runtime —
  * Web Crypto availability, and `fetch` — not the behaviour the Vitest suites already cover.

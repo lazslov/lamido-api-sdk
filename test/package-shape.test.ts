@@ -54,7 +54,7 @@ describe.each(packageDirs)("packages/%s", (dir) => {
   });
 
   it("supports the documented minimum runtime", () => {
-    expect(manifest.engines).toEqual({ node: ">=18.17" });
+    expect(manifest.engines).toEqual({ node: ">=20.19" });
   });
 
   it("is tree-shakeable and ESM-first", () => {

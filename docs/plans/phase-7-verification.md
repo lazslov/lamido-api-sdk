@@ -93,9 +93,10 @@ holds JSON cases of `{ secret, rawBody, timestamp, expectedSignature, expect }`,
 Run against `verifySignedBody` and against both bindings
 (`verifyRevalidationWebhook`, `verifyPaymentWebhook`), so a wrong header name is caught.
 
-**Cross-runtime:** the same suite runs under Node 18, Node 20, and an environment where
+**Cross-runtime:** the same suite runs under Node 20.19, Node 22, and an environment where
 `node:crypto`, `Buffer` and `process` are deleted — proving the Web Crypto path is genuinely
-portable and that nothing crept in that needs Node.
+portable and that nothing crept in that needs Node. *(Was "Node 18, Node 20" until the floor moved
+to 20.19; Node 18 hides `globalThis.crypto` behind a flag, so it could never have passed.)*
 
 ### Response fixtures from the documentation
 
@@ -241,7 +242,7 @@ project.
 ## Exit criteria
 
 - [ ] Unit suite covers every exported function in all four packages; the four credential-leak tests pass in each.
-- [ ] HMAC fixtures pass under Node 18, Node 20, and a stripped environment with no `node:crypto`, `Buffer` or `process`.
+- [ ] HMAC fixtures pass under Node 20.19, Node 22, and a stripped environment with no `node:crypto`, `Buffer` or `process`.
 - [ ] Every JSON example in the three doc folders parses into its declared SDK type. Discrepancies are resolved by fixing the SDK **or** filing a docs PR — not by loosening the type.
 - [ ] Type-level tests pass, including every "must be a compile error" case.
 - [ ] `audit-tarballs` passes on all four packages, and its own negative tests prove it still detects each forbidden pattern.

@@ -11,7 +11,7 @@
   "type": "module",
   "sideEffects": false,
   "engines": {
-    "node": ">=18.17"
+    "node": ">=20.19"
   },
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.cts",

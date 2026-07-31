@@ -40,8 +40,14 @@ lamido-api-sdk/
 ```
 
 **pnpm**, for workspaces and for `pnpm publish --filter`. Node 20 LTS as the development
-runtime; Node 18 as the minimum supported (`engines.node: ">=18.17"`) because that is the
-first version with a stable global `fetch` and a global `crypto`.
+runtime; Node 20.19 as the minimum supported (`engines.node: ">=20.19"`) because that is the
+first version where **both** platform APIs this SDK stands on are unflagged defaults: global
+`fetch` (18.0) and global `crypto` (19.0 — Node 18 needs `--experimental-global-webcrypto`).
+
+> **Corrected after phase 8.** This originally said `">=18.17"`, on the reasoning that 18.17 was
+> "the first version with a stable global `fetch` and a global `crypto`". The `crypto` half was
+> wrong, and it made the published `engines` field a false claim: every HMAC path threw on Node 18.
+> Found when the runtime-baseline matrix first got far enough to execute. See `docs/ai-context.md`.
 
 The root `package.json` is `"private": true`. It must never be publishable — a root publish
 is how a monorepo leaks its scripts and its contract copies.
@@ -93,7 +99,7 @@ CJS script in `scripts/` should not be a support conversation.
   "version": "0.1.0",
   "type": "module",
   "sideEffects": false,
-  "engines": { "node": ">=18.17" },
+  "engines": { "node": ">=20.19" },
   "exports": {
     ".":        { "types": "./dist/index.d.ts",  "import": "./dist/index.js",  "require": "./dist/index.cjs" },
     "./fields": { "types": "./dist/fields.d.ts", "import": "./dist/fields.js", "require": "./dist/fields.cjs" },

@@ -69,10 +69,20 @@ Phase 2 is complete: `@lazslov/api-core` exports the eight primitives its plan l
 - **`details` on `LamidoApiError` is a `declare` field.** A plain optional class field emits
   `details = undefined` under ES2022 semantics, making `"details" in error` true on every error;
   absence is the honest signal that the service sent no detail.
-- **Node 18 is verified by `node:test`, not Vitest.** Vitest 4 requires Node ^20.19 || >=22.12,
-  so it cannot run on the 18.17 floor the packages declare. `packages/*/test/node-baseline.mjs`
-  runs against `dist/` on 18.17, 20 and 22 in a CI matrix job — which also means what is checked
-  there is the artifact a consumer installs, not the source.
+- **The floor is `>=20.19`, and Node 18 was never actually supported.** `globalThis.crypto` is
+  exposed on Node 18 only under `--experimental-global-webcrypto`; unflagged it arrives in 19.0. So
+  the original `>=18.17` claim was false for the entire HMAC surface — `verifySignedBody` and both
+  bindings threw on Node 18, while transport, validators and the `./next` subpath were fine. Nobody
+  noticed because the 18.17 CI leg died at module resolution first, and the `verify` job had never
+  been green anyway. 20.19 is the lowest runtime where Web Crypto is a default global **and** Vitest
+  4 runs, so the floor now sits inside the test runner's range instead of outside it.
+- **The runtime baseline still uses `node:test`, not Vitest — but for a different reason now.**
+  Vitest can run on 20.19; what it cannot do is get installed there, because pnpm 11 refuses to
+  start below Node 22.13, so the 20.19 matrix leg runs with no install at all.
+  `packages/*/test/node-baseline.mjs` runs against `dist/` on 20.19 and 22, which also means what is
+  checked there is the artifact a consumer installs, not the source. *(Open follow-up: with the floor
+  inside Vitest's range, these four hand-written files could collapse into a Vitest project pointed
+  at `dist/` if the matrix ever gets an install step.)*
 - **The HMAC fixtures were generated with `node:crypto`**, deliberately a different
   implementation from the `crypto.subtle` one under test. `test/fixtures/hmac/generate.mjs`
   regenerates them; the committed JSON is the pinned artifact.
@@ -284,8 +294,8 @@ the server-action error shape; `@lazslov/payment/next` ships the webhook handler
 - **The two fixture-project exit criteria are deferred to phase 7**, which already owns
   `examples/next-site` and `examples/node-script` in its §5. *(Confirmed with the user.)* What stands in
   for them meanwhile: `test/next-isolation.test.ts` for the import graph, an end-to-end Vitest case
-  driving gateway → signed POST → busted tag against a stubbed `revalidateTag`, and a Node 18 baseline
-  case that imports `@lazslov/payment/next` from `dist/` and runs it.
+  driving gateway → signed POST → busted tag against a stubbed `revalidateTag`, and a floor-runtime
+  baseline case that imports `@lazslov/payment/next` from `dist/` and runs it.
 - **`sharp: false` in `pnpm-workspace.yaml`.** It arrives with `next` and its native build is dead
   weight here — nothing in this repository runs Next or optimises an image.
 
@@ -381,11 +391,11 @@ token or a registry round trip cannot be met from here.
 - **CI had never been green, for a reason unrelated to any phase.** `pnpm@11.18.0` refuses to run below
   Node 22.13, and the workflow pinned Node 20 — so `actions/setup-node`'s `cache: pnpm` step crashed on
   every run since phase 3, ~25 seconds in, before a single script executed. Both pnpm jobs are now on
-  Node 22 and the root `engines` says `>=22.13`. The **packages** still declare `>=18.17`, and the
-  runtime-baseline matrix still proves 18.17/20/22 against `dist/` — that job runs `node --test`
+  Node 22 and the root `engines` says `>=22.13`. The **packages** declare `>=20.19`, and the
+  runtime-baseline matrix proves 20.19/22 against `dist/` — that job runs `node --test`
   directly and never touches pnpm, which is why the pnpm floor never reached it.
 - **The runtime-baseline job has to link the workspace by hand.** Running no `pnpm install` is the
-  point of that job — pnpm 11 cannot start on the 18.17 leg of the matrix — but three of the four
+  point of that job — pnpm 11 cannot start on the 20.19 leg of the matrix — but three of the four
   built entry points import `@lazslov/api-core` as a bare specifier, so with no `node_modules` in the
   tree Node resolved nothing and `content`/`invoice`/`payment` failed with `ERR_MODULE_NOT_FOUND`
   while `api-core`, which imports nothing, passed. A `node_modules/@lazslov/*` symlink per package

@@ -62,8 +62,11 @@ environment variable reaches your error translator through the same branch as a 
 ## Zero runtime dependencies
 
 Everything is a platform API: `fetch`, `AbortController`, `URL` and
-`globalThis.crypto.subtle`. Node 18.17+, or any modern edge runtime. There is no `node:crypto`
+`globalThis.crypto.subtle`. Node 20.19+, or any modern edge runtime. There is no `node:crypto`
 import anywhere, which is asserted by a test rather than assumed.
+
+The floor is 20.19 because of that last one: Node 18 exposes `globalThis.crypto` only under
+`--experimental-global-webcrypto`, so every signature verification would throw there.
 
 ## What it deliberately does not do
 

@@ -51,7 +51,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # The full gate, identical to the one CI runs on every push: lint, leak guard, type-check,
-      # unit suite, build, Node 18 baseline, consumer smoke, publint + attw, tarball audit,
+      # unit suite, build, floor-runtime baseline, consumer smoke, publint + attw, tarball audit,
       # zero-runtime-dependency check. Composed rather than duplicated — a gate added to `verify`
       # is a gate the release gains for free, which is the only way the two stay in step.
       - name: Verify

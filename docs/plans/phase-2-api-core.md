@@ -432,7 +432,7 @@ directly.
 - [ ] A caller-supplied `init` reaches `fetch` intact — asserted specifically for `{ next: { tags: ["content"] } }` and for `{ signal }` — and cannot overwrite `Authorization`.
 - [ ] `JSON.stringify(client)`, `String(client)`, `util.inspect(client)` and `JSON.stringify(caughtError)` contain no substring of the API key. One test each.
 - [ ] `verifySignedBody` passes every pinned fixture, including a non-ASCII body and one case per `VerifyFailure`.
-- [ ] Verification runs green on Node 18, Node 20, and a simulated edge environment where `node:crypto` and `Buffer` are undefined.
+- [ ] Verification runs green on Node 20.19, Node 22, and a simulated edge environment where `node:crypto` and `Buffer` are undefined.
 - [ ] A wrong-by-one-byte signature is rejected, and the comparison path is double-HMAC (asserted by reading the source in review — there is no way to unit-test constant time meaningfully).
 - [ ] `assertServerOnly` throws for `csk_`/`isk_`/`pmk_` when `window` is defined, and does **not** throw for `cpk_`.
 - [ ] `collectAll` terminates correctly in all four cases, and **throws** rather than truncating at `maxPages`.

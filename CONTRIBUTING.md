@@ -13,8 +13,12 @@ pnpm verify     # lint, leak guard, type-check, test, build, baselines, package 
 than restated — so a check added here is a check the release gains.
 
 **Node 22.13+** to develop. That is the toolchain's floor, not the packages': they declare
-`>=18.17` and the CI matrix proves it against the built artefact on 18.17, 20 and 22. The
+`>=20.19` and the CI matrix proves it against the built artefact on 20.19 and 22. The
 toolchain needs 22.13 because pnpm 11 does.
+
+The packages' floor is 20.19 rather than 18.17 because Node 18 exposes `globalThis.crypto` only
+under `--experimental-global-webcrypto`, which makes every HMAC path throw. Raising it also puts
+the floor inside Vitest 4's range (`^20.19 || >=22.12`).
 
 ---
 

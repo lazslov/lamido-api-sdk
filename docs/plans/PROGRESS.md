@@ -59,8 +59,11 @@ Deviations from the plans and the reasoning behind them are in
       `JSON.stringify(caughtError)` contain no substring of the API key
 - [x] `verifySignedBody` passes every pinned fixture, including a non-ASCII body and one case
       per `VerifyFailure`
-- [x] Verification runs green on Node 18, Node 20, and a simulated edge environment where
-      `node:crypto` and `Buffer` are undefined
+- [x] Verification runs green on Node 20.19, Node 22, and a simulated edge environment where
+      `node:crypto` and `Buffer` are undefined *(criterion said "Node 18, Node 20" and was ticked
+      without ever having run on 18 — the CI leg died at module resolution first. On Node 18
+      `globalThis.crypto` needs `--experimental-global-webcrypto`, so it would have failed. The
+      floor moved to 20.19 and this now runs green as written.)*
 - [x] A wrong-by-one-byte signature is rejected, and the comparison path is double-HMAC
 - [x] `assertServerOnly` throws for `csk_`/`isk_`/`pmk_` when `window` is defined, and does not
       throw for `cpk_`
@@ -138,7 +141,7 @@ Deviations from the plans and the reasoning behind them are in
 
 - [x] Both packages install cleanly with no `next` present and no peer warning; the main entry
       imports nothing from `next` *(the import graph is asserted in `test/next-isolation.test.ts`, and
-      `@lazslov/payment/next` is imported from `dist/` on Node 18 with nothing but core installed. The
+      `@lazslov/payment/next` is imported from `dist/` on the floor runtime with nothing but core installed. The
       **fixture project** is phase 7's `examples/node-script` — see the note below)*
 - [x] Mode A sets `{ next: { tags: [tag] } }`, mode B `{ next: { revalidate: 10 } }`, mode C
       `{ cache: "no-store" }`
@@ -174,8 +177,9 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
 
 - [x] Unit suite covers every exported function in all four packages; the four credential-leak
       tests pass in each *(727 tests, subpaths included)*
-- [x] HMAC fixtures pass under Node 18, Node 20, and a stripped environment with no
-      `node:crypto`, `Buffer` or `process` *(satisfied in phase 2)*
+- [x] HMAC fixtures pass under Node 20.19, Node 22, and a stripped environment with no
+      `node:crypto`, `Buffer` or `process` *(satisfied in phase 2 — see the correction there: the
+      Node 18 half of the original criterion was never true)*
 - [x] Every JSON example in the three doc folders parses into its declared SDK type — *128 extracted by
       `pnpm examples:import` into committed, sanitised fixtures. Key lists are verified **by the
       compiler** against each SDK type, divergence is checked in **both** directions, and every example

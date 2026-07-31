@@ -127,7 +127,7 @@ tenants can construct two clients.
 **Zero runtime dependencies**, except `@lazslov/api-core` in each service package.
 
 Everything needed is a platform API: `fetch`, `AbortController`, `URL`,
-`globalThis.crypto.subtle`. Node 18+ or any modern edge runtime. Type generation, building,
+`globalThis.crypto.subtle`. Node 20.19+ or any modern edge runtime. Type generation, building,
 testing and linting are devDependencies and never reach a consumer.
 
 Full policy and the rationale for each tool choice: [phase-1](phase-1-foundations.md).
