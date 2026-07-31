@@ -486,9 +486,6 @@ Two related workspace-resolution notes, both needed the moment a service package
 
 ## Open questions
 
-- **CI has never produced a green run**, and until the next push it never executed a gate at all — see
-  the phase 8 note. Every gate has been verified locally instead. The `next` devDependency also makes a
-  clean install ~150 MB heavier, which is worth knowing before the first real CI run.
 - **A real client's domain appears in the knowledge base's own examples** — found by the leak guard once
   the doc-example fixtures brought those documents into scope. The SDK's extractor rewrites it, so nothing
   leaks from here, but the *knowledge base* still carries it. That is a fix for that repository, through
@@ -496,6 +493,37 @@ Two related workspace-resolution notes, both needed the moment a service package
 
 ## Settled since
 
+- **CI is green, and every gate has now actually run.** Run
+  [`30631999335`](https://github.com/lazslov/lamido-api-sdk/actions/runs/30631999335) on `main`
+  (`4edf718`) passed all four jobs in 2m23s: `verify`, `examples`, and `runtime-baseline` on both
+  `20.19` and `22`. What that executed for the first time on a runner rather than on this machine —
+  `lint`, `check:leaks`, `typecheck`, the `generate:types` idempotence guard, 780 unit tests across 63
+  files, `build`, `publint` + `attw` on all four packages, four clean tarballs, `deps:audit` against
+  the resolved graph, the plain-Node consumer smoke, the Next build with an empty environment with `/`
+  still prerendered per the build's own manifest, and 21 `node:test` baseline cases against `dist/` on
+  each matrix leg.
+
+  The README carries the workflow's own status badge, pointed at `main`, so the claim self-updates
+  rather than needing an edit per run. **It renders only for a viewer who can see the repository** —
+  the badge lives on `github.com` behind the same access check as the code, and an anonymous request
+  for it 404s while the remote is private. That is fine where it sits (anyone reading the README can
+  see the repo) and is the reason the badge is *not* in the four package READMEs, which ship to npm
+  and would show a broken image there. It starts working everywhere the moment the remote goes public.
+
+  Two things worth carrying forward. **The `examples:import` guard does not run in CI** — the step is
+  conditional on a `../knowledge-base` checkout, which a runner does not have, so it reports "skipping"
+  in 0 s and the doc-example fixtures are only ever checked against upstream locally. And **the `next`
+  devDependency's ~150 MB is not a CI cost**: behind `actions/setup-node`'s pnpm cache the install step
+  is 4–6 s, so the earlier note about it is closed rather than merely stale.
+- **Getting there took three pushes and three unrelated toolchain faults**, none of them in the SDK's
+  own code. First the pnpm-versus-Node-20 crash in `setup-node` (the phase 8 note); with that fixed,
+  `verify` and `examples` went green immediately and *all three* `runtime-baseline` legs failed on
+  `ERR_MODULE_NOT_FOUND`, which the hand-linking step fixed; that left the `18.17` leg failing on Web
+  Crypto not being a default global, which is what moved the floor to `20.19`. Each fault was masked by
+  the one before it, which is the general shape of a pipeline that has never been green: the failures
+  are serial, so the number of runs needed is the number of faults.
+- **Node 22 builds the `.mjs` tsdown configs.** That was the open reason for the `.ts` → `.mjs` move
+  being verified only on Node 24 here; `pnpm build` now runs on Node 22 in both pnpm jobs.
 - **The knowledge-base clone is current.** `../knowledge-base` is at `b428f53` — `origin/main`, and the
   commit `contracts/CONTRACTS.json` pins — with `content-service/`, `invoice-service/` and
   `payment-service/` all present in the working tree. The earlier note about a local `main` at `184f7a0`

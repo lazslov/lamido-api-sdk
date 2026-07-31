@@ -1,5 +1,7 @@
 # lamido-api-sdk
 
+[![CI](https://github.com/lazslov/lamido-api-sdk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lazslov/lamido-api-sdk/actions/workflows/ci.yml?query=branch%3Amain)
+
 A consumer-side TypeScript SDK for the three services documented in the `knowledge-base`
 repository, published to npm as four packages and installed into client-website projects.
 

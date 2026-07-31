@@ -6,12 +6,14 @@ exit criteria, verbatim — so this file is a checklist, not a summary that can 
 **Where we are:** every build phase — 1 through 6 — is complete, and phase 8's machinery is built:
 changesets on independent versioning, a tag-triggered release workflow that cannot skip a gate, the
 weekly drift job, and a shipped `CHANGELOG.md` per package naming the contract it was verified against.
-`pnpm verify` is green (780 unit tests, 21 Node-18 baseline tests, 9 consumer smoke checks, `publint` +
+`pnpm verify` is green (780 unit tests, 21 Node 20.19 baseline tests, 9 consumer smoke checks, `publint` +
 `attw` on all four packages and all four subpaths, four clean tarballs, zero transitive runtime
-dependencies). **Nothing is published.**
+dependencies) — **and so is CI**, on all four jobs, as of run
+[`30631999335`](https://github.com/lazslov/lamido-api-sdk/actions/runs/30631999335) on `main`.
+**Nothing is published.**
 
 **What's next:** everything that can be done inside this repository is done. What remains is
-**account-side and outside it** — an npm token, sandbox credentials, a Vercel deployment, and a push.
+**account-side and outside it** — an npm token, sandbox credentials, and a Vercel deployment.
 [CONTRIBUTING.md](../../CONTRIBUTING.md#before-the-first-publish) is the pre-publish checklist;
 [../live-testing.md](../live-testing.md) is the sandbox one.
 
@@ -171,7 +173,7 @@ proves the packages resolve through the `require` condition with an empty enviro
 server action.
 
 **What cannot be finished here, and why:** the live suite needs sandbox credentials for three services;
-`x-vercel-cache: HIT` needs a deployment; "CI green" needs a push. The first two have a checklist in
+`x-vercel-cache: HIT` needs a deployment. ("CI green" needed a push, and is now done.) The first two have a checklist in
 [../live-testing.md](../live-testing.md) — the short version is that the *contract* suite runs fine
 against services on `localhost`, and only the caching claim genuinely needs Vercel.
 
@@ -200,11 +202,11 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
 - [ ] `examples/next-site` shows `x-vercel-cache: HIT` on a second `curl -sI` of a mode-A route —
       **blocked:** that header is produced by Vercel's edge and by nothing else, so it needs a
       deployment. The build-time half (the route is still prerendered) *is* asserted in CI.
-- [ ] CI green with zero runtime dependencies per `pnpm why`, except the `@lazslov/api-core` edge —
-      `pnpm deps:audit` asserts the dependency half locally and is wired into CI. **The cause of CI
-      never being green is now fixed** (pnpm 11 refuses to run below Node 22.13; the workflow pinned
-      Node 20, so every run since phase 3 died in the `setup-node` step before a script ran). Proving
-      it takes the next push.
+- [x] CI green with zero runtime dependencies per `pnpm why`, except the `@lazslov/api-core` edge —
+      **proven on a runner.** `pnpm deps:audit` walks the resolved graph in the `verify` job, and run
+      [`30631999335`](https://github.com/lazslov/lamido-api-sdk/actions/runs/30631999335) passed it
+      along with every other gate. See the carried-forward note below for the three toolchain faults
+      between here and the first green run.
 
 ## 🟡 Phase 8 — Release & drift *(machinery built; publishing blocked outside the repository)*
 
@@ -252,13 +254,21 @@ Things outside any phase's exit criteria that still need a decision or an action
       `content-service/` existing at all. Run `git pull` there before `pnpm contracts:drift`.
 - [x] **The work is pushed** — `origin/phase-1-foundations` matches local HEAD. The earlier note here
       was stale.
-- [ ] **CI has still never been green, and the reason was the toolchain, not the code.** Every run
-      since phase 3 failed in ~25 seconds: `pnpm@11.18.0` requires Node ≥22.13 and the workflow pinned
-      Node 20, so `actions/setup-node`'s `cache: pnpm` step crashed before a single script ran. Both
-      pnpm jobs now use Node 22 and the root `engines` says `>=22.13`. **Nothing else in this
-      repository has ever been executed by CI**, so the next push is the first real run of every gate.
-- [ ] **Node 22 in CI has not built the `.mjs` tsdown configs.** Verified on Node 24 here; the next
-      push is what proves it on the version CI uses.
+- [x] **CI is green — all four jobs, and the reason it never had been was the toolchain, not the code.**
+      Run [`30631999335`](https://github.com/lazslov/lamido-api-sdk/actions/runs/30631999335) on `main`
+      (`4edf718`) passed `verify`, `examples` and `runtime-baseline` on `20.19` and `22` in 2m23s. Three
+      pushes and three unrelated faults, each masked by the one before it: (1) every run since phase 3
+      died in ~25 s because `pnpm@11.18.0` requires Node ≥22.13 and the workflow pinned Node 20, so
+      `actions/setup-node`'s `cache: pnpm` step crashed before a script ran — both pnpm jobs now use
+      Node 22 and the root `engines` says `>=22.13`; (2) with that fixed, `verify` and `examples` went
+      green at once and all three `runtime-baseline` legs failed on `ERR_MODULE_NOT_FOUND`, because that
+      job runs no `pnpm install` and three built entry points import `@lazslov/api-core` as a bare
+      specifier — a hand-linking step fixed it; (3) the `18.17` leg then failed on `globalThis.crypto`
+      not being a default global below Node 19, which moved the packages' floor to `20.19`.
+      **One caveat:** the "Documented examples match the knowledge base" step is conditional on a
+      `../knowledge-base` checkout and therefore skips on a runner, so that guard stays local-only.
+- [x] **Node 22 in CI builds the `.mjs` tsdown configs.** `pnpm build` runs on Node 22 in both `verify`
+      and `examples` in the green run above; the earlier verification was on Node 24 here.
 - [x] **The knowledge-base write-back is merged, and the pin follows it.** `docs/content-service-sdk-pointer`
       fast-forwarded into `origin/main` as `0bca8b0`; `CONTRACTS.json` and all four changelogs now name
       that commit. Re-pinning changed no contract byte and no generated type — `0bca8b0` touched one
