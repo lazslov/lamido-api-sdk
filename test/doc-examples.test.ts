@@ -10,9 +10,9 @@ import type {
   PageDocument,
   PublishedPageSummary,
   UploadToken,
-} from "@lamido/content";
-import type { CancelledInvoice, DownloadLink, Invoice, InvoiceHealth } from "@lamido/invoice";
-import type { Payment, PaymentWebhookEvent, Refund, WebhookDelivery } from "@lamido/payment";
+} from "@lazslov/content";
+import type { CancelledInvoice, DownloadLink, Invoice, InvoiceHealth } from "@lazslov/invoice";
+import type { Payment, PaymentWebhookEvent, Refund, WebhookDelivery } from "@lazslov/payment";
 import { describe, expect, it } from "vitest";
 import { repoRoot } from "../scripts/lib/paths.js";
 import { type AllKeys, checkKeys, type KeySpec, type MandatoryKeys } from "./lib/type-keys.js";

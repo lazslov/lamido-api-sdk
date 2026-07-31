@@ -1,5 +1,5 @@
-import { derivedIdempotencyKey } from "@lamido/api-core";
-import { createPaymentClient, huf, isTerminal, type PaymentApiError } from "@lamido/payment";
+import { derivedIdempotencyKey } from "@lazslov/api-core";
+import { createPaymentClient, huf, isTerminal, type PaymentApiError } from "@lazslov/payment";
 import { describe, expect, it } from "vitest";
 import { allowWrites, failure, paymentTarget, skipReason } from "./config.js";
 

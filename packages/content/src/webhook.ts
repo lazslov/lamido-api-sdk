@@ -6,7 +6,7 @@
  * framework-independent — only the route handler is Next-specific.
  */
 
-import { type VerifyFailure, verifySignedBody } from "@lamido/api-core";
+import { type VerifyFailure, verifySignedBody } from "@lazslov/api-core";
 
 /** The signature header content-service sends: `sha256=` plus lowercase hex. */
 export const signatureHeader = "X-Content-Signature";

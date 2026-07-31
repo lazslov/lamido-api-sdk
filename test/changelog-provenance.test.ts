@@ -65,7 +65,7 @@ describe("the provenance requirement", () => {
 
   it("fails a changelog whose top entry has no provenance", () => {
     // What `changeset version` produces on its own, and what must not be publishable.
-    const generated = "# @lamido/content\n\n## 0.2.0\n\n### Patch Changes\n\n- abc1234: a fix\n";
+    const generated = "# @lazslov/content\n\n## 0.2.0\n\n### Patch Changes\n\n- abc1234: a fix\n";
     const body = latestEntry(generated).body;
     expect(requiredCommits.some((commit) => body.includes(commit))).toBe(false);
   });

@@ -1,4 +1,4 @@
-import { type ContentApiError, createContentClient, createWebsiteClient } from "@lamido/content";
+import { type ContentApiError, createContentClient, createWebsiteClient } from "@lazslov/content";
 import { describe, expect, it } from "vitest";
 import {
   contentPublishableKey,

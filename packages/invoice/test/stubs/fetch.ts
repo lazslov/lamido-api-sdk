@@ -7,7 +7,7 @@
  * stub.
  */
 
-import type { ServiceConfig } from "@lamido/api-core";
+import type { ServiceConfig } from "@lazslov/api-core";
 import { createInvoiceClient, type InvoiceClient } from "../../src/client.js";
 import type { Invoice, InvoiceStatus } from "../../src/types.js";
 

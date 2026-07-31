@@ -6,7 +6,7 @@
  * server-to-server, so your own backend owns the "are you sure" UX; nothing here asks.
  */
 
-import type { IdempotencyKey, ResolvedConfig } from "@lamido/api-core";
+import type { IdempotencyKey, ResolvedConfig } from "@lazslov/api-core";
 import { call, callWithMeta, isReplay, passInit, type RequestOptions } from "./call.js";
 import type { CreateRefundInput, CreateRefundResult, Refund } from "./types.js";
 

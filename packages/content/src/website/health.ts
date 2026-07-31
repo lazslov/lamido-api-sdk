@@ -3,7 +3,7 @@
  * is still an answer.
  */
 
-import { LamidoApiError, type ResolvedConfig, request } from "@lamido/api-core";
+import { LamidoApiError, type ResolvedConfig, request } from "@lazslov/api-core";
 import { parseContentError, serviceName } from "../errors.js";
 import type { RequestOptions } from "../options.js";
 import type { ContentHealth } from "../types.js";

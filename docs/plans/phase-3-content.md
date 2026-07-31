@@ -1,4 +1,4 @@
-# Phase 3 — `@lamido/content`
+# Phase 3 — `@lazslov/content`
 
 **Goal:** the package a client website actually installs. Covers the website read tier and
 the client read/write tier, the field-descriptor layer that makes an editor UI tractable, and
@@ -89,7 +89,7 @@ encoded in the types:
 
 ---
 
-## 4. The field-descriptor layer — `@lamido/content/fields`
+## 4. The field-descriptor layer — `@lazslov/content/fields`
 
 [site-integration §3](../content-service/site-integration.md#3-the-field-descriptor-layer)
 calls this *"the abstraction that paid for itself most, and the one you will be tempted to
@@ -104,7 +104,7 @@ the JSX.
 
 Ported from site-integration §3 essentially verbatim — `FieldType`, `FieldControl`,
 `ListEntryDescriptor`, `FieldDescriptor`, `SectionDescriptor`. This is a **leaf module**: it
-imports nothing, not even `@lamido/api-core`, so descriptors, the reader, the write validator
+imports nothing, not even `@lazslov/api-core`, so descriptors, the reader, the write validator
 and a site's form components can all depend on it without a cycle. The doc records that this
 cycle was hit in the real build.
 
@@ -306,13 +306,13 @@ that make writing them mechanical: `validation_error.details.unknownKeys` and `.
 ## Public API surface
 
 ```ts
-// @lamido/content
+// @lazslov/content
 export { createWebsiteClient, tryCreateWebsiteClient, createContentClient, tryCreateContentClient }
 export { ContentApiError, type ContentErrorCode }
 export type { PublishedPage, ContentDocument, ContentImage, CollectionItem, DatasetRecord, … }
 export { verifyRevalidationWebhook }   // binds core's verifier to X-Content-* headers
 
-// @lamido/content/fields
+// @lazslov/content/fields
 export type { FieldType, FieldControl, FieldDescriptor, ListEntryDescriptor, SectionDescriptor }
 export { asText, asRows, asImage, asRichtext, prepareValues, isValidContentUrl }
 ```

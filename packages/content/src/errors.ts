@@ -8,7 +8,7 @@
  * dependency is one nobody can edit.
  */
 
-import { type ErrorContext, LamidoApiError } from "@lamido/api-core";
+import { type ErrorContext, LamidoApiError } from "@lazslov/api-core";
 
 /** The service this package talks to, named on every error it throws. */
 export const serviceName = "content-service";
@@ -68,7 +68,7 @@ export interface ContentErrorDetails extends Record<string, unknown> {
  * A non-2xx answer from content-service.
  *
  * @remarks
- * Carries no credential, no host and no request body — see `@lamido/api-core`'s `LamidoApiError`.
+ * Carries no credential, no host and no request body — see `@lazslov/api-core`'s `LamidoApiError`.
  *
  * @example
  * ```ts

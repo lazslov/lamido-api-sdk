@@ -18,7 +18,7 @@
  * offered, and the honest requirement behind it (a live total must not be a minute stale) was real.
  */
 
-import { NotConfiguredError, type ServiceConfig } from "@lamido/api-core";
+import { NotConfiguredError, type ServiceConfig } from "@lazslov/api-core";
 import { type ContentClient, createContentClient } from "../client/create.js";
 import { createWebsiteClient } from "../website/create.js";
 import type { WebsiteClient } from "../website/reads.js";
@@ -29,7 +29,7 @@ import { CONTENT_TAG } from "./tag.js";
  *
  * @remarks
  * Declared here rather than relying on Next's own global augmentation of `RequestInit`, which is
- * present only inside a Next project's compilation — this package is built outside one. `@lamido/api-core`
+ * present only inside a Next project's compilation — this package is built outside one. `@lazslov/api-core`
  * passes `init` to `fetch` untouched and knows nothing about any of these keys.
  */
 interface NextFetchInit extends RequestInit {
@@ -114,7 +114,7 @@ export interface NextContentGateway {
  * browser — from the underlying constructors, at construction.
  * @remarks
  * Three clients over one configuration, each carrying its mode as a `defaultInit`. Nothing here
- * reaches into `next`: the init bag is passed through to `fetch` by `@lamido/api-core`, which is what
+ * reaches into `next`: the init bag is passed through to `fetch` by `@lazslov/api-core`, which is what
  * makes the cache modes possible without the transport knowing Next exists.
  *
  * A per-call `options.init` still wins over the mode's default, because that is what an escape hatch
@@ -124,7 +124,7 @@ export interface NextContentGateway {
  * ```ts
  * // lib/content.ts
  * import "server-only";
- * import { createNextContentGateway } from "@lamido/content/next";
+ * import { createNextContentGateway } from "@lazslov/content/next";
  *
  * export const { published, live, client, tag } = createNextContentGateway();
  *

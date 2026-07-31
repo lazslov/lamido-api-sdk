@@ -1,5 +1,5 @@
 {
-  "name": "@lamido-examples/next-site",
+  "name": "@lazslov-examples/next-site",
   "version": "0.0.0",
   "private": true,
   "description": "Smoke test: an App Router site reading through cache mode A, with the revalidation route and a server action.",
@@ -11,7 +11,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@lamido/content": "workspace:*",
+    "@lazslov/content": "workspace:*",
     "next": "^16.2.12",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

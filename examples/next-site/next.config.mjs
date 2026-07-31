@@ -2,7 +2,7 @@
  * @type {import("next").NextConfig}
  *
  * Deliberately almost empty. The point of this project is to prove that consuming
- * `@lamido/content` and `@lamido/content/next` needs no build configuration at all — no transpile
+ * `@lazslov/content` and `@lazslov/content/next` needs no build configuration at all — no transpile
  * list, no `serverExternalPackages`, no webpack alias.
  */
 const nextConfig = {

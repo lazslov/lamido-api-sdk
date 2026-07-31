@@ -1,9 +1,9 @@
 /**
- * `@lamido/content/next` — the Next.js App Router adapter.
+ * `@lazslov/content/next` — the Next.js App Router adapter.
  *
  * @remarks
  * A separate subpath because **`next` is an optional peer dependency**: only this entry imports it, so
- * installing `@lamido/content` in an Astro, Remix or plain-Node project neither warns nor breaks, and
+ * installing `@lazslov/content` in an Astro, Remix or plain-Node project neither warns nor breaks, and
  * `"sideEffects": false` lets a bundler drop this entry entirely when it is unused.
  *
  * Four things live here, and each one is a bug from the reference integration turned into something the
@@ -21,12 +21,12 @@
  * ```ts
  * // lib/content.ts — one module, so the tag cannot be two different strings
  * import "server-only";
- * import { createNextContentGateway } from "@lamido/content/next";
+ * import { createNextContentGateway } from "@lazslov/content/next";
  *
  * export const { published, live, client, tag } = createNextContentGateway();
  *
  * // app/api/revalidate/route.ts
- * import { createRevalidationHandler } from "@lamido/content/next";
+ * import { createRevalidationHandler } from "@lazslov/content/next";
  * import { tag } from "@/lib/content";
  *
  * export const POST = createRevalidationHandler({ tag });

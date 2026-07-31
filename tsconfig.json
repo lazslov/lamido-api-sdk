@@ -5,20 +5,20 @@
   "compilerOptions": {
     "noEmit": true,
     "types": ["node"],
-    // The service packages depend on @lamido/api-core, whose published types live in a `dist/`
+    // The service packages depend on @lazslov/api-core, whose published types live in a `dist/`
     // that only exists after a build. Mapping the check to its source keeps `pnpm typecheck`
     // runnable from a clean clone and makes it check what is written rather than what was last
     // built. Deliberately **not** in each package's own tsconfig.json: tsdown reads those, and it
     // must resolve api-core the way a consumer does, so the emitted `.d.ts` keeps importing from
     // the package name instead of inlining a copy of its types.
     "paths": {
-      "@lamido/api-core": ["./packages/api-core/src/index.ts"],
+      "@lazslov/api-core": ["./packages/api-core/src/index.ts"],
       // The live suite imports the service packages the way a consumer does, by name, because that is
       // the surface it is verifying. Mapped to source for the same reason as core: so a check runs from
       // a clean clone. Each package's own tsconfig maps none of these.
-      "@lamido/content": ["./packages/content/src/index.ts"],
-      "@lamido/invoice": ["./packages/invoice/src/index.ts"],
-      "@lamido/payment": ["./packages/payment/src/index.ts"],
+      "@lazslov/content": ["./packages/content/src/index.ts"],
+      "@lazslov/invoice": ["./packages/invoice/src/index.ts"],
+      "@lazslov/payment": ["./packages/payment/src/index.ts"],
       // `next` ships no `exports` map, so a NodeNext resolver cannot find an extension-less
       // subpath — a Next project's own tsconfig uses `moduleResolution: "bundler"`, which can.
       // Mapped rather than importing `next/cache.js`, because `next/cache` is the specifier every

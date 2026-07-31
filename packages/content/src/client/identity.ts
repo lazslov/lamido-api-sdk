@@ -1,6 +1,6 @@
 /** `GET /api/client/me` — the boot-time check that a key points at the site you meant. */
 
-import type { ResolvedConfig } from "@lamido/api-core";
+import type { ResolvedConfig } from "@lazslov/api-core";
 import { call } from "../call.js";
 import { passInit, type RequestOptions } from "../options.js";
 import type { ClientIdentity } from "../types.js";

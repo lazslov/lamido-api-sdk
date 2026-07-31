@@ -1,9 +1,9 @@
 /**
- * `@lamido/api-core` — the pieces every `@lamido/*` service SDK shares.
+ * `@lazslov/api-core` — the pieces every `@lazslov/*` service SDK shares.
  *
  * @remarks
- * A published package but not a documented one. Install `@lamido/content`,
- * `@lamido/invoice` or `@lamido/payment`; the two things a consumer touches here directly are
+ * A published package but not a documented one. Install `@lazslov/content`,
+ * `@lazslov/invoice` or `@lazslov/payment`; the two things a consumer touches here directly are
  * {@link verifySignedBody} and {@link LamidoApiError}.
  *
  * Core owns what is true of all three services and nothing else. It carries no host, no

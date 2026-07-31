@@ -7,7 +7,7 @@
  * order to return anything useful, which is the wrong order.
  */
 
-import { type VerifyResult, verifySignedBody } from "@lamido/api-core";
+import { type VerifyResult, verifySignedBody } from "@lazslov/api-core";
 import type { components } from "./generated/schema.js";
 import type { PaymentStatus, RefundStatus } from "./status.js";
 import type { Currency, Provider } from "./types.js";

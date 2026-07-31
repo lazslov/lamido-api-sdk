@@ -51,7 +51,7 @@ is how a monorepo leaks its scripts and its contract copies.
 ## 2. Dependency policy
 
 > **RULE — a published package's `dependencies` block is either empty or contains exactly
-> `@lamido/api-core`. Nothing else, ever.**
+> `@lazslov/api-core`. Nothing else, ever.**
 
 Justification for each thing we do *not* depend on, so the argument does not have to be had
 again:
@@ -89,7 +89,7 @@ CJS script in `scripts/` should not be a support conversation.
 ```jsonc
 // packages/content/package.json
 {
-  "name": "@lamido/content",
+  "name": "@lazslov/content",
   "version": "0.1.0",
   "type": "module",
   "sideEffects": false,
@@ -100,7 +100,7 @@ CJS script in `scripts/` should not be a support conversation.
     "./next":   { "types": "./dist/next.d.ts",   "import": "./dist/next.js",   "require": "./dist/next.cjs" }
   },
   "files": ["dist", "README.md", "LICENSE"],
-  "dependencies": { "@lamido/api-core": "workspace:^" },
+  "dependencies": { "@lazslov/api-core": "workspace:^" },
   "peerDependencies": { "next": ">=14" },
   "peerDependenciesMeta": { "next": { "optional": true } }
 }
@@ -112,13 +112,13 @@ Four things in there are load-bearing:
   directory ships unless someone remembers to exclude it. An allowlist fails closed. This is
   the primary defence against publishing `contracts/` or a `.env`.
 - **`"sideEffects": false`** so a bundler can drop unused subpaths from a client bundle.
-- **`peerDependenciesMeta.next.optional`** so installing `@lamido/content` in an Astro
+- **`peerDependenciesMeta.next.optional`** so installing `@lazslov/content` in an Astro
   project does not warn. The `./next` subpath is the only thing that imports `next`.
 - **`"exports"` with no wildcard.** Three named entry points, nothing else reachable. A
-  consumer cannot deep-import `@lamido/content/dist/internal/transport.js` and then be
+  consumer cannot deep-import `@lazslov/content/dist/internal/transport.js` and then be
   broken by a refactor.
 
-`@lamido/api-core` has an empty `dependencies` block and one export path.
+`@lazslov/api-core` has an empty `dependencies` block and one export path.
 
 ---
 
@@ -201,7 +201,7 @@ history.
 2. the forbidden-strings scan passes over every extracted file **including `.d.ts` and
    sourcemaps** — a sourcemap embeds original source text and is the most likely leak
    vector,
-3. `dependencies` is empty or exactly `@lamido/api-core`,
+3. `dependencies` is empty or exactly `@lazslov/api-core`,
 4. no `.env`, `.npmrc`, `contracts/`, or test fixture is present.
 
 Wired into CI now, and into the release job in phase 8. Details in
@@ -241,7 +241,7 @@ generated file, which is how a type quietly stops matching the service.
 - [ ] `pnpm generate:types` is idempotent — running it leaves the working tree clean.
 - [ ] The forbidden-strings lint **fails** on a deliberately planted `https://content.lamido.hu` and on a planted 30-character `csk_…`, and **passes** on `csk_YOUR_SECRET_KEY`.
 - [ ] `audit-tarballs` fails on a deliberately added stray file, then passes once removed.
-- [ ] CI green on an empty-but-valid `@lamido/api-core` that exports nothing but a version constant.
+- [ ] CI green on an empty-but-valid `@lazslov/api-core` that exports nothing but a version constant.
 
 ## Out of scope here
 

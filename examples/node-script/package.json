@@ -1,5 +1,5 @@
 {
-  "name": "@lamido-examples/node-script",
+  "name": "@lazslov-examples/node-script",
   "version": "0.0.0",
   "private": true,
   "description": "Smoke test: plain Node, CJS require, no framework. Proves the dual build works and the main entries need no next.",
@@ -8,9 +8,9 @@
     "smoke": "node index.cjs"
   },
   "dependencies": {
-    "@lamido/api-core": "workspace:*",
-    "@lamido/content": "workspace:*",
-    "@lamido/invoice": "workspace:*",
-    "@lamido/payment": "workspace:*"
+    "@lazslov/api-core": "workspace:*",
+    "@lazslov/content": "workspace:*",
+    "@lazslov/invoice": "workspace:*",
+    "@lazslov/payment": "workspace:*"
   }
 }

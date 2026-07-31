@@ -40,7 +40,7 @@ import { CONTENT_TAG } from "./tag.js";
  * @example
  * ```ts
  * "use server";
- * import { asSaveResult, revalidateAfterWrite } from "@lamido/content/next";
+ * import { asSaveResult, revalidateAfterWrite } from "@lazslov/content/next";
  * import { client, tag } from "@/lib/content";
  *
  * export async function saveAbout(values: Record<string, unknown>) {

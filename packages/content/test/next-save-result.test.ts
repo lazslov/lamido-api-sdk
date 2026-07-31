@@ -1,4 +1,4 @@
-import { NotConfiguredError } from "@lamido/api-core";
+import { NotConfiguredError } from "@lazslov/api-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentApiError } from "../src/errors.js";
 import { asSaveResult } from "../src/next/save-result.js";

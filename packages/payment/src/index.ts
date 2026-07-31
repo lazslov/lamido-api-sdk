@@ -1,5 +1,5 @@
 /**
- * `@lamido/payment` — consumer SDK for payment-service's merchant tier.
+ * `@lazslov/payment` — consumer SDK for payment-service's merchant tier.
  *
  * @remarks
  * The package where a bug costs money, so it is the most opinionated of the three. Three things it
@@ -9,7 +9,7 @@
  *   branded and reachable only through {@link huf}, {@link eurCents} or {@link minorUnits}. HUF is
  *   zero-decimal here: `huf(1000)` is 1000 Ft.
  * - **A create cannot happen without an idempotency key.** There is no overload without one, and
- *   `@lamido/api-core` will not generate one — a fresh key after an unanswered request is how double
+ *   `@lazslov/api-core` will not generate one — a fresh key after an unanswered request is how double
  *   charges happen.
  * - **A 502 is triaged rather than retried.** Its four meanings differ in whether a retry is safe;
  *   {@link ProviderOutcome} says which, and an unrecognised message is `"unclassified"` and not
@@ -25,8 +25,8 @@
  * @example
  * ```ts
  * import "server-only";
- * import { createPaymentClient, huf, isFulfillable } from "@lamido/payment";
- * import { derivedIdempotencyKey } from "@lamido/api-core";
+ * import { createPaymentClient, huf, isFulfillable } from "@lazslov/payment";
+ * import { derivedIdempotencyKey } from "@lazslov/api-core";
  *
  * const payments = createPaymentClient();
  *

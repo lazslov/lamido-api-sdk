@@ -11,7 +11,7 @@
  * translation layer inside a dependency is one nobody can edit.
  */
 
-import { NotConfiguredError } from "@lamido/api-core";
+import { NotConfiguredError } from "@lazslov/api-core";
 import { ContentApiError, type ContentErrorCode } from "../errors.js";
 
 /**
@@ -81,7 +81,7 @@ export async function asSaveResult(fn: () => Promise<unknown>): Promise<SaveResu
     return { ok: true };
   } catch (error) {
     // Server-side only. The editor gets a code; whoever is on call gets the stack.
-    console.error("[@lamido/content] a write action failed:", error);
+    console.error("[@lazslov/content] a write action failed:", error);
 
     // Checked separately because it is core's class, not this package's: `resolveConfig` throws it
     // before any service-specific parser runs. Its `status: 0` sentinel is the whole reason a site

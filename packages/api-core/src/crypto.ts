@@ -13,7 +13,7 @@ function subtle(): SubtleCrypto {
   const webCrypto = globalThis.crypto;
   if (!webCrypto?.subtle) {
     throw new Error(
-      "globalThis.crypto.subtle is unavailable. @lamido/api-core needs Web Crypto: Node 18.17+ or a modern edge runtime.",
+      "globalThis.crypto.subtle is unavailable. @lazslov/api-core needs Web Crypto: Node 18.17+ or a modern edge runtime.",
     );
   }
   return webCrypto.subtle;

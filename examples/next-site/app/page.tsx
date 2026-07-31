@@ -1,4 +1,4 @@
-import { asText } from "@lamido/content/fields";
+import { asText } from "@lazslov/content/fields";
 import { content } from "../lib/content";
 import { SaveHeadline } from "./save-headline";
 

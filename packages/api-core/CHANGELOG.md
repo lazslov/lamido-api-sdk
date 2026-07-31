@@ -1,4 +1,4 @@
-# @lamido/api-core
+# @lazslov/api-core
 
 ## 0.1.0
 

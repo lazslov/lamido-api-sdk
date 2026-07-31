@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Workspace root for the @lamido/* consumer SDK packages. Never published — see docs/plans/phase-1-foundations.md §1.",
+  "description": "Workspace root for the @lazslov/* consumer SDK packages. Never published — see docs/plans/phase-1-foundations.md §1.",
   "packageManager": "pnpm@11.18.0",
   "engines": {
     "node": ">=22.13"
@@ -27,7 +27,7 @@
     "release:version": "changeset version",
     "release:dry-run": "pnpm publish -r --dry-run --no-git-checks",
     "release:publish": "pnpm publish -r --access public --provenance --no-git-checks",
-    "verify": "pnpm lint && pnpm check:leaks && pnpm typecheck && pnpm test && pnpm build && pnpm test:node-baseline && pnpm --filter @lamido-examples/node-script smoke && pnpm -r check:package && pnpm audit:tarballs && pnpm deps:audit"
+    "verify": "pnpm lint && pnpm check:leaks && pnpm typecheck && pnpm test && pnpm build && pnpm test:node-baseline && pnpm --filter @lazslov-examples/node-script smoke && pnpm -r check:package && pnpm audit:tarballs && pnpm deps:audit"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

@@ -1,4 +1,4 @@
-# @lamido/invoice
+# @lazslov/invoice
 
 Consumer SDK for invoice-service — Hungarian invoices through szamlazz.hu and Billingo, with the
 provider chosen per request.
@@ -10,10 +10,10 @@ handler to receive.
 ## Install
 
 ```sh
-pnpm add @lamido/invoice
+pnpm add @lazslov/invoice
 ```
 
-Zero runtime dependencies except `@lamido/api-core`, which is the shared transport.
+Zero runtime dependencies except `@lazslov/api-core`, which is the shared transport.
 
 ## Configuration comes from your environment
 
@@ -46,8 +46,8 @@ beats a runtime throw.
 
 ```ts
 import "server-only";
-import { createInvoiceClient, isoDate } from "@lamido/invoice";
-import { derivedIdempotencyKey } from "@lamido/api-core";
+import { createInvoiceClient, isoDate } from "@lazslov/invoice";
+import { derivedIdempotencyKey } from "@lazslov/api-core";
 
 const invoices = createInvoiceClient();
 
@@ -94,7 +94,7 @@ get it wrong by reading the body. And a replay can be in any status:
 | `500` / `502` | **yes** | Row stored as `failed`. Fix the cause, then a **new** key. |
 | timeout, no response | unknown | Do **not** blind-retry. Read the invoice back first. |
 
-`@lamido/payment` teaches the opposite habit — there, a same-key retry after an unanswered request
+`@lazslov/payment` teaches the opposite habit — there, a same-key retry after an unanswered request
 is the *only* safe move, because a new key starts a second payment. Two services, two rules, and
 one habit that breaks one of them. The `advice` on a thrown `InvoiceApiError` says which applies.
 
@@ -129,7 +129,7 @@ isoDate("25/07/2026"); // throws — the service would forward this
 is `created` — do not write `grossAmount ?? 0`, which reports a pending invoice as a zero-forint
 one. `currency` is free text, whatever the provider echoed back, and is not an enum.
 
-> This is the **opposite** of `@lamido/payment`, where every amount is a decimal string of *minor*
+> This is the **opposite** of `@lazslov/payment`, where every amount is a decimal string of *minor*
 > units and HUF is zero-decimal. A value moved between the two packages without conversion is
 > wrong by a factor of 100 in one direction or the other.
 

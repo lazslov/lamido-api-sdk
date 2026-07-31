@@ -12,7 +12,7 @@
  * is exactly one exception, and it is a 502 — see {@link ./provider-outcome.js}.
  */
 
-import { type ErrorContext, LamidoApiError } from "@lamido/api-core";
+import { type ErrorContext, LamidoApiError } from "@lazslov/api-core";
 import type { components } from "./generated/schema.js";
 import {
   classifyProviderOutcome,
@@ -101,7 +101,7 @@ export class PaymentApiError extends LamidoApiError {
    *
    * @remarks
    * Also available as core's `code`, which carries the same URN so cross-service code can read one
-   * field on any `@lamido/*` error.
+   * field on any `@lazslov/*` error.
    */
   readonly type: PaymentProblemType;
 

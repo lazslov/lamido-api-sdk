@@ -1,5 +1,5 @@
 /**
- * `@lamido/payment/next` — the webhook route handler.
+ * `@lazslov/payment/next` — the webhook route handler.
  *
  * @remarks
  * One export, and it imports **nothing from `next`**: it takes a `Request` and answers a `Response`,
@@ -17,7 +17,7 @@
  * // app/api/webhooks/payment/route.ts
  * export const runtime = "nodejs";
  *
- * import { createPaymentWebhookHandler } from "@lamido/payment/next";
+ * import { createPaymentWebhookHandler } from "@lazslov/payment/next";
  *
  * export const POST = createPaymentWebhookHandler({
  *   alreadyProcessed: (id) => db.webhookEvents.exists(id),

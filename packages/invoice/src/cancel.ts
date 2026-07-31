@@ -2,7 +2,7 @@
  * `POST /api/invoices/:id/cancel` — the storno, and the one response that carries `stornoNumber`.
  */
 
-import type { ResolvedConfig } from "@lamido/api-core";
+import type { ResolvedConfig } from "@lazslov/api-core";
 import { call, invoicePath, passInit, type RequestOptions } from "./call.js";
 import type { CancelledInvoice } from "./types.js";
 

@@ -7,7 +7,7 @@
  * non-default value is guaranteed to fail has no reason to exist in an SDK.
  */
 
-import type { ResolvedConfig } from "@lamido/api-core";
+import type { ResolvedConfig } from "@lazslov/api-core";
 import { type AggregateQuery, aggregateQuery } from "../aggregate.js";
 import { call, callListOrNull, callOrNull } from "../call.js";
 import { type ListOptions, type LocaleOptions, passInit, type RequestOptions } from "../options.js";

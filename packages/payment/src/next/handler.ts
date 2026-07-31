@@ -120,7 +120,7 @@ const verificationAdvice =
  * // app/api/webhooks/payment/route.ts
  * export const runtime = "nodejs";   // an edge runtime may transform the body, which breaks the HMAC
  *
- * import { createPaymentWebhookHandler } from "@lamido/payment/next";
+ * import { createPaymentWebhookHandler } from "@lazslov/payment/next";
  *
  * export const POST = createPaymentWebhookHandler({
  *   alreadyProcessed: (id) => db.webhookEvents.exists(id),
@@ -169,7 +169,7 @@ export function createPaymentWebhookHandler(
       // A 500 rather than a re-throw, so the answer is the same in any runtime rather than depending
       // on the framework's own error boundary. `markProcessed` is deliberately unreached: the sender
       // retries, and an event marked handled after a failed enqueue is one that never happens again.
-      console.error("[@lamido/payment] onEvent threw; the delivery will be retried:", error);
+      console.error("[@lazslov/payment] onEvent threw; the delivery will be retried:", error);
       return text(500, "the event could not be accepted");
     }
     warnIfSlow(performance.now() - startedAt);
@@ -184,7 +184,7 @@ export function createPaymentWebhookHandler(
     if (readEnv("NODE_ENV") === "production") return;
     warned = true;
     console.warn(
-      `[@lamido/payment] onEvent took ${Math.round(elapsedMs)}ms. The service treats a response slower ` +
+      `[@lazslov/payment] onEvent took ${Math.round(elapsedMs)}ms. The service treats a response slower ` +
         "than 5 seconds as a failed attempt; eight of those dead-letter the delivery and five " +
         "consecutive dead-letters disable the endpoint. Enqueue the work instead of doing it here.",
     );

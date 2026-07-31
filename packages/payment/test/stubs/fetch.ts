@@ -6,7 +6,7 @@
  * Stubbing higher up would test the stub.
  */
 
-import type { ServiceConfig } from "@lamido/api-core";
+import type { ServiceConfig } from "@lazslov/api-core";
 import { createPaymentClient, type PaymentClient } from "../../src/client.js";
 
 /** One recorded call. */

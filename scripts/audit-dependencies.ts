@@ -4,13 +4,13 @@
  * Usage: `pnpm deps:audit`
  *
  * `test/package-shape.test.ts` already checks that every `dependencies` block is empty or exactly
- * `@lamido/api-core`. That is a claim about what was *declared*. This is a claim about what a consumer
+ * `@lazslov/api-core`. That is a claim about what was *declared*. This is a claim about what a consumer
  * would actually install: it walks each package's production dependency graph transitively, so a
  * dependency arriving *through* api-core — or a `dependencies` entry added to api-core itself — fails
  * here and nowhere else.
  *
  * Phase 7 §exit: "CI is green with zero runtime dependencies reported by `pnpm why` for every package
- * except the single `@lamido/api-core` edge."
+ * except the single `@lazslov/api-core` edge."
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -18,7 +18,7 @@ import path from "node:path";
 import { packageDirs, packagePath, repoRoot } from "./lib/paths.js";
 
 /** The one runtime edge the policy allows, and only from a service package to core. */
-const allowedDependency = "@lamido/api-core";
+const allowedDependency = "@lazslov/api-core";
 
 /** One node of `pnpm list --json`'s dependency tree. */
 interface ListedPackage {
@@ -67,7 +67,7 @@ function manifestOf(dir: string): Manifest {
  * **A declared peer and everything under it are excluded.** `pnpm list --prod` *does* report a resolved
  * peer — `next` is satisfied here by the repository's own devDependency, and reporting it drags in fifty
  * packages of Next's tree. But an **optional** peer is by definition something the consumer chooses to
- * install: `@lamido/content` in an Astro project pulls in none of it. Counting it would make this audit
+ * install: `@lazslov/content` in an Astro project pulls in none of it. Counting it would make this audit
  * fail on precisely the arrangement phase 6 was designed to produce.
  */
 function resolvedDependencies(dir: string): string[] {
@@ -105,7 +105,7 @@ for (const dir of packageDirs) {
   const dependencies = resolvedDependencies(dir);
   const unexpected = dependencies.filter((name) => name !== allowedDependency);
 
-  const label = `@lamido/${dir}`.padEnd(20);
+  const label = `@lazslov/${dir}`.padEnd(20);
   if (unexpected.length > 0) {
     console.error(`${label} ${unexpected.length} unexpected runtime dependency:`);
     for (const name of unexpected) console.error(`  ${name}`);
@@ -120,7 +120,7 @@ for (const dir of packageDirs) {
 
 if (failed) {
   console.error(
-    "\nA published package may depend on nothing but @lamido/api-core, which itself depends on nothing.\n" +
+    "\nA published package may depend on nothing but @lazslov/api-core, which itself depends on nothing.\n" +
       "Every dependency is a supply-chain edge a consumer inherits without choosing it.",
   );
   process.exit(1);

@@ -11,7 +11,7 @@
  * Deliberately small: the money type, the webhook verifier on this runtime's Web Crypto, one create that
  * carries its idempotency key, and the `./next` subpath — which is here because it is the only place
  * that can prove the route handler needs no `next` at all. `import()` of it would throw if it did.
- * (`@lamido/content/next` does need `next`, and proving *that* installs cleanly without it is phase 7's
+ * (`@lazslov/content/next` does need `next`, and proving *that* installs cleanly without it is phase 7's
  * `examples/node-script` fixture.) The behaviour itself is the Vitest suites' job.
  */
 import assert from "node:assert/strict";

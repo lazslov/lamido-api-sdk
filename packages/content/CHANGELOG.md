@@ -1,4 +1,4 @@
-# @lamido/content
+# @lazslov/content
 
 ## 0.1.0
 

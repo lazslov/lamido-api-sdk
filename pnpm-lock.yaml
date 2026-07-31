@@ -47,7 +47,7 @@ importers:
 
   examples/next-site:
     dependencies:
-      '@lamido/content':
+      '@lazslov/content':
         specifier: workspace:*
         version: link:../../packages/content
       next:
@@ -69,16 +69,16 @@ importers:
 
   examples/node-script:
     dependencies:
-      '@lamido/api-core':
+      '@lazslov/api-core':
         specifier: workspace:*
         version: link:../../packages/api-core
-      '@lamido/content':
+      '@lazslov/content':
         specifier: workspace:*
         version: link:../../packages/content
-      '@lamido/invoice':
+      '@lazslov/invoice':
         specifier: workspace:*
         version: link:../../packages/invoice
-      '@lamido/payment':
+      '@lazslov/payment':
         specifier: workspace:*
         version: link:../../packages/payment
 
@@ -86,7 +86,7 @@ importers:
 
   packages/content:
     dependencies:
-      '@lamido/api-core':
+      '@lazslov/api-core':
         specifier: workspace:^
         version: link:../api-core
       next:
@@ -95,13 +95,13 @@ importers:
 
   packages/invoice:
     dependencies:
-      '@lamido/api-core':
+      '@lazslov/api-core':
         specifier: workspace:^
         version: link:../api-core
 
   packages/payment:
     dependencies:
-      '@lamido/api-core':
+      '@lazslov/api-core':
         specifier: workspace:^
         version: link:../api-core
 

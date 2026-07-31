@@ -7,7 +7,7 @@
  * anything else is a `400` rather than a sequential scan.
  */
 
-import type { QueryInit } from "@lamido/api-core";
+import type { QueryInit } from "@lazslov/api-core";
 import type { RequestOptions } from "./options.js";
 
 /**

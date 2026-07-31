@@ -1,4 +1,4 @@
-import { LamidoApiError } from "@lamido/api-core";
+import { LamidoApiError } from "@lazslov/api-core";
 import { describe, expect, it } from "vitest";
 import { InvoiceApiError } from "../src/errors.js";
 import { errorResponse, fetchStub, invoiceClient, jsonResponse } from "./stubs/fetch.js";

@@ -1,4 +1,4 @@
-import { createRevalidationHandler } from "@lamido/content/next";
+import { createRevalidationHandler } from "@lazslov/content/next";
 import { tag } from "../../../lib/content";
 
 /**

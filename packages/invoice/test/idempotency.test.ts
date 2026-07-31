@@ -1,4 +1,4 @@
-import { derivedIdempotencyKey, idempotencyKey } from "@lamido/api-core";
+import { derivedIdempotencyKey, idempotencyKey } from "@lazslov/api-core";
 import { describe, expect, it } from "vitest";
 import { InvoiceApiError } from "../src/errors.js";
 import {

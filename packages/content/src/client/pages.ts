@@ -10,7 +10,7 @@
  * no method here that writes a whole document.
  */
 
-import type { ResolvedConfig } from "@lamido/api-core";
+import type { ResolvedConfig } from "@lazslov/api-core";
 import { call, callList } from "../call.js";
 import { type LocaleOptions, passInit, type RequestOptions } from "../options.js";
 import { type PublishedPage, toPublishedPage } from "../page.js";
@@ -104,7 +104,7 @@ export interface PageMethods {
    *
    * @param slug - The page slug.
    * @param values - Keyed `"<sectionKey>.<fieldKey>"`, at most 500 keys. Build it with
-   * `prepareValues` from `@lamido/content/fields`, which returns exactly this shape.
+   * `prepareValues` from `@lazslov/content/fields`, which returns exactly this shape.
    * @param options - Locale, `init`.
    * @returns The updated **draft** document, so an optimistic UI reconciles in one round trip.
    * @remarks

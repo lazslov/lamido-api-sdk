@@ -32,7 +32,7 @@ export interface Violation {
  * The only runtime dependency any published package may declare.
  * @see docs/plans/phase-1-foundations.md §2
  */
-const allowedDependency = "@lamido/api-core";
+const allowedDependency = "@lazslov/api-core";
 
 /**
  * Files npm includes whatever `"files"` says, so they are not evidence of a broken

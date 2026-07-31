@@ -6,13 +6,13 @@
  * adds, because the naive reading of the status is wrong in a way that costs an idempotency key:
  *
  * - a **502** on a create means the invoice row was written as `failed` and the key is spent, so the
- *   correct retry uses a **new** key — the opposite of `@lamido/payment`, where a same-key retry
+ *   correct retry uses a **new** key — the opposite of `@lazslov/payment`, where a same-key retry
  *   after an unreachable PSP is the only safe move;
  * - a **500** on a create is usually a credential that could not be resolved or decrypted, which is
  *   a configuration problem rather than a transient one, and backoff will never clear it.
  */
 
-import { type ErrorContext, LamidoApiError } from "@lamido/api-core";
+import { type ErrorContext, LamidoApiError } from "@lazslov/api-core";
 import type { InvoiceStatus } from "./types.js";
 
 /** The service this package talks to, named on every error it throws. */
@@ -68,7 +68,7 @@ export interface InvoiceValidationDetails {
  * A non-2xx answer from invoice-service.
  *
  * @remarks
- * Carries no credential, no host and no request body — see `@lamido/api-core`'s `LamidoApiError`.
+ * Carries no credential, no host and no request body — see `@lazslov/api-core`'s `LamidoApiError`.
  *
  * @example
  * ```ts

@@ -1,4 +1,4 @@
-import { idempotencyKey } from "@lamido/api-core";
+import { idempotencyKey } from "@lazslov/api-core";
 import { describe, expect, it } from "vitest";
 import { isoDate } from "../src/dates.js";
 import type { CreateInvoiceInput } from "../src/types.js";

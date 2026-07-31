@@ -1,4 +1,4 @@
-import { idempotencyKey } from "@lamido/api-core";
+import { idempotencyKey } from "@lazslov/api-core";
 import { describe, expect, it } from "vitest";
 import { huf, minorUnits } from "../src/money.js";
 import type { CreatePaymentInput, CreateRefundInput } from "../src/types.js";

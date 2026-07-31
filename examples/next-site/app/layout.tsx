@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export const metadata = {
-  title: "@lamido/content — next-site smoke test",
+  title: "@lazslov/content — next-site smoke test",
   description: "An App Router site reading through cache mode A.",
 };
 

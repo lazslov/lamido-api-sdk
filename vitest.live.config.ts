@@ -31,7 +31,7 @@ export default defineConfig({
   resolve: {
     alias: Object.fromEntries(
       ["api-core", "content", "invoice", "payment"].map((name) => [
-        `@lamido/${name}`,
+        `@lazslov/${name}`,
         fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
       ]),
     ),

@@ -7,7 +7,7 @@
  * the stub.
  */
 
-import type { ServiceConfig } from "@lamido/api-core";
+import type { ServiceConfig } from "@lazslov/api-core";
 import { type ContentClient, createContentClient } from "../../src/client/create.js";
 import { createWebsiteClient } from "../../src/website/create.js";
 import type { WebsiteClient } from "../../src/website/reads.js";

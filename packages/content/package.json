@@ -1,5 +1,5 @@
 {
-  "name": "@lamido/content",
+  "name": "@lazslov/content",
   "version": "0.1.0",
   "description": "Consumer SDK for content-service: pages, sections, collections, datasets and assets.",
   "license": "MIT",
@@ -68,7 +68,7 @@
     "check:package": "publint && attw --pack ."
   },
   "dependencies": {
-    "@lamido/api-core": "workspace:^"
+    "@lazslov/api-core": "workspace:^"
   },
   "peerDependencies": {
     "next": ">=14"

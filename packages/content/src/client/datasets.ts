@@ -8,7 +8,7 @@
  * a write from a browser.
  */
 
-import type { ResolvedConfig } from "@lamido/api-core";
+import type { ResolvedConfig } from "@lazslov/api-core";
 import { type AggregateQuery, aggregateQuery } from "../aggregate.js";
 import { call, callList, callOrNull } from "../call.js";
 import { passInit, type RequestOptions } from "../options.js";

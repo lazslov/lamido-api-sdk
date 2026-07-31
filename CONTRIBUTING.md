@@ -55,7 +55,7 @@ The two `retryable` rows are the ones to slow down on. A verdict is not document
 retry loop branches on it, and widening one turns a payment that failed once into a payment
 attempted twice.
 
-### `@lamido/api-core` is never pinned
+### `@lazslov/api-core` is never pinned
 
 Service packages depend on it as `workspace:^`, which publishes as `^<version>`. A patch to core
 — the HMAC-verifier fix — then reaches every consumer through `pnpm update`, without three
@@ -111,20 +111,13 @@ do. Tagging `v0.1.0` is the whole step. Every release after that follows the flo
 
 None of this can be done from the repository, and all of it must be true before a tag is pushed.
 
-- [ ] **Confirm who owns the `@lamido` scope.** As of 2026-07-31 the npm registry resolves
-      `@lamido` to an existing *account* scope — `/-/org/lamido/user` answers `{"lamido":"owner"}`,
-      the shape a user account returns, not the `{}` an organisation returns — with **zero
-      packages published** under it. Log in and check:
-
-      ```bash
-      npm whoami
-      npm access list packages @lamido
-      ```
-
-      If that account is not yours, the four packages need a different scope, and renaming them
-      is a repository-wide change best made before anything is published, not after.
+- [ ] **`npm whoami` says `lazslov`.** `@lazslov` is a *user* scope, not an organisation — the
+      maintainer's own npm username — so there is no organisation to create and no membership to
+      grant. A free account publishes as many public packages under its own scope as it likes;
+      only *private* packages need a paid plan, and none of these are private. That is the whole
+      of the account setup.
 - [ ] **2FA on the npm account**, with a granular automation token as the CI path.
-- [ ] **A granular access token** scoped to the `@lamido` packages, with publish permission,
+- [ ] **A granular access token** with publish permission on the four `@lazslov/*` packages,
       stored as the `NPM_TOKEN` secret of the `release` GitHub environment. Never in a committed
       `.npmrc` — [.npmrc](.npmrc) exists to hold the registry URL and nothing else.
 - [ ] **The `release` environment exists** and has a required reviewer. Publishing is the one
@@ -143,7 +136,7 @@ first publish looks like an auth error.
 
 - A removed export gets **one minor release** where it is still present, marked `@deprecated`
   with the replacement named in the tag.
-- A **security fix to the HMAC verifier** ships as a patch to `@lamido/api-core` immediately,
+- A **security fix to the HMAC verifier** ships as a patch to `@lazslov/api-core` immediately,
   with no deprecation window. Every service package's README then names the minimum core
   version, and the affected core versions are `npm deprecate`d with a message naming the fixed
   one.

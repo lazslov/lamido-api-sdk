@@ -17,13 +17,13 @@ four published packages.**
 
 ```
 lazslov/lamido-api-sdk             (new repo — pnpm workspace)
-├── packages/api-core   → @lamido/api-core    transport, errors, HMAC, paging
-├── packages/content    → @lamido/content     website + client tiers
-├── packages/invoice    → @lamido/invoice     client tier
-└── packages/payment    → @lamido/payment     merchant tier
+├── packages/api-core   → @lazslov/api-core    transport, errors, HMAC, paging
+├── packages/content    → @lazslov/content     website + client tiers
+├── packages/invoice    → @lazslov/invoice     client tier
+└── packages/payment    → @lazslov/payment     merchant tier
 ```
 
-Each service package depends on `@lamido/api-core` and on **nothing else**. Core depends on
+Each service package depends on `@lazslov/api-core` and on **nothing else**. Core depends on
 nothing. See [phase-1](phase-1-foundations.md) for the dependency policy.
 
 ### Why not one package
@@ -49,7 +49,7 @@ lie. Four concrete reasons to split:
 1. **Bundle safety is a packaging problem.** content-service has a genuinely browser-safe
    tier (`cpk_`); payment-service must never reach a browser bundle at all. Separate
    packages make that boundary visible in `package.json` and in code review. A single
-   barrel entry point invites `import { payments } from "@lamido/sdk"` inside a React
+   barrel entry point invites `import { payments } from "@lazslov/sdk"` inside a React
    client component, which is exactly how a full-tenant key ships to every visitor.
 2. **The install set should match the need.** Most client sites need content only. The
    content OpenAPI document alone is 4,542 lines; emitting all three services' types into
@@ -58,8 +58,8 @@ lie. Four concrete reasons to split:
    (content `d7b5c46`, invoice `f5af0dc`, payment `586eede`). Independent versioning means
    a payment contract change does not produce a version bump that content consumers have to
    read a changelog to dismiss.
-4. **Vocabulary should mirror the service.** `@lamido/payment` should say `problem.type`
-   and `amount_minor`; `@lamido/content` should say `error.code` and `values`. Forcing one
+4. **Vocabulary should mirror the service.** `@lazslov/payment` should say `problem.type`
+   and `amount_minor`; `@lazslov/content` should say `error.code` and `values`. Forcing one
    naming scheme over both means every user translates twice.
 
 ### Why core is a published package rather than inlined
@@ -67,7 +67,7 @@ lie. Four concrete reasons to split:
 Bundling core into each service package would make each one standalone, at the cost of
 three copies of the **HMAC signature verifier**. That code is security-sensitive and is the
 one thing that must exist in exactly one place: a fix to it should be
-`pnpm update @lamido/api-core`, not three coordinated releases plus every consumer noticing
+`pnpm update @lazslov/api-core`, not three coordinated releases plus every consumer noticing
 they need all three.
 
 The trade is one dependency edge per package. That is the whole dependency graph.
@@ -124,7 +124,7 @@ tenants can construct two clients.
 
 ### Dependencies
 
-**Zero runtime dependencies**, except `@lamido/api-core` in each service package.
+**Zero runtime dependencies**, except `@lazslov/api-core` in each service package.
 
 Everything needed is a platform API: `fetch`, `AbortController`, `URL`,
 `globalThis.crypto.subtle`. Node 18+ or any modern edge runtime. Type generation, building,
@@ -165,10 +165,10 @@ Each file is self-contained and states its own dependencies and exit criteria.
 | # | Phase | Depends on | Ships |
 |---|---|---|---|
 | 1 | [Foundations](phase-1-foundations.md) | — | repo, workspace, build, type generation, guardrails |
-| 2 | [`@lamido/api-core`](phase-2-api-core.md) | 1 | transport, error base, config, HMAC verifier, paginator |
-| 3 | [`@lamido/content`](phase-3-content.md) | 2 | website + client tiers, field descriptors, assets |
-| 4 | [`@lamido/invoice`](phase-4-invoice.md) | 2 | client tier, idempotency, PDF paths |
-| 5 | [`@lamido/payment`](phase-5-payment.md) | 2 | merchant tier, money type, 502 triage, webhooks |
+| 2 | [`@lazslov/api-core`](phase-2-api-core.md) | 1 | transport, error base, config, HMAC verifier, paginator |
+| 3 | [`@lazslov/content`](phase-3-content.md) | 2 | website + client tiers, field descriptors, assets |
+| 4 | [`@lazslov/invoice`](phase-4-invoice.md) | 2 | client tier, idempotency, PDF paths |
+| 5 | [`@lazslov/payment`](phase-5-payment.md) | 2 | merchant tier, money type, 502 triage, webhooks |
 | 6 | [Framework adapters](phase-6-next-adapters.md) | 3, 5 | `…/next` subpaths: cache modes, route handlers |
 | 7 | [Verification](phase-7-verification.md) | 2–6 | live-tenant contract tests, HMAC fixtures, leak audit |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | 7 | versioning, publishing, the drift protocol |

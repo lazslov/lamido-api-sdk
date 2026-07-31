@@ -1,10 +1,10 @@
-import { derivedIdempotencyKey } from "@lamido/api-core";
+import { derivedIdempotencyKey } from "@lazslov/api-core";
 import {
   type CreateInvoiceInput,
   createInvoiceClient,
   type InvoiceApiError,
   isoDate,
-} from "@lamido/invoice";
+} from "@lazslov/invoice";
 import { describe, expect, it } from "vitest";
 import {
   allowWrites,

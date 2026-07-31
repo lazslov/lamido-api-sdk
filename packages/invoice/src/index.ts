@@ -1,5 +1,5 @@
 /**
- * `@lamido/invoice` — consumer SDK for invoice-service's client tier.
+ * `@lazslov/invoice` — consumer SDK for invoice-service's client tier.
  *
  * @remarks
  * A small surface with unusually sharp edges. Three things it makes hard on purpose:
@@ -7,7 +7,7 @@
  * - **An idempotency key is consumed on first use, whatever the outcome.** A failed create returns that
  *   same failure forever under the same key, so {@link CreateInvoiceResult.replayed} is derived from the
  *   status code and the error carries the new-key rule in words. This is the **opposite** of
- *   `@lamido/payment`, where a same-key retry after an unreachable PSP is the only safe move.
+ *   `@lazslov/payment`, where a same-key retry after an unreachable PSP is the only safe move.
  * - **`stornoNumber` cannot be read off an invoice.** Only `cancelInvoice` returns it, and only
  *   {@link CancelledInvoice} declares it — so the documented silent failure, a detail page rendering
  *   nothing forever, is a compile error instead.
@@ -16,7 +16,7 @@
  *   non-empty — because each of those otherwise comes back as a `502` with the key already spent.
  *
  * Money here is a **major-unit number**: `grossAmount: 38100` means 38 100 Ft, and it is `null` until
- * the invoice is `created`. `@lamido/payment` uses a decimal string of *minor* units. Neither package
+ * the invoice is `created`. `@lazslov/payment` uses a decimal string of *minor* units. Neither package
  * converts between them; if a site needs to invoice a payment, that conversion is written in the site,
  * visibly, once.
  *
@@ -35,8 +35,8 @@
  * @example
  * ```ts
  * import "server-only";
- * import { createInvoiceClient, isoDate } from "@lamido/invoice";
- * import { derivedIdempotencyKey } from "@lamido/api-core";
+ * import { createInvoiceClient, isoDate } from "@lazslov/invoice";
+ * import { derivedIdempotencyKey } from "@lazslov/api-core";
  *
  * const invoices = createInvoiceClient();
  *

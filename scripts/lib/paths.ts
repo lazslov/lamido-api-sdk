@@ -15,7 +15,7 @@ export const contractsManifest = path.join(contractsDir, "CONTRACTS.json");
  * One published package that is generated from an upstream contract.
  *
  * @remarks
- * `@lamido/api-core` is absent by design — it has no contract of its own.
+ * `@lazslov/api-core` is absent by design — it has no contract of its own.
  */
 export interface ServiceDescriptor {
   /** Knowledge-base folder name, and the key used in `CONTRACTS.json`. */

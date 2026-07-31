@@ -2,7 +2,7 @@
  * A consumer that is as unlike a Next.js app as possible: plain Node, CommonJS `require`, no framework,
  * no bundler, no TypeScript.
  *
- * Run with `pnpm --filter @lamido-examples/node-script smoke`, after `pnpm build`.
+ * Run with `pnpm --filter @lazslov-examples/node-script smoke`, after `pnpm build`.
  *
  * Three things it proves, none of which a suite inside the repository can:
  *
@@ -33,12 +33,12 @@ function check(claim, assertion) {
 
 // ── 1. require() resolves, on all four packages and all three subpaths ────────────────────────────
 
-const core = require("@lamido/api-core");
-const content = require("@lamido/content");
-const contentFields = require("@lamido/content/fields");
-const invoice = require("@lamido/invoice");
-const payment = require("@lamido/payment");
-const paymentNext = require("@lamido/payment/next");
+const core = require("@lazslov/api-core");
+const content = require("@lazslov/content");
+const contentFields = require("@lazslov/content/fields");
+const invoice = require("@lazslov/invoice");
+const payment = require("@lazslov/payment");
+const paymentNext = require("@lazslov/payment/next");
 
 check("all four packages resolve through the require condition", () => {
   for (const [name, mod] of Object.entries({ core, content, invoice, payment })) {
@@ -51,7 +51,7 @@ check("the ./fields subpath resolves and carries the field layer", () => {
   assert.equal(typeof contentFields.asText, "function");
 });
 
-check("@lamido/payment/next resolves with no framework installed", () => {
+check("@lazslov/payment/next resolves with no framework installed", () => {
   // This package's handler is a plain Request → Response, which is why it declares no peer dependency.
   assert.equal(typeof paymentNext.createPaymentWebhookHandler, "function");
 });
@@ -59,7 +59,7 @@ check("@lamido/payment/next resolves with no framework installed", () => {
 check("no main entry's shipped CJS requires next, on any package", () => {
   // Checked against the built artifact, from a consumer's position, rather than against the source.
   //
-  // Note what this does NOT prove. `require("@lamido/content/next")` succeeds here even though this
+  // Note what this does NOT prove. `require("@lazslov/content/next")` succeeds here even though this
   // project does not depend on `next`, because pnpm hoists the repository's own devDependency to the
   // root and Node's resolution walks up into it. So "the package is unusable without next" cannot be
   // simulated from inside this workspace at all — that is phase 8's `pnpm add` smoke, in a project
@@ -68,20 +68,20 @@ check("no main entry's shipped CJS requires next, on any package", () => {
   const requiresNext = /require\(\s*["']next(\/[^"']*)?["']\s*\)/;
 
   for (const entry of [
-    "@lamido/api-core",
-    "@lamido/content",
-    "@lamido/content/fields",
-    "@lamido/invoice",
-    "@lamido/payment",
-    "@lamido/payment/next",
+    "@lazslov/api-core",
+    "@lazslov/content",
+    "@lazslov/content/fields",
+    "@lazslov/invoice",
+    "@lazslov/payment",
+    "@lazslov/payment/next",
   ]) {
     const built = readFileSync(require.resolve(entry), "utf8");
     assert.equal(requiresNext.test(built), false, `${entry} requires next`);
   }
 
   // And the one subpath that does, so this stays a real distinction rather than a vacuous pass.
-  const gateway = readFileSync(require.resolve("@lamido/content/next"), "utf8");
-  assert.equal(requiresNext.test(gateway), true, "@lamido/content/next should require next/cache");
+  const gateway = readFileSync(require.resolve("@lazslov/content/next"), "utf8");
+  assert.equal(requiresNext.test(gateway), true, "@lazslov/content/next should require next/cache");
 });
 
 // ── 2. An empty environment degrades rather than crashing ────────────────────────────────────────

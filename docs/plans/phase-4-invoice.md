@@ -1,4 +1,4 @@
-# Phase 4 — `@lamido/invoice`
+# Phase 4 — `@lazslov/invoice`
 
 **Goal:** the `isk_` client tier — issue, list, fetch, download and cancel invoices. Six
 endpoints plus a public PDF link. Small surface, unusually sharp edges.
@@ -27,7 +27,7 @@ fails regardless — but it fails opaquely, and the key is public by then. The g
 into a legible construction-time error.
 
 > **GOTCHA — do not set `mode: "same-origin"` here as a habit and then copy it to
-> `@lamido/content`.** invoice-service's admin tier rejects a request carrying `Origin` or
+> `@lazslov/content`.** invoice-service's admin tier rejects a request carrying `Origin` or
 > `Sec-Fetch-Mode: cors`, and content-service's docs specifically warn that integrators who
 > added a workaround for that
 > [must not copy it](../content-service/conventions.md#8-security-invariants). Since v1 does
@@ -129,7 +129,7 @@ Hand-written predicates, no validation library — see
 
 `grossAmount` is a plain JSON number in major units — `38100` means 38 100 Ft.
 
-> **RULE — this is the opposite of `@lamido/payment`,** where every amount is a decimal
+> **RULE — this is the opposite of `@lazslov/payment`,** where every amount is a decimal
 > **string** of **minor** units and HUF is zero-decimal. A value moved between the two
 > packages without conversion is wrong by a factor of 100 in one direction or the other.
 
@@ -138,7 +138,7 @@ services agree. Instead:
 
 - `Invoice.grossAmount` is typed `number | null` and its doc comment says *major units, and
   points at payment's minor-unit string type by name*.
-- `@lamido/payment` exports **no** conversion to or from this type. If a site needs to invoice
+- `@lazslov/payment` exports **no** conversion to or from this type. If a site needs to invoice
   a payment, the conversion is written in that site, visibly, once.
 
 `grossAmount` is `null` for `pending` and `failed` invoices — it is only meaningful once
@@ -240,7 +240,7 @@ invoice per request), invoice modification (cancel only, never edit), and partne
 ## Public API surface
 
 ```ts
-// @lamido/invoice
+// @lazslov/invoice
 export { createInvoiceClient, tryCreateInvoiceClient }
 export { InvoiceApiError, type InvoiceErrorCode }
 export { isoDate, type IsoDate }

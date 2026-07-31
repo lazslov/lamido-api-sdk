@@ -59,7 +59,7 @@ export interface PublishedPage {
    *
    * @remarks
    * **Never `null`, and never throws.** A missing section maps to an empty field set, so the
-   * coercions in `@lamido/content/fields` return their empty values and the component renders its
+   * coercions in `@lazslov/content/fields` return their empty values and the component renders its
    * own placeholders. That is what makes a half-published site degrade one section at a time.
    */
   section(key: string): PageSection;

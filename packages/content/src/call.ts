@@ -3,11 +3,11 @@
  * answers `null` for a `404`.
  *
  * @remarks
- * Both go through `@lamido/api-core`'s `request`, so there is exactly one place a request leaves
+ * Both go through `@lazslov/api-core`'s `request`, so there is exactly one place a request leaves
  * the process and exactly one place the credential is attached.
  */
 
-import { type RequestSpec, type ResolvedConfig, request } from "@lamido/api-core";
+import { type RequestSpec, type ResolvedConfig, request } from "@lazslov/api-core";
 import { ContentApiError, parseContentError } from "./errors.js";
 import type { ContentList } from "./types.js";
 

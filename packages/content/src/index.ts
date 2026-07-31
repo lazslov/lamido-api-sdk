@@ -1,5 +1,5 @@
 /**
- * `@lamido/content` — consumer SDK for content-service.
+ * `@lazslov/content` — consumer SDK for content-service.
  *
  * @remarks
  * Two tiers, two constructors, because there are two credentials with different blast radii:
@@ -13,13 +13,13 @@
  * a `cad_` key reaches every site.
  *
  * The field-descriptor layer — the types, the coercions and `prepareValues` — lives in
- * `@lamido/content/fields`, which imports nothing and is safe in a client component.
+ * `@lazslov/content/fields`, which imports nothing and is safe in a client component.
  *
  * @example
  * ```ts
  * import "server-only";
- * import { createWebsiteClient } from "@lamido/content";
- * import { asImage, asText } from "@lamido/content/fields";
+ * import { createWebsiteClient } from "@lazslov/content";
+ * import { asImage, asText } from "@lazslov/content/fields";
  *
  * const content = createWebsiteClient();
  * const page = await content.getPage("home");           // null when unpublished

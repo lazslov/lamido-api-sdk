@@ -6,7 +6,7 @@
  * is **consumed on first use whatever the outcome**, which inverts the habit payment-service teaches.
  */
 
-import type { IdempotencyKey, ResolvedConfig } from "@lamido/api-core";
+import type { IdempotencyKey, ResolvedConfig } from "@lazslov/api-core";
 import { callWithMeta, passInit, type RequestOptions } from "./call.js";
 import type { CreateInvoiceInput, CreateInvoiceResult, Invoice } from "./types.js";
 import { assertCreatable } from "./validate.js";

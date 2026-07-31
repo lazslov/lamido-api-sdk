@@ -49,7 +49,7 @@ describe.each(packageDirs)("packages/%s", (dir) => {
 
   it("depends on nothing but api-core", () => {
     const dependencies = Object.keys(manifest.dependencies ?? {});
-    const expected = dir === "api-core" ? [] : ["@lamido/api-core"];
+    const expected = dir === "api-core" ? [] : ["@lazslov/api-core"];
     expect(dependencies).toEqual(expected);
   });
 
@@ -89,7 +89,7 @@ describe.each(packageDirs)("packages/%s", (dir) => {
   });
 
   it("declares next as an optional peer only where a subpath imports it", () => {
-    // `@lamido/content/next` imports `next/cache`. `@lamido/payment/next` does not — its handler takes
+    // `@lazslov/content/next` imports `next/cache`. `@lazslov/payment/next` does not — its handler takes
     // a `Request` and answers a `Response` — so claiming a peer there would be a warning a consumer
     // cannot act on. Optional, so installing either package in an Astro or plain-Node project is quiet.
     const peers = manifest.peerDependencies as Record<string, string> | undefined;

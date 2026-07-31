@@ -12,7 +12,7 @@ import {
   NotConfiguredError,
   resolveConfig,
   type ServiceConfig,
-} from "@lamido/api-core";
+} from "@lazslov/api-core";
 import { baseUrlVar, secretKeyVar } from "../env.js";
 import { serviceName } from "../errors.js";
 import { type AssetMethods, bindAssetMethods } from "./assets.js";

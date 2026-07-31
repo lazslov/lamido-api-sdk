@@ -33,7 +33,7 @@ describe("parsePaymentError", () => {
     );
     expect(error).toBeInstanceOf(PaymentApiError);
     expect(error.type).toBe("urn:payment-service:problem:validation");
-    // Also as core's `code`, so cross-service code can read one field on any @lamido error.
+    // Also as core's `code`, so cross-service code can read one field on any @lazslov error.
     expect(error.code).toBe(error.type);
   });
 

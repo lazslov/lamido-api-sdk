@@ -7,7 +7,7 @@
  * reconciliation rather than polling and is throttled to say so.
  */
 
-import type { IdempotencyKey, ResolvedConfig } from "@lamido/api-core";
+import type { IdempotencyKey, ResolvedConfig } from "@lazslov/api-core";
 import { call, callWithMeta, isReplay, passInit, type RequestOptions } from "./call.js";
 import type { CreatePaymentInput, CreatePaymentResult, Payment } from "./types.js";
 

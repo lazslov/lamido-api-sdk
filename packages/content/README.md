@@ -1,20 +1,20 @@
-# @lamido/content
+# @lazslov/content
 
 Consumer SDK for content-service — pages, sections and collections for content, datasets for
 the application data a client site would otherwise need a database for, and images on the
 CDN.
 
-**Status: phase 6.** Both consumer tiers, the field-descriptor layer on `@lamido/content/fields`,
-and the Next.js App Router adapter on `@lamido/content/next` — three cache modes, the revalidation
+**Status: phase 6.** Both consumer tiers, the field-descriptor layer on `@lazslov/content/fields`,
+and the Next.js App Router adapter on `@lazslov/content/next` — three cache modes, the revalidation
 route handler and the server-action error shape.
 
 ## Install
 
 ```sh
-pnpm add @lamido/content
+pnpm add @lazslov/content
 ```
 
-Zero runtime dependencies except `@lamido/api-core`, which is the shared transport.
+Zero runtime dependencies except `@lazslov/api-core`, which is the shared transport.
 
 ## Configuration comes from your environment
 
@@ -34,7 +34,7 @@ unpublished draft. A `csk_` that reached a browser bundle must be **rotated**, n
 
 ```ts
 import "server-only"; // a build error, not a code review, if a client component imports this
-import { createWebsiteClient, createContentClient } from "@lamido/content";
+import { createWebsiteClient, createContentClient } from "@lazslov/content";
 
 const site = createWebsiteClient(); // /api/content/* — published reads, cpk_ or csk_
 const editor = createContentClient(); // /api/client/* — drafts and writes, csk_ only
@@ -65,11 +65,11 @@ const hero = page?.section("hero"); // never null, even for a section that is ab
 
 ## The field-descriptor layer
 
-`@lamido/content/fields` imports nothing — no transport, no credential handling — so a client
+`@lazslov/content/fields` imports nothing — no transport, no credential handling — so a client
 component and a server action can share it.
 
 ```ts
-import { asImage, asRows, asText, prepareValues } from "@lamido/content/fields";
+import { asImage, asRows, asText, prepareValues } from "@lazslov/content/fields";
 
 const title = asText(hero.fields, "title"); // "" for both absent and stored ""
 const photo = asImage(hero.fields, "photo"); // null for a deleted asset, never a broken src
@@ -186,7 +186,7 @@ a whole-site re-fire. You do not need to check `site`: the signing secret is per
 
 In a Next.js app you do not need to write any of that — see below.
 
-## `@lamido/content/next` — the Next.js App Router adapter
+## `@lazslov/content/next` — the Next.js App Router adapter
 
 `next` is an **optional peer dependency**, and only this subpath imports it. Installing this package
 in an Astro, Remix or plain-Node project neither warns nor breaks, and `"sideEffects": false` lets a
@@ -197,7 +197,7 @@ bundler drop the subpath when it is unused.
 ```ts
 // lib/content.ts
 import "server-only";
-import { createNextContentGateway } from "@lamido/content/next";
+import { createNextContentGateway } from "@lazslov/content/next";
 
 export const { published, live, client, tag } = createNextContentGateway();
 ```
@@ -226,7 +226,7 @@ declares for the same data; the one value not to reach for is `0`.
 
 ```ts
 // app/api/revalidate/route.ts
-import { createRevalidationHandler } from "@lamido/content/next";
+import { createRevalidationHandler } from "@lazslov/content/next";
 import { tag } from "@/lib/content";
 
 export const POST = createRevalidationHandler({ tag });
@@ -261,7 +261,7 @@ with an empty environment.
 
 ```ts
 "use server";
-import { asSaveResult, revalidateAfterWrite } from "@lamido/content/next";
+import { asSaveResult, revalidateAfterWrite } from "@lazslov/content/next";
 import { client, tag } from "@/lib/content";
 
 export async function saveAbout(submitted: Record<string, unknown>) {

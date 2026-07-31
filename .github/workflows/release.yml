@@ -12,7 +12,7 @@ on:
     tags: ["v*"]
 
 # Never two publishes at once, and never cancel one half-way: a cancelled run can leave
-# @lamido/api-core published and the three service packages not.
+# @lazslov/api-core published and the three service packages not.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -91,7 +91,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: pnpm release:publish
 
-      # Per-package tags, so `@lamido/content@0.2.0` is findable in git history even though the
+      # Per-package tags, so `@lazslov/content@0.2.0` is findable in git history even though the
       # release was triggered by one repository-level tag.
       - name: Tag the published versions
         run: |

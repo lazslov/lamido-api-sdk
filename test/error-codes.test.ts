@@ -1,6 +1,6 @@
-import type { ContentErrorCode } from "@lamido/content";
-import type { InvoiceErrorCode } from "@lamido/invoice";
-import type { PaymentProblemType } from "@lamido/payment";
+import type { ContentErrorCode } from "@lazslov/content";
+import type { InvoiceErrorCode } from "@lazslov/invoice";
+import type { PaymentProblemType } from "@lazslov/payment";
 import { describe, expect, it } from "vitest";
 
 /**

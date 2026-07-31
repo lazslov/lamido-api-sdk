@@ -2,7 +2,7 @@
  * The field-descriptor type model, and the two value shapes the coercions produce.
  *
  * @remarks
- * A **leaf module**: it imports nothing, not even `@lamido/api-core`. A site's descriptor
+ * A **leaf module**: it imports nothing, not even `@lazslov/api-core`. A site's descriptor
  * tables, its read mappers, its write path and its form components all depend on this, and the
  * real build that this layer is distilled from hit an import cycle the moment one of those
  * pulled in another — descriptors want the list of section anchors, and the anchor list is

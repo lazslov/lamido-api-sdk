@@ -1,4 +1,4 @@
-# Phase 5 — `@lamido/payment`
+# Phase 5 — `@lazslov/payment`
 
 **Goal:** the `pmk_` merchant tier — seven endpoints, the money type, RFC 7807 error triage,
 and webhook verification. This is the package where a bug costs money, so it is the most
@@ -380,7 +380,7 @@ schedule.*
 ## Public API surface
 
 ```ts
-// @lamido/payment
+// @lazslov/payment
 export { createPaymentClient, tryCreatePaymentClient }
 export { PaymentApiError, type PaymentProblemType, type PaymentConflictCode, type ProviderOutcome }
 export { huf, eurCents, minorUnits, type MinorUnits }

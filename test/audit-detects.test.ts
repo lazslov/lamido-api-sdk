@@ -18,10 +18,10 @@ import { checkTarball, type PackedManifest } from "../scripts/lib/tarball-rules.
 
 /** A manifest a real published package would have. */
 const cleanManifest: PackedManifest = {
-  name: "@lamido/content",
+  name: "@lazslov/content",
   version: "0.1.0",
   files: ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
-  dependencies: { "@lamido/api-core": "^0.1.0" },
+  dependencies: { "@lazslov/api-core": "^0.1.0" },
   exports: { ".": {}, "./fields": {}, "./next": {} },
 };
 

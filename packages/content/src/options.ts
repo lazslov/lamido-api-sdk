@@ -5,7 +5,7 @@
  * `init` is on all of them because the SDK owns no caching. The framework does, and it expresses
  * that through `fetch`'s init — `{ next: { tags: […] } }` for a tagged read a publish webhook
  * busts, `{ next: { revalidate: 10 } }` for a live total, `{ signal }` for a timeout. A client can
- * also carry one `defaultInit` for every call it makes, which is how `@lamido/content/next` builds
+ * also carry one `defaultInit` for every call it makes, which is how `@lazslov/content/next` builds
  * one reader per cache mode in phase 6.
  */
 

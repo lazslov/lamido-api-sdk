@@ -5,17 +5,17 @@ repository, published to npm as four packages and installed into client-website 
 
 | Package | What it is |
 |---|---|
-| `@lamido/api-core` | transport, errors, HMAC verification, paging — shared, depends on nothing |
-| `@lamido/content` | content-service: pages, sections, collections, datasets, assets |
-| `@lamido/invoice` | invoice-service: Hungarian invoicing |
-| `@lamido/payment` | payment-service: Stripe and Barion behind one merchant API |
+| `@lazslov/api-core` | transport, errors, HMAC verification, paging — shared, depends on nothing |
+| `@lazslov/content` | content-service: pages, sections, collections, datasets, assets |
+| `@lazslov/invoice` | invoice-service: Hungarian invoicing |
+| `@lazslov/payment` | payment-service: Stripe and Barion behind one merchant API |
 
 The build plan, and the reasoning behind four packages rather than one, is in
 [docs/plans/](docs/plans/). **Every build phase — 1 through 6 — is complete:** the repository builds,
-tests and audits four publishable packages, `@lamido/api-core` carries the transport, error base,
+tests and audits four publishable packages, `@lazslov/api-core` carries the transport, error base,
 configuration, HMAC verifier, paginator and idempotency plumbing the three service packages share, all
 three service surfaces are implemented, and the Next.js App Router adapters ship on
-`@lamido/content/next` and `@lamido/payment/next`. Phase 8's release machinery is built too —
+`@lazslov/content/next` and `@lazslov/payment/next`. Phase 8's release machinery is built too —
 changesets, a tag-triggered release workflow and the weekly contract-drift job. **Nothing is
 published yet:** what remains needs a sandbox tenant (phase 7) and an npm account (phase 8). Live
 status per phase is in [docs/plans/PROGRESS.md](docs/plans/PROGRESS.md); how to release, and what must

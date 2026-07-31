@@ -11,7 +11,7 @@ import {
   NotConfiguredError,
   resolveConfig,
   type ServiceConfig,
-} from "@lamido/api-core";
+} from "@lazslov/api-core";
 import { bindCancelMethod, type CancelMethods } from "./cancel.js";
 import { bindCreateMethod, type CreateMethods } from "./create.js";
 import { bindDocumentMethods, type DocumentMethods } from "./documents.js";

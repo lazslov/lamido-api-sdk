@@ -3,7 +3,7 @@
  * is still an answer.
  */
 
-import { LamidoApiError, type ResolvedConfig, request } from "@lamido/api-core";
+import { LamidoApiError, type ResolvedConfig, request } from "@lazslov/api-core";
 import type { RequestOptions } from "./call.js";
 import { parseInvoiceError, serviceName } from "./errors.js";
 import type { InvoiceHealth } from "./types.js";
@@ -16,7 +16,7 @@ import type { InvoiceHealth } from "./types.js";
  * door out of this package and it throws for every non-2xx. Hand-rolling this one request to avoid
  * that would put a second `fetch` call — and a second place the credential is attached — in the
  * package, which is a much worse trade than this small detour. The same pattern, for the same reason,
- * as `@lamido/content`.
+ * as `@lazslov/content`.
  */
 class DegradedHealth extends LamidoApiError {
   readonly health: InvoiceHealth;
@@ -45,7 +45,7 @@ export interface HealthMethods {
    * key is not a health report.
    * @remarks
    * The body is **not** wrapped in `data` — one of the service's three documented envelope exceptions,
-   * and the reason `@lamido/api-core`'s read mode is explicit per call: a shared `unwrap(body.data)`
+   * and the reason `@lazslov/api-core`'s read mode is explicit per call: a shared `unwrap(body.data)`
    * applied here returns `undefined`.
    *
    * When the database is unreachable the service answers `503` *with*

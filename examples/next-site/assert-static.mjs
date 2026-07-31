@@ -1,7 +1,7 @@
 /**
  * Assert that `/` came out of the build **prerendered**.
  *
- * Run with `pnpm --filter @lamido-examples/next-site verify:static`, after a build.
+ * Run with `pnpm --filter @lazslov-examples/next-site verify:static`, after a build.
  *
  * This is the closest a build can get to the `x-vercel-cache: HIT` check, and it exists because the
  * regression it catches is uniquely invisible: a `cache: "no-store"` anywhere in a route's render path

@@ -5,7 +5,7 @@
  * Exists so "why haven't I received the event?" is answerable without a support ticket.
  */
 
-import type { ResolvedConfig } from "@lamido/api-core";
+import type { ResolvedConfig } from "@lazslov/api-core";
 import { call, passInit, type RequestOptions } from "./call.js";
 import type { WebhookDelivery, WebhookDeliveryStatus } from "./types.js";
 

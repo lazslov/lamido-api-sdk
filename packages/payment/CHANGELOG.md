@@ -1,4 +1,4 @@
-# @lamido/payment
+# @lazslov/payment
 
 ## 0.1.0
 

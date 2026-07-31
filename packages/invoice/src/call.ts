@@ -2,12 +2,12 @@
  * How this package reaches the service.
  *
  * @remarks
- * One door out, through `@lamido/api-core`'s `request`, with this package's error parser bound to it.
+ * One door out, through `@lazslov/api-core`'s `request`, with this package's error parser bound to it.
  * Two shapes: the plain one, and the one that keeps the status because an idempotent create's *status
  * is* its contract.
  */
 
-import { type RequestSpec, type ResolvedConfig, request } from "@lamido/api-core";
+import { type RequestSpec, type ResolvedConfig, request } from "@lazslov/api-core";
 import { parseInvoiceError } from "./errors.js";
 
 /** A request minus the error parser, which is always this package's. */

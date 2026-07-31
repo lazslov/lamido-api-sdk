@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { VerifyResult } from "@lamido/api-core";
+import type { VerifyResult } from "@lazslov/api-core";
 import { describe, expect, it } from "vitest";
 import {
   deliveryIdHeader,

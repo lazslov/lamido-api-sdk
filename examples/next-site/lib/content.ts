@@ -1,5 +1,5 @@
 import "server-only";
-import { tryCreateNextContentGateway } from "@lamido/content/next";
+import { tryCreateNextContentGateway } from "@lazslov/content/next";
 
 /**
  * The one gateway module.

@@ -1,4 +1,4 @@
-import type { SaveResult } from "@lamido/content/next";
+import type { SaveResult } from "@lazslov/content/next";
 
 /**
  * Turn a {@link SaveResult}'s code into a sentence this site would actually show.

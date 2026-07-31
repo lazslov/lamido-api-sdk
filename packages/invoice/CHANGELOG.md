@@ -1,4 +1,4 @@
-# @lamido/invoice
+# @lazslov/invoice
 
 ## 0.1.0
 
@@ -23,5 +23,5 @@ First release. The six client-tier endpoints plus `/api/health`; no admin endpoi
   `listAllInvoices()` terminates on a short page with no `total`.
 
 `grossAmount` is a `number | null` in **major** units, and this package ships no conversion to
-`@lamido/payment`'s minor-unit strings. The two services do not agree about money, and a helper
+`@lazslov/payment`'s minor-unit strings. The two services do not agree about money, and a helper
 pretending otherwise is how a hundredfold error gets shipped.

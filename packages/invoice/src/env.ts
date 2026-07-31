@@ -2,7 +2,7 @@
  * The environment variables invoice-service documents, in one place.
  *
  * @remarks
- * Named here rather than in `@lamido/api-core`, which knows no variable name for any service: the
+ * Named here rather than in `@lazslov/api-core`, which knows no variable name for any service: the
  * three do not agree on a pattern, and core is the module that must stay service-agnostic.
  */
 

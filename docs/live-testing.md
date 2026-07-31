@@ -31,7 +31,7 @@ service on `localhost`.
 | **`x-vercel-cache: HIT` on a mode-A route** | **Yes** | That header is produced by Vercel's edge and by nothing else. It is the only mechanical proof that a mode-A route is still statically rendered — the bug it catches is a latency and cost regression with no error, invisible in a diff, and hidden entirely by a keyless local build. |
 
 So: run the contract suite locally, and deploy **one** thing — a Next site that reads through
-`@lamido/content/next`'s mode A — to prove the caching claim. `examples/next-site` in this repository
+`@lazslov/content/next`'s mode A — to prove the caching claim. `examples/next-site` in this repository
 is that site; `devora` would do just as well and is more realistic.
 
 ---

@@ -43,7 +43,7 @@ export type InvoiceStatus = Schemas["InvoiceStatus"];
  * is the whole point: on the wire it is simply absent, and a detail page renders nothing forever.
  *
  * `grossAmount` is a **major-unit number** (`38100` means 38 100 Ft) and is `null` until the status
- * is `created`. That is the opposite of `@lamido/payment`, where every amount is a decimal string of
+ * is `created`. That is the opposite of `@lazslov/payment`, where every amount is a decimal string of
  * *minor* units and HUF is zero-decimal. A value carried between the two packages without an
  * explicit conversion is wrong by a factor of 100, and neither package offers one.
  */

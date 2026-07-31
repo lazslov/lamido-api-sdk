@@ -2,11 +2,11 @@
  * `GET /api/invoices` and `GET /api/invoices/:id` — the two reads.
  *
  * @remarks
- * The list is the endpoint that forced `@lamido/api-core`'s paginator to handle a list with **no
+ * The list is the endpoint that forced `@lazslov/api-core`'s paginator to handle a list with **no
  * `total`**, and the get is the polling endpoint, because this service has no webhooks.
  */
 
-import { type CollectAllOptions, collectAll, type ResolvedConfig } from "@lamido/api-core";
+import { type CollectAllOptions, collectAll, type ResolvedConfig } from "@lazslov/api-core";
 import { call, invoicePath, passInit, type RequestOptions } from "./call.js";
 import type { Invoice, InvoiceList, InvoiceStatus, Provider } from "./types.js";
 

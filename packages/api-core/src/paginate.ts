@@ -30,7 +30,7 @@ export interface CollectAllOptions {
  * silently short list is a bug nobody looks for inside a fetch helper, and it appears the day
  * a list outgrows the cap.
  * @remarks
- * Not exported from `@lamido/payment`: its merchant tier is unpaginated and its admin tier uses
+ * Not exported from `@lazslov/payment`: its merchant tier is unpaginated and its admin tier uses
  * keyset cursors, so neither shape fits this.
  *
  * @example

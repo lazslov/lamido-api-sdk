@@ -136,7 +136,7 @@ npm unpublish windows are narrow and a mirror may already have the tarball.
    extracted file**, including `.d.ts` and **`.map` files** — a sourcemap embeds original
    source text and is the likeliest leak vector. Consider shipping no sourcemaps at all, which
    removes the class entirely; the debugging cost is small for a package this size.
-4. Assert `dependencies` is `{}` or exactly `{"@lamido/api-core": …}`.
+4. Assert `dependencies` is `{}` or exactly `{"@lazslov/api-core": …}`.
 5. Assert no OpenAPI document is present in any tarball — `servers:` is stripped on import,
    but the file has no business shipping.
 
@@ -248,7 +248,7 @@ project.
 - [ ] `pnpm test:live` passes against sandbox/dev tenants for all three services, and calls `publish` nowhere except a throwaway page.
 - [ ] Both example projects build, and both build with an empty environment.
 - [ ] `examples/next-site` shows `x-vercel-cache: HIT` on a second `curl -sI` of a mode-A route.
-- [ ] CI is green with **zero** runtime dependencies reported by `pnpm why` for every package except the single `@lamido/api-core` edge.
+- [ ] CI is green with **zero** runtime dependencies reported by `pnpm why` for every package except the single `@lazslov/api-core` edge.
 
 ## Out of scope here
 

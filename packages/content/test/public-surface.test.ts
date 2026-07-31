@@ -68,7 +68,7 @@ describe("the fields entry", () => {
     for (const file of fieldFiles) {
       const text = readFileSync(file, "utf8");
       // Relative imports inside the leaf are fine; anything from another module is not.
-      expect(text, file).not.toMatch(/from\s+"@lamido\/api-core"/);
+      expect(text, file).not.toMatch(/from\s+"@lazslov\/api-core"/);
       expect(text, file).not.toMatch(/from\s+"\.\.\//);
     }
   });

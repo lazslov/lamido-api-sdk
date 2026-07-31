@@ -100,7 +100,7 @@ export interface ClientIdentity {
  *
  * @remarks
  * `items` rather than `data`, and `total` alongside it, so the shape satisfies
- * `@lamido/api-core`'s `collectAll` without an adapter — the envelope's siblings are kept because
+ * `@lazslov/api-core`'s `collectAll` without an adapter — the envelope's siblings are kept because
  * a list without its `total` cannot be paged to the end.
  */
 export interface ContentList<T> {

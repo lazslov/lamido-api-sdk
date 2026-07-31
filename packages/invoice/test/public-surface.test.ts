@@ -69,7 +69,7 @@ describe("the runtime exports", () => {
     const conversion = /(minor|toMinor|fromMinor|huf|forint|cents|toMajor|money|amount)/i;
     expect(exported.filter((name) => conversion.test(name))).toEqual([]);
     expect(sourceText()).not.toMatch(/MinorUnits/);
-    expect(sourceText()).not.toMatch(/@lamido\/payment["']/);
+    expect(sourceText()).not.toMatch(/@lazslov\/payment["']/);
   });
 
   it("exports no webhook verifier, because the service never calls you", () => {

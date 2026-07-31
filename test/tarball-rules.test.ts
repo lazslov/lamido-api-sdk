@@ -11,10 +11,10 @@ const requiredFiles = ["dist", "README.md", "LICENSE", "CHANGELOG.md"];
 /** A tarball that passes every rule, as the baseline each case deviates from. */
 function cleanTarball(overrides: Partial<TarballContents> = {}): TarballContents {
   const manifest: PackedManifest = {
-    name: "@lamido/content",
+    name: "@lazslov/content",
     version: "0.1.0",
     files: requiredFiles,
-    dependencies: { "@lamido/api-core": "0.1.0" },
+    dependencies: { "@lazslov/api-core": "0.1.0" },
     exports: { ".": { import: "./dist/index.js" } },
   };
   return {

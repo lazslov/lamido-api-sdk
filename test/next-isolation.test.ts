@@ -53,7 +53,7 @@ describe.each(packageDirs)("packages/%s", (dir) => {
 });
 
 describe("the subpaths that do import next", () => {
-  it("is @lamido/content/next, and only for next/cache", () => {
+  it("is @lazslov/content/next, and only for next/cache", () => {
     // The whole surface: one namespace import and one named import, both of `next/cache`. A wider
     // reach — `next/headers`, `next/navigation` — would make the adapter care about routing, which is
     // the site's job and not a transport's.
@@ -65,7 +65,7 @@ describe("the subpaths that do import next", () => {
     expect([...specifiers]).toEqual(["next/cache"]);
   });
 
-  it("is not @lamido/payment/next, whose handler is a plain Request → Response", () => {
+  it("is not @lazslov/payment/next, whose handler is a plain Request → Response", () => {
     // Which is why that package declares no peer dependency at all.
     for (const { file, text } of sourcesOf("payment")) {
       expect(text, file).not.toMatch(importsNext);

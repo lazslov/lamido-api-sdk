@@ -1,10 +1,10 @@
-# @lamido/api-core
+# @lazslov/api-core
 
 Transport, errors, configuration, HMAC signature verification and pagination shared by the
-`@lamido/*` service SDKs.
+`@lazslov/*` service SDKs.
 
-**You probably do not want to install this directly.** Install `@lamido/content`,
-`@lamido/invoice` or `@lamido/payment`; each depends on this package and on nothing else.
+**You probably do not want to install this directly.** Install `@lazslov/content`,
+`@lazslov/invoice` or `@lazslov/payment`; each depends on this package and on nothing else.
 
 Two things here are meant to be used directly.
 

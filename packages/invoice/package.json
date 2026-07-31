@@ -1,5 +1,5 @@
 {
-  "name": "@lamido/invoice",
+  "name": "@lazslov/invoice",
   "version": "0.1.0",
   "description": "Consumer SDK for invoice-service: Hungarian invoicing via szamlazz.hu and Billingo.",
   "license": "MIT",
@@ -38,6 +38,6 @@
     "check:package": "publint && attw --pack ."
   },
   "dependencies": {
-    "@lamido/api-core": "workspace:^"
+    "@lazslov/api-core": "workspace:^"
   }
 }

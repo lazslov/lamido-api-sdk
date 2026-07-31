@@ -11,7 +11,7 @@
  * for an old invoice — do not build a "download all invoices" feature that assumes availability.
  */
 
-import type { BytesBody, ResolvedConfig } from "@lamido/api-core";
+import type { BytesBody, ResolvedConfig } from "@lazslov/api-core";
 import { call, callWithMeta, invoicePath, passInit, type RequestOptions } from "./call.js";
 import type { DownloadLink, InvoicePdf } from "./types.js";
 

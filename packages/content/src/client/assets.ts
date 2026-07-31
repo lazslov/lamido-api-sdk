@@ -15,7 +15,7 @@
  * has nothing to do with images.
  */
 
-import type { ResolvedConfig } from "@lamido/api-core";
+import type { ResolvedConfig } from "@lazslov/api-core";
 import { call, callList } from "../call.js";
 import { type ListOptions, passInit, type RequestOptions } from "../options.js";
 import type {

@@ -1,19 +1,19 @@
-# @lamido/payment
+# @lazslov/payment
 
 Consumer SDK for payment-service — Stripe and Barion behind one uniform merchant-tier API,
 using each merchant's own PSP credentials.
 
 **Status: phase 6.** All seven merchant endpoints, the money type, RFC 7807 triage, webhook
 verification, the reconciliation backstop, and the webhook route handler on
-`@lamido/payment/next`.
+`@lazslov/payment/next`.
 
 ## Install
 
 ```sh
-pnpm add @lamido/payment
+pnpm add @lazslov/payment
 ```
 
-Zero runtime dependencies except `@lamido/api-core`, which is the shared transport.
+Zero runtime dependencies except `@lazslov/api-core`, which is the shared transport.
 
 ## Configuration comes from your environment
 
@@ -53,7 +53,7 @@ Every amount is a decimal string of canonical minor units, never a JavaScript `n
 numbers lose precision above 2^53 and floating point cannot represent `9.99`.
 
 ```ts
-import { eurCents, huf, minorUnits } from "@lamido/payment";
+import { eurCents, huf, minorUnits } from "@lazslov/payment";
 
 huf(2500); // "2500" → 2500 Ft
 eurCents(1000); // "1000" → €10.00
@@ -73,7 +73,7 @@ service rejects, and each rejection says something about the caller:
 | `"0"` | a zero-amount payment, which no path may create |
 
 `huf(10.5)` throws rather than rounding. There is **no arithmetic** here — no `add`, no `sum`,
-no conversion to or from `@lamido/invoice`'s major-unit numbers. Totals in the service are
+no conversion to or from `@lazslov/invoice`'s major-unit numbers. Totals in the service are
 always grouped by currency and never summed across them; do arithmetic in `BigInt`, in your own
 code, visibly.
 
@@ -81,8 +81,8 @@ code, visibly.
 
 ```ts
 import "server-only";
-import { derivedIdempotencyKey } from "@lamido/api-core";
-import { createPaymentClient, huf, isFulfillable } from "@lamido/payment";
+import { derivedIdempotencyKey } from "@lazslov/api-core";
+import { createPaymentClient, huf, isFulfillable } from "@lazslov/payment";
 
 const payments = createPaymentClient();
 
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
 `listWebhookDeliveries()` answers "why haven't I received the event?" without a support ticket —
 including *your* HTTP status on the last attempt, which is usually where the problem is.
 
-## `@lamido/payment/next` — the route handler, written for you
+## `@lazslov/payment/next` — the route handler, written for you
 
 The whole route, with every rule above enforced rather than remembered:
 
@@ -220,7 +220,7 @@ The whole route, with every rule above enforced rather than remembered:
 // app/api/webhooks/payment/route.ts
 export const runtime = "nodejs"; // an edge runtime may transform the body, which breaks the HMAC
 
-import { createPaymentWebhookHandler } from "@lamido/payment/next";
+import { createPaymentWebhookHandler } from "@lazslov/payment/next";
 
 export const POST = createPaymentWebhookHandler({
   alreadyProcessed: (id) => db.webhookEvents.exists(id),

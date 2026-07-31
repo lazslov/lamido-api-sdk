@@ -1,6 +1,6 @@
 "use server";
 
-import { asSaveResult, revalidateAfterWrite, type SaveResult } from "@lamido/content/next";
+import { asSaveResult, revalidateAfterWrite, type SaveResult } from "@lazslov/content/next";
 import { content } from "../lib/content";
 
 /**

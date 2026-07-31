@@ -1,4 +1,4 @@
-# Phase 2 — `@lamido/api-core`
+# Phase 2 — `@lazslov/api-core`
 
 **Goal:** the one module through which every request leaves the process, plus the primitives
 the three service packages share: configuration, an error base, the three response read
@@ -367,7 +367,7 @@ Termination, in order:
 `pageSize` defaults to 100, which is the documented maximum on both `limit`-based services.
 
 Payment's admin tier uses keyset cursors, and its merchant tier is not paginated at all —
-neither uses this. `collectAll` is not exported from `@lamido/payment`.
+neither uses this. `collectAll` is not exported from `@lazslov/payment`.
 
 ---
 
@@ -407,7 +407,7 @@ The branded type is what makes this enforceable: `createPayment` takes
 ## Public API surface
 
 ```ts
-// @lamido/api-core
+// @lazslov/api-core
 export { request, type ReadMode, type QueryInit }
 export { resolveConfig, type ServiceConfig, type ResolvedConfig }
 export { LamidoApiError, NotConfiguredError }
@@ -419,7 +419,7 @@ export { VERSION }
 ```
 
 Core is a **published package but not a documented one**: its README says "you probably want
-`@lamido/content`, `@lamido/invoice` or `@lamido/payment`" and describes only
+`@lazslov/content`, `@lazslov/invoice` or `@lazslov/payment`" and describes only
 `verifySignedBody` and the error classes, which are the two things a consumer touches
 directly.
 

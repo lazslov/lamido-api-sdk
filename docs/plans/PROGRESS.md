@@ -11,23 +11,23 @@ weekly drift job, and a shipped `CHANGELOG.md` per package naming the contract i
 dependencies). **Nothing is published.**
 
 **What's next:** everything that can be done inside this repository is done. What remains is
-**account-side and outside it** — an npm scope whose ownership is unconfirmed, sandbox credentials, a
-Vercel deployment, and pushing two branches. [CONTRIBUTING.md](../../CONTRIBUTING.md#before-the-first-publish)
-is the pre-publish checklist; [../live-testing.md](../live-testing.md) is the sandbox one.
+**account-side and outside it** — an npm token, sandbox credentials, a Vercel deployment, and a push.
+[CONTRIBUTING.md](../../CONTRIBUTING.md#before-the-first-publish) is the pre-publish checklist;
+[../live-testing.md](../live-testing.md) is the sandbox one.
 
-> **Finding — the `@lamido` npm scope is not an organisation, and may not be ours.** The registry
-> resolves it to an existing *account* scope with zero packages published; the plan's first exit
-> criterion assumes an organisation that would have to be created. Confirming ownership is the first
-> item on the pre-publish checklist, because renaming four packages is a change to make before a
-> publish, not after one.
+> **The packages are `@lazslov/*`, not `@lamido/*`.** The plan assumed a `@lamido` organisation would
+> be created; the registry already resolves `@lamido` to an account that may not be ours, and the
+> maintainer publishes from a personal account. A user scope needs no organisation and no paid plan,
+> so all four were renamed — before a publish, which is the only time that rename is cheap. `Lamido`
+> stays where it names the **project**: the repository, `LAMIDO_KB_PATH`, and the services themselves.
 
 | # | Phase | State |
 |---|---|---|
 | 1 | [Foundations](phase-1-foundations.md) | ✅ done |
-| 2 | [`@lamido/api-core`](phase-2-api-core.md) | ✅ done |
-| 3 | [`@lamido/content`](phase-3-content.md) | ✅ done |
-| 4 | [`@lamido/invoice`](phase-4-invoice.md) | ✅ done |
-| 5 | [`@lamido/payment`](phase-5-payment.md) | ✅ done |
+| 2 | [`@lazslov/api-core`](phase-2-api-core.md) | ✅ done |
+| 3 | [`@lazslov/content`](phase-3-content.md) | ✅ done |
+| 4 | [`@lazslov/invoice`](phase-4-invoice.md) | ✅ done |
+| 5 | [`@lazslov/payment`](phase-5-payment.md) | ✅ done |
 | 6 | [Framework adapters](phase-6-next-adapters.md) | ✅ done |
 | 7 | [Verification](phase-7-verification.md) | 🟡 built, partly unproven |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | 🟡 built; publishing blocked outside the repo |
@@ -46,9 +46,9 @@ Deviations from the plans and the reasoning behind them are in
 - [x] The forbidden-strings lint fails on a planted deployment host and a planted 30-character
       `csk_…`, and passes on `csk_YOUR_SECRET_KEY`
 - [x] `audit-tarballs` fails on a deliberately added stray file, then passes once removed
-- [x] CI green on an `@lamido/api-core` that exports nothing but a version constant
+- [x] CI green on an `@lazslov/api-core` that exports nothing but a version constant
 
-## ✅ Phase 2 — `@lamido/api-core`
+## ✅ Phase 2 — `@lazslov/api-core`
 
 - [x] `dependencies` is `{}`, verified by the tarball audit rather than by inspection
 - [x] `request` works against a stub `fetch` for all five `ReadMode`s, including a non-JSON
@@ -72,7 +72,7 @@ Deviations from the plans and the reasoning behind them are in
 
 ---
 
-## ✅ Phase 3 — `@lamido/content`
+## ✅ Phase 3 — `@lazslov/content`
 
 - [x] Every website-tier and client-tier consumer endpoint is callable. Admin endpoints absent
 - [x] `getPage` on an unpublished slug returns `null`; a 401 from the same call throws
@@ -92,7 +92,7 @@ Deviations from the plans and the reasoning behind them are in
       *(the `null` and the degraded read are covered; "a site renders" waits for the example
       project in [phase 7](phase-7-verification.md))*
 
-## ✅ Phase 4 — `@lamido/invoice`
+## ✅ Phase 4 — `@lazslov/invoice`
 
 - [x] All six client-tier endpoints plus `/api/health` callable; no admin endpoint
 - [x] `createInvoice` reports `replayed: true` on a 200 and `false` on a 201, with no overload
@@ -110,7 +110,7 @@ Deviations from the plans and the reasoning behind them are in
 - [x] No `mode` is set on any request — grep-asserted
 - [x] `provider_error` is `retryable: true`, and its doc comment states the new-key rule
 
-## ✅ Phase 5 — `@lamido/payment`
+## ✅ Phase 5 — `@lazslov/payment`
 
 - [x] All seven merchant endpoints callable. No admin endpoint, no `/v1/providers/*`
 - [x] `createPayment({ amount_minor: "25.00" })` is a type error; `minorUnits("25.00")`,
@@ -138,7 +138,7 @@ Deviations from the plans and the reasoning behind them are in
 
 - [x] Both packages install cleanly with no `next` present and no peer warning; the main entry
       imports nothing from `next` *(the import graph is asserted in `test/next-isolation.test.ts`, and
-      `@lamido/payment/next` is imported from `dist/` on Node 18 with nothing but core installed. The
+      `@lazslov/payment/next` is imported from `dist/` on Node 18 with nothing but core installed. The
       **fixture project** is phase 7's `examples/node-script` — see the note below)*
 - [x] Mode A sets `{ next: { tags: [tag] } }`, mode B `{ next: { revalidate: 10 } }`, mode C
       `{ cache: "no-store" }`
@@ -196,7 +196,7 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
 - [ ] `examples/next-site` shows `x-vercel-cache: HIT` on a second `curl -sI` of a mode-A route —
       **blocked:** that header is produced by Vercel's edge and by nothing else, so it needs a
       deployment. The build-time half (the route is still prerendered) *is* asserted in CI.
-- [ ] CI green with zero runtime dependencies per `pnpm why`, except the `@lamido/api-core` edge —
+- [ ] CI green with zero runtime dependencies per `pnpm why`, except the `@lazslov/api-core` edge —
       `pnpm deps:audit` asserts the dependency half locally and is wired into CI. **The cause of CI
       never being green is now fixed** (pnpm 11 refuses to run below Node 22.13; the workflow pinned
       Node 20, so every run since phase 3 died in the `setup-node` step before a script ran). Proving
@@ -204,11 +204,11 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
 
 ## 🟡 Phase 8 — Release & drift *(machinery built; publishing blocked outside the repository)*
 
-- [ ] The `@lamido` npm organisation exists and owns the scope; 2FA on; automation token in
-      GitHub Actions secrets and in no file — **not an organisation.** The registry resolves
-      `@lamido` to an *account* scope (`/-/org/lamido/user` → `{"lamido":"owner"}`, the shape a user
-      returns, against `{}` for an organisation) with no packages published. Ownership is
-      unconfirmed from here: the local npm token is legacy and read-limited. First item of
+- [ ] The npm scope exists and is ours; 2FA on; automation token in GitHub Actions secrets and in
+      no file — **the scope half is settled.** No organisation is needed: the packages are
+      `@lazslov/*`, the maintainer's own npm username, and a free account publishes unlimited public
+      packages under its own scope. What is left is 2FA and a granular token in the `release`
+      environment — see
       [CONTRIBUTING.md § Before the first publish](../../CONTRIBUTING.md#before-the-first-publish).
 - [x] Changesets configured for independent versioning; breaking-change table in `CONTRIBUTING.md`
       *(`linked`/`fixed` empty, `access: public`, `privatePackages: false` so `examples/*` are never
@@ -223,7 +223,7 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
       `LIVE_REQUIRE_CONFIGURED` makes a missing secret fail the release rather than skip every case)*
 - [ ] All four packages publish with provenance, visible in `npm view` — **blocked** on the scope
       question and a token
-- [ ] A fresh project outside the monorepo can `pnpm add @lamido/content`, set two env vars, and
+- [ ] A fresh project outside the monorepo can `pnpm add @lazslov/content`, set two env vars, and
       read a page — **blocked**: it must resolve from the registry, so it cannot precede a publish
 - [ ] The weekly drift job opens an issue when `CONTRACTS.json` is behind the knowledge base —
       **half proven.** The detector ran and found real drift on its first run (see the carried-forward

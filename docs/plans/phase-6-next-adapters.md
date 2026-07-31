@@ -11,7 +11,7 @@ and [workflows.md](../content-service/workflows.md#1--integrating-a-nextjs-site)
 
 **No invoice adapter.** invoice-service
 [never calls you](../invoice-service/conventions.md#10-what-this-service-does-not-do) and has
-no cache story — its data is per-request and per-tenant. `@lamido/invoice` stays one entry
+no cache story — its data is per-request and per-tenant. `@lazslov/invoice` stays one entry
 point.
 
 ---
@@ -20,7 +20,7 @@ point.
 
 `next` is an **optional peer dependency**
 ([phase 1 §3](phase-1-foundations.md#3-build-output-and-package-shape)). Only
-`@lamido/content/next` and `@lamido/payment/next` import it, so installing either package in
+`@lazslov/content/next` and `@lazslov/payment/next` import it, so installing either package in
 an Astro, Remix or plain-Node project neither warns nor breaks. `"sideEffects": false` lets a
 bundler drop the subpath entirely when unused.
 
@@ -30,7 +30,7 @@ core knowing Next exists ([phase 2 §2](phase-2-api-core.md#2-the-transport)).
 
 ---
 
-## 2. `@lamido/content/next` — the three cache modes
+## 2. `@lazslov/content/next` — the three cache modes
 
 This is the most valuable thing in phase 6, because it encodes a bug that shipped to
 production in the reference integration and was invisible in the diff.
@@ -82,7 +82,7 @@ handler busts — see §3.
 
 ---
 
-## 3. `@lamido/content/next` — the revalidation route handler
+## 3. `@lazslov/content/next` — the revalidation route handler
 
 ```ts
 export function createRevalidationHandler(opts: {
@@ -145,7 +145,7 @@ would be doing framework work in a transport. It is documented, with a
 
 ---
 
-## 4. `@lamido/content/next` — the server-action error shape
+## 4. `@lazslov/content/next` — the server-action error shape
 
 > **RULE — a write action returns a result object; it never throws.** A thrown server-action
 > message is **redacted in production**, so a rejected save reaches the editor as an opaque
@@ -170,7 +170,7 @@ site needs one translator, not two.
 
 ---
 
-## 5. `@lamido/payment/next` — the webhook route handler
+## 5. `@lazslov/payment/next` — the webhook route handler
 
 ```ts
 export function createPaymentWebhookHandler(opts: {
@@ -218,7 +218,7 @@ answers `500` so the sender retries.
 
 ## Exit criteria
 
-- [ ] `@lamido/content` and `@lamido/payment` install cleanly in a project **without** `next` present, with no peer warning, and the main entry imports nothing from `next`. Asserted by a fixture project in CI.
+- [ ] `@lazslov/content` and `@lazslov/payment` install cleanly in a project **without** `next` present, with no peer warning, and the main entry imports nothing from `next`. Asserted by a fixture project in CI.
 - [ ] The gateway's mode A sets `{ next: { tags: [tag] } }`, mode B sets `{ next: { revalidate: 10 } }`, mode C sets `{ cache: "no-store" }` — asserted against a stub `fetch`.
 - [ ] There is **no** way to obtain a `no-store` read from `published` or `live`. Type-level assertion.
 - [ ] The gateway's tag and the handler's tag come from one exported constant, and a test asserts they are equal by default.

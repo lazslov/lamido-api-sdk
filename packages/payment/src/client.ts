@@ -11,7 +11,7 @@ import {
   NotConfiguredError,
   resolveConfig,
   type ServiceConfig,
-} from "@lamido/api-core";
+} from "@lazslov/api-core";
 import { bindDeliveryMethods, type DeliveryMethods } from "./deliveries.js";
 import { apiKeyVar, baseUrlVar } from "./env.js";
 import { serviceName } from "./errors.js";

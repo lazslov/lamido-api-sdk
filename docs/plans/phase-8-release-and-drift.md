@@ -20,7 +20,7 @@ running on it. In `0.x`, a minor bump may break — which is honest, and better 
 `1.0.0` before the API has met a second project. `1.0.0` is a statement that the shape has
 survived contact.
 
-`@lamido/api-core` is depended on with a **caret range**, not `workspace:*` pinning, so a
+`@lazslov/api-core` is depended on with a **caret range**, not `workspace:*` pinning, so a
 consumer can take a core patch — the HMAC verifier fix scenario from
 [phase 2](phase-2-api-core.md#why-core-is-a-published-package-rather-than-inlined) — without
 waiting for three service releases.
@@ -57,14 +57,18 @@ Requirements:
 - **npm provenance** via GitHub Actions OIDC (`--provenance`, `id-token: write`). A consumer
   can then verify the tarball was built from this repo at this commit — which matters more than
   usual for a package that handles payment credentials.
-- **A granular npm automation token** scoped to the `@lamido` scope, in GitHub Actions secrets.
+- **A granular npm automation token** scoped to the `@lazslov` packages, in GitHub Actions secrets.
   Never in a committed `.npmrc` ([phase 1 §5.3](phase-1-foundations.md#53-gitignore-and-npmrc)).
 - **`--access public`** explicitly on the first publish of each package: a scoped package
   defaults to *private* and fails, and the failure looks like an auth error.
 - **`audit-tarballs` runs in the release job too**, not just on PRs. Publishing the tarball the
   audit inspected is the only ordering that means anything.
 - **2FA on the npm account**, with the automation token as the CI path.
-- The `@lamido` npm organisation must exist and own the scope before the first publish.
+- ~~The `@lamido` npm organisation must exist and own the scope before the first publish.~~
+  **Superseded.** The packages publish under `@lazslov`, the maintainer's own npm username. A user
+  scope needs no organisation, no membership and no paid plan — a free account publishes unlimited
+  *public* packages under it, and none of these are private. See
+  [../ai-context.md](../ai-context.md#phase-8-decisions-and-where-they-deviate-from-the-plan).
 
 ### Release order
 
@@ -138,7 +142,7 @@ kinds, each with a home:
 That last one is worth being specific about.
 [content-service/conventions.md §9](../content-service/conventions.md#9-what-this-service-deliberately-does-not-do)
 currently lists **"an SDK package"** under *what this service deliberately does NOT do*, with
-the guidance *"write your own transport."* Once `@lamido/content` is published and running on a
+the guidance *"write your own transport."* Once `@lazslov/content` is published and running on a
 real site, that row is stale — the service still ships no SDK, but a consumer-side one now
 exists and is the recommended path.
 
@@ -156,7 +160,7 @@ exist before it is needed:
 
 - A removed export gets one minor release where it is still present, marked `@deprecated` with
   the replacement named in the tag.
-- A **security** fix to the HMAC verifier ships as a patch to `@lamido/api-core` immediately,
+- A **security** fix to the HMAC verifier ships as a patch to `@lazslov/api-core` immediately,
   with no deprecation window, and every published service package's README gains a line naming
   the minimum core version. Then `npm deprecate` the affected core versions with a message
   naming the fixed one.
@@ -167,12 +171,12 @@ exist before it is needed:
 
 ## Exit criteria
 
-- [ ] The `@lamido` npm organisation exists and owns the scope; 2FA is on; a granular automation token is in GitHub Actions secrets and in no file.
+- [ ] The npm scope is ours — `@lazslov`, a user scope, so no organisation is involved; 2FA is on; a granular automation token is in GitHub Actions secrets and in no file.
 - [ ] Changesets configured for independent versioning; the breaking-change table above lives in `CONTRIBUTING.md`.
 - [ ] A dry-run release (`pnpm publish -r --dry-run`) produces exactly four tarballs with the expected file lists.
 - [ ] The release workflow runs the leak audit **and** the live suite before publishing, and cannot be skipped by a manual dispatch flag.
-- [ ] `@lamido/api-core@0.1.0` and the three service packages publish with provenance, and `npm view <pkg>` shows the provenance attestation.
-- [ ] A fresh project can `pnpm add @lamido/content`, set two env vars, and read a page — verified from outside the monorepo, not from a workspace link.
+- [ ] `@lazslov/api-core@0.1.0` and the three service packages publish with provenance, and `npm view <pkg>` shows the provenance attestation.
+- [ ] A fresh project can `pnpm add @lazslov/content`, set two env vars, and read a page — verified from outside the monorepo, not from a workspace link.
 - [ ] The weekly drift job runs and opens an issue when `CONTRACTS.json` is behind the knowledge base. Verified by pointing it at an older commit deliberately.
 - [ ] Each package's `CHANGELOG.md` entry names the KB commit and the three `source_commit` values.
 - [ ] The knowledge-base PR updating the "no SDK package" row is open (or merged).

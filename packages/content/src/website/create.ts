@@ -13,7 +13,7 @@ import {
   NotConfiguredError,
   resolveConfig,
   type ServiceConfig,
-} from "@lamido/api-core";
+} from "@lazslov/api-core";
 import { baseUrlVar, publishableKeyVar, readEnv, secretKeyVar } from "../env.js";
 import { serviceName } from "../errors.js";
 import { bindWebsiteReads, type WebsiteClient } from "./reads.js";
