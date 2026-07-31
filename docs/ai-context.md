@@ -133,6 +133,47 @@ Phase 3 is complete: `@lamido/content` ships both consumer tiers, the field-desc
   A cross-package test in `test/package-shape.test.ts` now requires a mapping for every declared
   subpath.
 
+## Phase 5 decisions, and where they deviate from the plan
+
+Phase 5 is complete: `@lamido/payment` ships the seven merchant endpoints, the money type, RFC 7807
+triage, the webhook verifier and the reconciliation helper.
+
+- **`isFulfillable` is `succeeded` only.** The plan says "true only for statuses where money has
+  actually moved", which could be read to include `partially_refunded`. It is not: merchant-api.md's
+  own table marks `succeeded` as the single "fulfil? yes", and fulfilment is a decision made once,
+  when the payment first succeeded. Asking the predicate again after money has come back is asking
+  the wrong question, and the conservative answer is the right one where money is involved.
+- **`reconcilePayments` returns a report, not `void`.** The plan's signature is `Promise<void>`, but
+  its own exit criterion requires the helper to *surface* a `429`'s `retry_after` — which a `void`
+  return cannot do, and swallowing it is how a reconciler turns into a poller. It also takes the
+  client as its first argument, since the plan exports it as a standalone function rather than as a
+  client method, and a standalone function has no other way to reach `getPayment`.
+- **One error per id, not one thrown error per sweep.** A failed read or a thrown `onStatus` is
+  recorded in that id's result and the sweep continues. One unreachable payment abandoning a
+  reconciliation run would leave every later order unreconciled for the whole interval.
+- **The `code` extension member is exposed as `conflictCode`.** Core's `LamidoApiError` already has
+  `code` (the stable machine value, here the problem type URN). Two fields called `code` on one error
+  would be a trap in exactly the place where money is involved.
+- **`detail` is read in two places, not one.** The plan names the 502 triage as the single deliberate
+  exception to "branch on `type`, never on `detail`". Telling an in-flight 409 from a key reused with
+  a different body needs the same treatment, and the plan's own §6 requires it — the naive reading of
+  a 409 is "use a new key", which here is a second payment. Both readers match a short stable
+  substring and both fail **closed**: a miss means not retryable. A test asserts that only those two
+  modules read `detail` at all.
+- **No `/healthz`.** The plan lists seven endpoints and no health check, so the client has none.
+  content-service's `getHealth` exists because its plan asks for it; monitoring this service is an
+  operator's job against an unauthenticated route.
+- **The webhook fixtures are generated, not copied from the service repo.** The plan asks for "the
+  same fixtures the service repo pins its signer against". That repository is not available here, so
+  `test/fixtures/webhook/generate.mjs` reproduces the algorithm merchant-api.md publishes — with
+  `node:crypto`, deliberately a different implementation from the `crypto.subtle` one under test —
+  including a non-ASCII body and the whsec-prefix-stripped case. Pinning against the service's own
+  file is phase 7 work.
+- **Type-level assertions live in `test/type-safety.test.ts` as `@ts-expect-error`.** `pnpm
+  typecheck` is what runs them: an unnecessary directive is itself an error, so a rule that stops
+  being enforced fails the build. Note that the directive applies to the **following line**, so
+  those calls are kept short enough that the formatter cannot wrap them out from under it.
+
 ## Build tooling: the tsdown configs are `.mjs`
 
 Phase 1 chose `tsdown --config-loader tsx` because tsdown's native loader cannot resolve

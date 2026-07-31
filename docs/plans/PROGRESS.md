@@ -3,13 +3,13 @@
 Live status of the eight phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are:** phases 1, 2 and 3 are complete and verified locally — `pnpm verify` is green,
-including `publint` and `attw` on the new `@lamido/content/fields` subpath. Nothing is
-published, and nothing is pushed.
+**Where we are:** phases 1, 2, 3 and 5 are complete and verified locally — `pnpm verify` is green,
+including `publint` and `attw` on the `@lamido/content/fields` subpath. Nothing is published, and
+nothing is pushed.
 
-**What's next:** phase 4 (`@lamido/invoice`) or phase 5 (`@lamido/payment`) — they and phase 3
-are independent of each other. Phase 6 needs 3 and 5, and the plan's suggested first cut is
-1 + 2 + 3 + 6 published as `0.1.0`, so phase 5 is the shorter path to a release.
+**What's next:** phase 6 (framework adapters) is now unblocked, and is what the plan's suggested
+first cut — 1 + 2 + 3 + 6 as `0.1.0` — needs. Phase 4 (`@lamido/invoice`) is independent of both
+and can follow.
 
 | # | Phase | State |
 |---|---|---|
@@ -17,8 +17,8 @@ are independent of each other. Phase 6 needs 3 and 5, and the plan's suggested f
 | 2 | [`@lamido/api-core`](phase-2-api-core.md) | ✅ done |
 | 3 | [`@lamido/content`](phase-3-content.md) | ✅ done |
 | 4 | [`@lamido/invoice`](phase-4-invoice.md) | ⬜ next |
-| 5 | [`@lamido/payment`](phase-5-payment.md) | ⬜ next |
-| 6 | [Framework adapters](phase-6-next-adapters.md) | ⬜ blocked on 5 |
+| 5 | [`@lamido/payment`](phase-5-payment.md) | ✅ done |
+| 6 | [Framework adapters](phase-6-next-adapters.md) | ⬜ next |
 | 7 | [Verification](phase-7-verification.md) | ⬜ blocked on 2–6 |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | ⬜ blocked on 7 |
 
@@ -97,29 +97,31 @@ Deviations from the plans and the reasoning behind them are in
 - [ ] No `mode` is set on any request — grep-asserted
 - [ ] `provider_error` is `retryable: true`, and its doc comment states the new-key rule
 
-## ⬜ Phase 5 — `@lamido/payment`
+## ✅ Phase 5 — `@lamido/payment`
 
-- [ ] All seven merchant endpoints callable. No admin endpoint, no `/v1/providers/*`
-- [ ] `createPayment({ amount_minor: "25.00" })` is a type error; `minorUnits("25.00")`,
+- [x] All seven merchant endpoints callable. No admin endpoint, no `/v1/providers/*`
+- [x] `createPayment({ amount_minor: "25.00" })` is a type error; `minorUnits("25.00")`,
       `("1e3")`, `(" 1")`, `("01")`, `("0")` all throw
-- [ ] `huf(1000)` → `"1000"`; `eurCents(1000)` → `"1000"`; `huf(10.5)` throws
-- [ ] No exported function performs arithmetic on `MinorUnits` — grep-asserted
-- [ ] No exported conversion between `MinorUnits` and invoice's `grossAmount`
-- [ ] `createPayment` and `createRefund` have no overload lacking an `IdempotencyKey`
-- [ ] A 502 for each of the four `detail` shapes classifies correctly; an unrecognised `detail`
+- [x] `huf(1000)` → `"1000"`; `eurCents(1000)` → `"1000"`; `huf(10.5)` throws
+- [x] No exported function performs arithmetic on `MinorUnits` — grep-asserted
+- [x] No exported conversion between `MinorUnits` and invoice's `grossAmount`
+- [x] `createPayment` and `createRefund` have no overload lacking an `IdempotencyKey`
+- [x] A 502 for each of the four `detail` shapes classifies correctly; an unrecognised `detail`
       yields `"unclassified"` with `retryable: false`; a reworded message never classifies as
       `"rejected"`
-- [ ] A 422 is `retryable: true`; a 409 is `retryable: false` except the in-flight-lease case
-- [ ] `isFulfillable("pending")` and `isFulfillable("authorized")` are both `false`
-- [ ] `getPayment` throws on 404 and names the wrong-tenant possibility
-- [ ] `verifyPaymentWebhook` passes the service repo's own pinned fixtures, non-ASCII included
-- [ ] `parsePaymentWebhookEvent` handles `refund.*` extras; `payment.id` is not renamed
-- [ ] A request body containing an array keeps its order — reordering breaks the body hash
-- [ ] `reconcilePayments` skips terminal payments, serialises per id, surfaces `retry_after`
-- [ ] `createPaymentClient` throws in a browser, with rotation named in the message
-- [ ] No request sets `mode` — grep-asserted
+- [x] A 422 is `retryable: true`; a 409 is `retryable: false` except the in-flight-lease case
+- [x] `isFulfillable("pending")` and `isFulfillable("authorized")` are both `false`
+- [x] `getPayment` throws on 404 and names the wrong-tenant possibility
+- [x] `verifyPaymentWebhook` passes pinned fixtures, non-ASCII included *(generated from the
+      algorithm the service publishes; pinning against the service repo's **own** fixture file
+      waits for [phase 7](phase-7-verification.md)'s live work — see ../ai-context.md)*
+- [x] `parsePaymentWebhookEvent` handles `refund.*` extras; `payment.id` is not renamed
+- [x] A request body containing an array keeps its order — reordering breaks the body hash
+- [x] `reconcilePayments` skips terminal payments, serialises per id, surfaces `retry_after`
+- [x] `createPaymentClient` throws in a browser, with rotation named in the message
+- [x] No request sets `mode` — grep-asserted
 
-## ⬜ Phase 6 — Framework adapters *(needs 3 and 5)*
+## ⬜ Phase 6 — Framework adapters *(3 and 5 are done; this is next)*
 
 - [ ] Both packages install cleanly with no `next` present and no peer warning; the main entry
       imports nothing from `next` — asserted by a fixture project in CI
@@ -140,7 +142,7 @@ Deviations from the plans and the reasoning behind them are in
 ## ⬜ Phase 7 — Verification *(needs 2–6)*
 
 - [ ] Unit suite covers every exported function in all four packages; the four credential-leak
-      tests pass in each *(done for `api-core` and `content`)*
+      tests pass in each *(done for `api-core`, `content` and `payment`)*
 - [x] HMAC fixtures pass under Node 18, Node 20, and a stripped environment with no
       `node:crypto`, `Buffer` or `process` *(satisfied in phase 2)*
 - [ ] Every JSON example in the three doc folders parses into its declared SDK type

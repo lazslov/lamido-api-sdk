@@ -1,0 +1,13 @@
+{
+  "name": "malformed-timestamp",
+  "describes": "a timestamp that is not a run of digits",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019e4a91-0000-7000-8000-000000000001\",\"event_type\":\"payment.succeeded\",\"created_at\":\"2026-01-21T12:53:20.000Z\",\"payment\":{\"id\":\"019e4a91-0000-7000-8000-000000000002\",\"merchant_payment_ref\":\"order-12345\",\"status\":\"succeeded\",\"amount_minor\":\"1000\",\"currency\":\"HUF\",\"provider\":\"barion\"}}",
+  "timestamp": "not-a-timestamp",
+  "signature": "sha256=af2696f8f109a9b6bf6783eac9e673fb5a268a35490adff04c7f610c8c45e802",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": false,
+    "reason": "malformed_timestamp"
+  }
+}

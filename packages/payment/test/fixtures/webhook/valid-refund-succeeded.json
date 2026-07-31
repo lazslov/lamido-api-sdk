@@ -1,0 +1,12 @@
+{
+  "name": "valid-refund-succeeded",
+  "describes": "a refund event, which carries the extra refund block and the payment's NEW status",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019e4a95-0000-7000-8000-000000000003\",\"event_type\":\"refund.succeeded\",\"created_at\":\"2026-01-21T13:02:11.140Z\",\"payment\":{\"id\":\"019e4a91-0000-7000-8000-000000000002\",\"merchant_payment_ref\":\"order-12345\",\"status\":\"partially_refunded\",\"amount_minor\":\"1000\",\"currency\":\"HUF\",\"provider\":\"barion\"},\"refund\":{\"id\":\"019e4a95-77c1-7a02-8f31-9b0c4d5e6f70\",\"status\":\"succeeded\",\"amount_minor\":\"400\",\"currency\":\"HUF\"}}",
+  "timestamp": "1785168000",
+  "signature": "sha256=e2aa31f69eb5af6f786898fdffdfad83b603efb379c55c21bc3fb1fe2863e8c9",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": true
+  }
+}
