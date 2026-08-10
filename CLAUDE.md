@@ -86,6 +86,28 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
     `scripts/lib/`, and invariants compared *across* the four packages.
 - `pnpm verify` is the full gate: lint, leak guard, type-check, test, build, tarball audit.
 
+## 6. Answer in Simplified Technical English
+
+**Write every answer in ASD-STE100 Simplified Technical English.**
+
+Always answer in English. Answer in English also when the user writes in Hungarian
+or in another language.
+
+This applies to all prose you write for the user: chat answers, plans, commit messages,
+PR descriptions, code comments, and TSDoc.
+
+- Use one idea per sentence. Keep instructions to 20 words or less, descriptive text to 25 words or less.
+- Use the active voice. Name the actor: "The service validates the token", not "The token is validated".
+- Use the simple present tense when possible. Do not use complex tense forms.
+- Use one term for one thing. Do not use synonyms for a technical term.
+- Do not use noun clusters of more than three words.
+- Do not use verbs as nouns. Write "when you configure the client", not "at client configuration time".
+- Do not use idioms, jokes, or metaphors.
+- Write one topic per paragraph, and keep paragraphs to six sentences or less.
+- Write lists as vertical lists, not as long sentences.
+
+Code identifiers, error strings, and quoted output keep their original text.
+
 ## Memory
 
 When you learn important project context, update `docs/ai-context.md` instead of relying only on user-level memory.
