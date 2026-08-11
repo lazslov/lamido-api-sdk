@@ -1,0 +1,41 @@
+{
+  "name": "@lamido/telemetry",
+  "version": "0.1.0",
+  "description": "Estate telemetry for the Lamido services: the canonical log envelope, the batched log sink, the Telegram alert channel and the request middleware (observability house rules OB-1…OB-15).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lazslov/lamido-api-sdk.git",
+    "directory": "packages/telemetry"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19"
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "check:package": "publint && attw --pack ."
+  },
+  "dependencies": {}
+}

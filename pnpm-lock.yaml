@@ -105,6 +105,8 @@ importers:
         specifier: workspace:^
         version: link:../api-core
 
+  packages/telemetry: {}
+
 packages:
 
   '@andrewbranch/untar.js@1.0.3':
