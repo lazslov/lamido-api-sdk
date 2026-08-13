@@ -1,14 +1,14 @@
 import { LamidoApiError } from "@lazslov/api-core";
 import { describe, expect, it } from "vitest";
 import { InvoiceApiError } from "../src/errors.js";
-import { errorResponse, fetchStub, invoiceClient, jsonResponse } from "./stubs/fetch.js";
+import { errorResponse, fetchStub, invoice, invoiceClient, jsonResponse } from "./stubs/fetch.js";
 
 /**
- * conventions §5's error table. Construction failures — a missing base URL, a leaked key — live in
- * `clients.test.ts`, which controls the environment.
+ * conventions §6's problem table. Construction failures — a missing base URL, a leaked key — live
+ * in `clients.test.ts`, which controls the environment.
  */
 
-const id = "6f1c2c8e-4b6d-4f2a-9c33-0b1f2a4d55aa";
+const id = "0199e4a9-13f2-7c14-9d5e-2a6b8c0d1f33";
 
 /** Read one invoice against a stubbed failure, and return the error it threw. */
 async function failing(response: Response): Promise<InvoiceApiError> {
@@ -17,55 +17,82 @@ async function failing(response: Response): Promise<InvoiceApiError> {
     .catch((error: unknown) => error)) as InvoiceApiError;
 }
 
-describe("the error codes", () => {
-  it("carries the service's own code, message and details through unchanged", async () => {
-    const details = { formErrors: [], fieldErrors: { items: ["Array must contain at least 1"] } };
-    const error = await failing(errorResponse(400, "validation_error", "Request failed", details));
+describe("the problem document", () => {
+  it("carries the slug, the detail and the request id through unchanged", async () => {
+    const errors = [{ pointer: "/items", code: "required", detail: "Required" }];
+    const error = await failing(errorResponse(400, "validation", "Request failed", { errors }));
 
     expect(error).toBeInstanceOf(InvoiceApiError);
     expect(error).toBeInstanceOf(LamidoApiError);
-    expect(error.code).toBe("validation_error");
+    expect(error.type).toBe("validation");
     expect(error.message).toBe("Request failed");
-    expect(error.details).toEqual(details);
+    expect(error.errors).toEqual(errors);
+    expect(error.requestId).toBe("019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01");
     expect(error.service).toBe("invoice-service");
-    expect(error.requestPath).toBe(`/api/invoices/${id}`);
+    expect(error.requestPath).toBe(`/v1/invoices/${id}`);
   });
 
-  it("falls back to the status's own code when no envelope arrived", async () => {
-    // An HTML error page from an edge proxy has no `error.code`, and inventing one from the message
-    // would be branching on prose.
+  it("falls back to an unknown slug when no problem document arrived", async () => {
+    // An HTML error page from an edge proxy has no `type`, and inventing one from the status
+    // would be a guess presented as a fact from the service.
     const proxied = new Response("<html>504</html>", { status: 403 });
-    expect((await failing(proxied)).code).toBe("forbidden");
+    expect((await failing(proxied)).type).toBe("unknown");
   });
 
-  it("treats an undocumented code as internal_error rather than trusting it", async () => {
-    expect((await failing(errorResponse(418, "teapot"))).code).toBe("internal_error");
+  it("treats an undocumented slug as unknown rather than trusting it", async () => {
+    expect((await failing(errorResponse(418, "teapot"))).type).toBe("unknown");
   });
 
-  it("omits details entirely when the service sent none", async () => {
-    const error = await failing(errorResponse(404, "not_found"));
+  it("omits every optional member entirely when the service sent none", async () => {
+    const error = await failing(errorResponse(404, "not-found"));
     expect("details" in error).toBe(false);
+    expect("code" in error).toBe(false);
+    expect("providerError" in error).toBe(false);
+  });
+
+  it("carries the provider's own text on a 502", async () => {
+    const error = await failing(
+      errorResponse(502, "internal", "Billingo refused", {
+        provider_error: "Partner tax number invalid",
+      }),
+    );
+    expect(error.providerError).toBe("Partner tax number invalid");
   });
 });
 
-describe("retryable follows the service's table, not the status", () => {
-  it("is true for provider_error and internal_error", async () => {
-    expect((await failing(errorResponse(502, "provider_error"))).retryable).toBe(true);
-    expect((await failing(errorResponse(500, "internal_error"))).retryable).toBe(true);
+describe("retryable follows the services' shared table", () => {
+  it("is true for internal, at both statuses", async () => {
+    expect((await failing(errorResponse(502, "internal"))).retryable).toBe(true);
+    expect((await failing(errorResponse(500, "internal"))).retryable).toBe(true);
+  });
+
+  it("is true for a 422, because the state that forbade it can change", async () => {
+    expect((await failing(errorResponse(422, "conflict"))).retryable).toBe(true);
+  });
+
+  it("is true for a 429, after waiting", async () => {
+    const error = await failing(errorResponse(429, "rate-limit", "slow down", { retry_after: 30 }));
+    expect(error.retryable).toBe(true);
+    expect(error.retryAfter).toBe(30);
   });
 
   it("is false for everything else", async () => {
-    for (const [status, code] of [
-      [400, "validation_error"],
-      [400, "bad_request"],
+    for (const [status, slug] of [
+      [400, "validation"],
       [401, "unauthorized"],
       [403, "forbidden"],
-      [404, "not_found"],
+      [404, "not-found"],
       [409, "conflict"],
     ] as const) {
-      const error = await failing(errorResponse(status, code));
-      expect(error.retryable, `expected ${code} not to be retryable`).toBe(false);
+      const error = await failing(errorResponse(status, slug));
+      expect(error.retryable, `expected ${slug} at ${status} not to be retryable`).toBe(false);
     }
+  });
+
+  it("separates the two conflicts, which the slug alone cannot", async () => {
+    // 409 is a duplicate; 422 is a state the identical request may find different later.
+    expect((await failing(errorResponse(409, "conflict"))).retryable).toBe(false);
+    expect((await failing(errorResponse(422, "conflict"))).retryable).toBe(true);
   });
 });
 
@@ -74,7 +101,7 @@ describe("a 404 is never mapped to null", () => {
     // A 404 also answers for an invoice belonging to a different client, so an id you hold coming back
     // 404 is a bug — often a deployment holding the wrong key.
     await expect(
-      invoiceClient(fetchStub([errorResponse(404, "not_found")])).getInvoice(id),
+      invoiceClient(fetchStub([errorResponse(404, "not-found")])).getInvoice(id),
     ).rejects.toBeInstanceOf(InvoiceApiError);
   });
 });
@@ -101,7 +128,7 @@ describe("nothing carries the credential", () => {
 
 describe("a successful read is not an error", () => {
   it("resolves normally on a 200", async () => {
-    const stub = fetchStub([jsonResponse({ data: { id, status: "created" } })]);
-    await expect(invoiceClient(stub).getInvoice(id)).resolves.toMatchObject({ id });
+    const stub = fetchStub([jsonResponse(invoice({ public_id: id }))]);
+    await expect(invoiceClient(stub).getInvoice(id)).resolves.toMatchObject({ public_id: id });
   });
 });

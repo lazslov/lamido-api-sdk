@@ -79,7 +79,7 @@ test("request reaches a stub fetch and reads a data envelope", async () => {
       apiKey: "csk_YOUR_TEST_KEY_abcdef123456",
       fetch: async (url, init) => {
         calls.push({ url, init });
-        return new Response(JSON.stringify({ data: { slug: "about" } }), {
+        return new Response(JSON.stringify({ slug: "about" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -89,13 +89,13 @@ test("request reaches a stub fetch and reads a data envelope", async () => {
 
   const page = await request(config, {
     method: "GET",
-    path: "/api/content/pages/about",
-    read: { kind: "data" },
+    path: "/v1/public/pages/about",
+    read: { kind: "raw" },
     onError: () => new Error("unreachable"),
   });
 
   assert.deepEqual(page, { slug: "about" });
-  assert.equal(calls[0].url, "https://content.example.com/api/content/pages/about");
+  assert.equal(calls[0].url, "https://content.example.com/v1/public/pages/about");
   assert.equal(calls[0].init.headers.Authorization, "Bearer csk_YOUR_TEST_KEY_abcdef123456");
 });
 

@@ -90,7 +90,7 @@ describe("reconcilePayments", () => {
     });
 
     expect(stub.calls).toHaveLength(2);
-    expect(results[0]).toMatchObject({ retryAfterSeconds: 5, refreshed: false });
+    expect(results[0]).toMatchObject({ retryAfter: 5, refreshed: false });
     // The payment read before the throttled refresh is still the freshest thing anyone has.
     expect(results[0]?.payment?.status).toBe("pending");
   });

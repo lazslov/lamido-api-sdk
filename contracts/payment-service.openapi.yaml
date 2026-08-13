@@ -24,7 +24,7 @@ info:
     | Surface | Prefix | Auth |
     |---|---|---|
     | Merchant | `/v1/*` | `Authorization: Bearer pmk_…` |
-    | Admin | `/admin/*` | `Authorization: Bearer pad_…` plus scopes |
+    | Admin | `/v1/admin/*` | `Authorization: Bearer pad_…` plus scopes |
     | Provider callback | `/v1/providers/*` | none (Barion) / HMAC (Stripe) — **not for you to call** |
 
     **HUF has zero minor units in this API.** `"1000"` HUF means 1000 Ft, not 10.00 Ft.
@@ -32,8 +32,10 @@ info:
     Every amount is a decimal string of minor units, never a JSON number, because JSON
     numbers lose precision above 2^53.
 
-    Errors are RFC 7807 Problem Details on every surface, served as
-    `application/problem+json`. Branch on `type`, never on `title` or `detail`.
+    Errors are RFC 9457 Problem Details on every surface, served as
+    `application/problem+json`. Branch on `type`, never on `title` or `detail`. Every problem
+    carries `request_id`; a validation 400 also carries `errors[]`, one entry per bad field,
+    addressed by JSON Pointer.
   license:
     name: UNLICENSED
   x-docs:
@@ -82,43 +84,57 @@ paths:
   # =========================================================================
   # Observability
   # =========================================================================
+  /:
+    get:
+      operationId: getLandingPage
+      tags: [Observability]
+      summary: A static landing page for a human who typed the domain.
+      description: |
+        HTML, no auth, no browser tripwire, `Cache-Control: public, max-age=3600`. Added at
+        `d18882f`. Exists so the root of an API host does not answer a problem document to a
+        browser, which reads as an outage. Scoped to `/` exactly; every other unknown path
+        still returns the problem document, and a non-`GET` here is a `404`.
+
+        **Not a health check** — the body is a compile-time constant served without touching
+        the database, so it stays `200` through a total outage. Use `/healthz`, and read its
+        body.
+      security: []
+      responses:
+        '200':
+          description: The page.
+          content:
+            text/html:
+              schema: { type: string }
+
   /healthz:
     get:
       operationId: getHealthz
       tags: [Observability]
       summary: Liveness plus a database ping.
       description: |
-        Public, unauthenticated, and not subject to the browser tripwire. On failure the body
-        carries the driver's error **code only** — its message contains the connection string.
+        Public, unauthenticated, and not subject to the browser tripwire.
+
+        **Always answers 200, including when the database is unreachable.** The status code
+        answers "should the platform restart this instance?", and while the process is still
+        serving requests the answer is no — a 503 would drain every instance at once during a
+        database blip. The verdict is in the body: **alert on `status != "ok"`, never on the
+        HTTP status.** Use the authenticated `GET /v1/admin/health` when a status code has to
+        carry the database's state.
+
+        On failure the body carries the driver's error **code only** — its message contains
+        the connection string.
       security: []
       responses:
         '200':
-          description: Alive, database reachable.
+          description: |
+            Alive. `status` is `ok` when the database responded and `degraded` when it did not;
+            both are 200. `version`, `commit` and `now` are present on either branch.
           content:
             application/json:
               schema:
-                type: object
-                required: [status, version, commit, now]
-                properties:
-                  status: { const: ok }
-                  version: { type: string, examples: ['0.1.0'] }
-                  commit:
-                    type: string
-                    description: '`VERCEL_GIT_COMMIT_SHA`, or `dev` locally. Answers "which build is live?".'
-                  now: { type: string, format: date-time }
-        '503':
-          description: The database is unreachable.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [status, db, code]
-                properties:
-                  status: { const: degraded }
-                  db: { const: unreachable }
-                  code:
-                    type: string
-                    description: The driver's error code. Never its message.
+                oneOf:
+                  - $ref: '#/components/schemas/HealthOk'
+                  - $ref: '#/components/schemas/HealthDegraded'
 
   # =========================================================================
   # Merchant tier
@@ -215,8 +231,9 @@ paths:
       summary: Force a re-read of authoritative provider state.
       description: |
         Reconciliation, **not polling**. Throttled to one call per payment per 5 seconds; a
-        second call inside the window is a 429 with a `retry_after` member and makes no
-        provider call. A payment already in a terminal status returns immediately.
+        second call inside the window is a 429 carrying the wait in both a `Retry-After`
+        header and a `retry_after` member, and makes no provider call. A payment already in
+        a terminal status returns immediately.
       responses:
         '200':
           description: The payment, transitioned if the provider's state had moved.
@@ -364,7 +381,7 @@ paths:
       summary: Barion's IPN. Called by Barion, never by an integrator.
       description: |
         The value to paste into the Barion shop settings is returned as `callback_url` by
-        `PUT /admin/merchants/{public_id}/credentials/barion` — do not build it by hand.
+        `PUT /v1/admin/merchants/{public_id}/credentials/barion` — do not build it by hand.
 
         **Barion sends no body**; `paymentId` arrives in the query string and the `Content-Type`
         may be absent. No body parser may be registered on this path: one would answer 415
@@ -481,7 +498,7 @@ paths:
   # =========================================================================
   # Admin — self and health
   # =========================================================================
-  /admin/me:
+  /v1/admin/me:
     get:
       operationId: adminMe
       tags: [Admin self]
@@ -511,7 +528,7 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/BrowserTripwireProblem' }
 
-  /admin/health:
+  /v1/admin/health:
     get:
       operationId: adminHealth
       tags: [Admin self]
@@ -538,7 +555,7 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/BrowserTripwireProblem' }
 
-  /admin/providers:
+  /v1/admin/providers:
     get:
       operationId: adminProviderCatalog
       tags: [Admin self]
@@ -563,7 +580,7 @@ paths:
   # =========================================================================
   # Admin — merchants
   # =========================================================================
-  /admin/merchants:
+  /v1/admin/merchants:
     get:
       operationId: adminListMerchants
       tags: [Admin merchants]
@@ -580,6 +597,18 @@ paths:
           in: query
           required: false
           schema: { type: boolean }
+        - name: external_ref
+          in: query
+          required: false
+          description: |
+            `missing` narrows to merchants lamido-admin has not paired with an account — the
+            drill-down behind `tenants_without_external_ref` on admin health, binding **that
+            count's own predicate**.
+
+            A literal rather than a boolean because the only useful direction is the absent one:
+            "merchants that have one" is every other merchant, which omitting the filter already
+            gives.
+          schema: { type: string, enum: [missing] }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -628,7 +657,7 @@ paths:
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '409': { $ref: '#/components/responses/ConflictProblem' }
 
-  /admin/merchants/{public_id}:
+  /v1/admin/merchants/{public_id}:
     parameters:
       - $ref: '#/components/parameters/MerchantPublicId'
     get:
@@ -676,7 +705,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFoundProblem' }
         '409': { $ref: '#/components/responses/ConflictProblem' }
 
-  /admin/merchants/{public_id}/api-keys:
+  /v1/admin/merchants/{public_id}/api-keys:
     parameters:
       - $ref: '#/components/parameters/MerchantPublicId'
     get:
@@ -723,7 +752,7 @@ paths:
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '404': { $ref: '#/components/responses/NotFoundProblem' }
 
-  /admin/api-keys/{id}:
+  /v1/admin/api-keys/{id}:
     parameters:
       - $ref: '#/components/parameters/InternalId'
     delete:
@@ -749,7 +778,7 @@ paths:
   # =========================================================================
   # Admin — credentials
   # =========================================================================
-  /admin/credentials:
+  /v1/admin/credentials:
     get:
       operationId: adminListFailingCredentials
       tags: [Admin credentials]
@@ -784,7 +813,7 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
 
-  /admin/merchants/{public_id}/credentials:
+  /v1/admin/merchants/{public_id}/credentials:
     parameters:
       - $ref: '#/components/parameters/MerchantPublicId'
     get:
@@ -809,7 +838,7 @@ paths:
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '404': { $ref: '#/components/responses/NotFoundProblem' }
 
-  /admin/merchants/{public_id}/credentials/{provider}:
+  /v1/admin/merchants/{public_id}/credentials/{provider}:
     parameters:
       - $ref: '#/components/parameters/MerchantPublicId'
       - $ref: '#/components/parameters/ProviderName'
@@ -887,7 +916,7 @@ paths:
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '404': { $ref: '#/components/responses/NotFoundProblem' }
 
-  /admin/merchants/{public_id}/credentials/{provider}/test:
+  /v1/admin/merchants/{public_id}/credentials/{provider}/test:
     parameters:
       - $ref: '#/components/parameters/MerchantPublicId'
       - $ref: '#/components/parameters/ProviderName'
@@ -920,7 +949,7 @@ paths:
   # =========================================================================
   # Admin — payments
   # =========================================================================
-  /admin/payments:
+  /v1/admin/payments:
     get:
       operationId: adminListPayments
       tags: [Admin payments]
@@ -973,13 +1002,13 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
 
-  /admin/payments/stuck:
+  /v1/admin/payments/stuck:
     get:
       operationId: adminListStuckPayments
       tags: [Admin payments]
       summary: The stuck queue, oldest first.
       description: |
-        **Registered before `/admin/payments/{public_id}`** — the other way round, `stuck`
+        **Registered before `/v1/admin/payments/{public_id}`** — the other way round, `stuck`
         reaches the detail handler as a public id and the symptom is a 400 on a path that looks
         perfectly correct.
 
@@ -1018,7 +1047,7 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
 
-  /admin/payments/{public_id}:
+  /v1/admin/payments/{public_id}:
     parameters:
       - $ref: '#/components/parameters/PaymentPublicId'
     get:
@@ -1045,7 +1074,7 @@ paths:
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '404': { $ref: '#/components/responses/NotFoundProblem' }
 
-  /admin/payments/{public_id}/refresh:
+  /v1/admin/payments/{public_id}/refresh:
     parameters:
       - $ref: '#/components/parameters/PaymentPublicId'
     post:
@@ -1073,7 +1102,7 @@ paths:
         '429': { $ref: '#/components/responses/RefreshThrottledProblem' }
         '502': { $ref: '#/components/responses/ProviderProblem' }
 
-  /admin/payments/{public_id}/reconcile:
+  /v1/admin/payments/{public_id}/reconcile:
     parameters:
       - $ref: '#/components/parameters/PaymentPublicId'
     post:
@@ -1114,7 +1143,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFoundProblem' }
         '422': { $ref: '#/components/responses/ReconcileStateProblem' }
 
-  /admin/payments/{public_id}/refunds:
+  /v1/admin/payments/{public_id}/refunds:
     parameters:
       - $ref: '#/components/parameters/PaymentPublicId'
     post:
@@ -1139,6 +1168,7 @@ paths:
             schema:
               type: object
               required: [amount_minor]
+              additionalProperties: false
               properties:
                 amount_minor: { $ref: '#/components/schemas/MinorAmount' }
                 reason: { type: [string, 'null'], maxLength: 500 }
@@ -1155,7 +1185,7 @@ paths:
         '422': { $ref: '#/components/responses/RefundStateProblem' }
         '502': { $ref: '#/components/responses/ProviderProblem' }
 
-  /admin/refunds:
+  /v1/admin/refunds:
     get:
       operationId: adminListRefunds
       tags: [Admin refunds]
@@ -1198,7 +1228,7 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
 
-  /admin/refunds/{public_id}:
+  /v1/admin/refunds/{public_id}:
     parameters:
       - $ref: '#/components/parameters/RefundPublicId'
     get:
@@ -1224,13 +1254,68 @@ paths:
 
   # =========================================================================
   # Admin — webhooks
+  #
+  # This surface is IDENTICAL in every service of the estate, varying only in the
+  # tenant collection segment (`merchants` here, `clients`, `sites` elsewhere).
+  # lamido-admin drives all five from one screen with one client, so a route or a
+  # member that exists only here is paid for in that repository forever. Adding
+  # one is a house-rules change, not a local decision.
+  #
+  # Endpoints are addressed by `public_id`, never the internal row id.
   # =========================================================================
-  /admin/webhook-endpoints:
+  /v1/admin/event-types:
+    get:
+      operationId: adminListEventTypes
+      tags: [Admin webhooks]
+      summary: The event catalogue, as data.
+      description: |
+        **The highest-leverage route on this surface.** Build an admin UI's trigger picker on
+        this, never on a hardcoded array — otherwise every new event type in any of five
+        services needs a change in a sixth repository, which means it will be wrong, silently,
+        and the symptom is an operator who cannot subscribe to an event that exists.
+
+        Served from the same array that validates a subscription, drives the emitter and backs
+        the catalogue table in the published conventions, so the four cannot disagree.
+
+        Wrapped in a page with a `null` cursor even though the set is small and static: it is a
+        collection, collections go in an envelope, and a client that special-cases one
+        collection shape will get the next one wrong.
+
+        `webhook.ping` is deliberately **absent** — it is reserved estate-wide, in no
+        catalogue, and not subscribable.
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: The whole catalogue. `next_cursor` is always `null`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CursorPage'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/WebhookEventTypeDescriptor' }
+        '401': { $ref: '#/components/responses/UnauthorizedProblem' }
+        '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+
+  /v1/admin/webhook-endpoints:
     get:
       operationId: adminListWebhookEndpoints
       tags: [Admin webhooks]
-      summary: The drill-down behind the health strip's `disabled_webhook_endpoints` count.
-      description: Not paginated, for the same reason as `/admin/credentials`.
+      summary: Every endpoint, across merchants.
+      description: |
+        `enabled=false` is the drill-down behind the health strip's
+        `disabled_webhook_endpoints` count and binds **that count's own predicate**, which is
+        what keeps the tile and the list it opens in agreement.
+
+        `event_type` is the **trigger-first** view — "on `payment.succeeded`, call these three
+        endpoints" — which is the question an operator actually has. It is the subscription
+        relation read from the other side, derived on read; the inverse is never stored.
+
+        Cursor-paginated, which it was not when a merchant could hold only one endpoint.
       security:
         - AdminKey: []
       parameters:
@@ -1238,29 +1323,112 @@ paths:
           in: query
           required: false
           schema: { type: boolean }
+        - name: event_type
+          in: query
+          required: false
+          description: |
+            Narrow to endpoints that would receive this type — including those with
+            `subscribed_events: null`, which receive everything.
+
+            **This filter is applied in memory, after the page is read**, because
+            `subscribed_events` is a jsonb array where `null` means "every type" and the
+            predicate has no index to use. A page may therefore come back **short of
+            `limit`** without meaning the end of the collection. Follow `next_cursor`, never
+            a short page, to decide when to stop.
+          schema: { $ref: '#/components/schemas/WebhookEventType' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
       responses:
         '200':
-          description: The endpoints.
+          description: A page of endpoints.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CursorPage'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '401': { $ref: '#/components/responses/UnauthorizedProblem' }
+        '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+
+  /v1/admin/merchants/{public_id}/webhook-endpoints:
+    parameters:
+      - $ref: '#/components/parameters/MerchantPublicId'
+    get:
+      operationId: adminListMerchantWebhookEndpoints
+      tags: [Admin webhooks]
+      summary: This merchant's endpoints.
+      description: |
+        A **`200` with an empty array** when the merchant has none — the opposite of the
+        singular route this replaces, which 404'd. "This merchant receives no webhooks" was
+        worth a status code when there could be at most one endpoint; over a collection it is
+        simply an empty collection, and 404ing it would make a client branch on a status to
+        render a table with no rows.
+
+        Not paginated: twenty is the schema's own ceiling for one merchant.
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: The endpoints, oldest first. `[]` when there are none.
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '401': { $ref: '#/components/responses/UnauthorizedProblem' }
+        '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+    post:
+      operationId: adminCreateWebhookEndpoint
+      tags: [Admin webhooks]
+      summary: Add a destination.
+      description: |
+        The signing secret is returned **once**, here, and never again. It is wrapped the way a
+        minted API key is wrapped rather than being a sometimes-null field on the endpoint, so
+        a client cannot build a UI that expects to read it back.
+
+        There is **no upsert**. The `PUT` this replaces meant "replace this merchant's
+        endpoint", which has no meaning once there are many, so it was deleted rather than
+        redefined — a route whose semantics silently changed is worse than one that 404s.
+
+        A merchant may hold up to **20**; a 21st is `409 endpoint_limit_reached`.
+      security:
+        - AdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWebhookEndpointRequest' }
+      responses:
+        '201':
+          description: Created, with the one-time signing secret.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedWebhookEndpoint' }
         '400': { $ref: '#/components/responses/ValidationProblem' }
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '409':
+          description: |
+            The merchant already holds the maximum of 20 endpoints
+            (`code: endpoint_limit_reached`, with `limit`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
-  /admin/merchants/{public_id}/webhook-endpoint:
+  /v1/admin/webhook-endpoints/{public_id}:
     parameters:
-      - $ref: '#/components/parameters/MerchantPublicId'
+      - $ref: '#/components/parameters/EndpointPublicId'
     get:
       operationId: adminGetWebhookEndpoint
       tags: [Admin webhooks]
-      summary: A merchant's webhook endpoint.
-      description: |
-        One endpoint per merchant, by design. With none configured this is a **404, not a
-        `null` body** — "this merchant receives no webhooks" is a distinct answer from a
-        configuration, and a client branching on a null inside a 200 gets it wrong more often.
+      summary: One endpoint.
       security:
         - AdminKey: []
       responses:
@@ -1272,61 +1440,102 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '404': { $ref: '#/components/responses/NotFoundProblem' }
-    put:
-      operationId: adminUpsertWebhookEndpoint
+    patch:
+      operationId: adminPatchWebhookEndpoint
       tags: [Admin webhooks]
-      summary: Create or update a merchant's webhook endpoint.
+      summary: Change the configuration.
       description: |
-        The signing secret is returned **once**, on the call that mints it — a first save, or
-        `rotate_secret: true`. An ordinary update returns `{ endpoint }` with no secret.
+        Must change at least one field; an empty body is a `400`.
 
-        `rotate_secret` is explicit rather than implied by any update: the previous secret stops
-        working the instant it lands, and the merchant's deployment has to be ready. There is
-        no dual-secret grace period.
+        **Does not re-enable and does not clear `consecutive_failures`** — the one behaviour
+        deliberately dropped from the `PUT` it replaces. Bundling "the destination is good now"
+        into every field change meant that fixing a typo in a URL silently re-armed an endpoint
+        that had been auto-disabled for a week, and the operator who did it had no idea.
+        `POST …/enable` says that, and says only that.
 
-        `subscribed_events: null` or absent means every event type, which is the default and
-        what nearly every merchant should use. An **empty array is rejected**, because an
-        endpoint subscribed to nothing is indistinguishable from a broken one.
+        `contract_version` is absent on purpose: moving a live endpoint between envelope
+        versions changes the bytes its receiver verifies, which is a new endpoint, not an edit.
 
-        A save also **re-enables** an auto-disabled endpoint and clears its failure counter — an
-        operator saving is asserting the destination is good now.
+        The audit entry records **which fields changed, not their values**.
       security:
         - AdminKey: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/UpsertWebhookEndpointRequest' }
+            schema: { $ref: '#/components/schemas/PatchWebhookEndpointRequest' }
       responses:
-        '201':
-          description: Created, with the one-time signing secret.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/MintedWebhookEndpoint' }
         '200':
-          description: Updated. Carries a secret only when one was minted.
+          description: The endpoint as it now stands.
           content:
             application/json:
-              schema:
-                oneOf:
-                  - $ref: '#/components/schemas/MintedWebhookEndpoint'
-                  - type: object
-                    required: [endpoint]
-                    properties:
-                      endpoint: { $ref: '#/components/schemas/WebhookEndpoint' }
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
         '400': { $ref: '#/components/responses/ValidationProblem' }
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '404': { $ref: '#/components/responses/NotFoundProblem' }
+    delete:
+      operationId: adminDeleteWebhookEndpoint
+      tags: [Admin webhooks]
+      summary: Remove a destination.
+      description: |
+        Takes its pending deliveries with it and **leaves every event**. An event is a fact
+        about a payment; deleting a URL does not un-happen it, and an operator asking "what did
+        we emit last Tuesday" must get the same answer before and after this call.
 
-  /admin/merchants/{public_id}/webhook-endpoint/enable:
+        `204` with no body, because a body describing a row that no longer exists invites a
+        client to render it. The count of deleted deliveries goes to the audit trail.
+      security:
+        - AdminKey: []
+      responses:
+        '204': { description: Deleted. No body. }
+        '401': { $ref: '#/components/responses/UnauthorizedProblem' }
+        '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+
+  /v1/admin/webhook-endpoints/{public_id}/rotate-secret:
     parameters:
-      - $ref: '#/components/parameters/MerchantPublicId'
+      - $ref: '#/components/parameters/EndpointPublicId'
+    post:
+      operationId: adminRotateWebhookEndpointSecret
+      tags: [Admin webhooks]
+      summary: Mint new key material.
+      description: |
+        Returns the plaintext once, in the create's shape. **The previous secret stops working
+        immediately** — no dual-secret grace period — which is why this is a route of its own
+        rather than a flag on the patch: it must not be reachable by an operator who thought
+        they were editing a URL.
+
+        Also re-enables the endpoint and clears `consecutive_failures`, on the reasoning that
+        an operator rotating is about to hand the receiver a working secret.
+
+        **The other endpoints of this merchant are untouched.** That is the entire point of
+        per-endpoint secrets: with a shared one, rotation would be a simultaneous outage for
+        every receiver, and a leak at the least-trusted one would let it forge events to all
+        the others.
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: The endpoint, with the new one-time signing secret.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedWebhookEndpoint' }
+        '401': { $ref: '#/components/responses/UnauthorizedProblem' }
+        '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+
+  /v1/admin/webhook-endpoints/{public_id}/enable:
+    parameters:
+      - $ref: '#/components/parameters/EndpointPublicId'
     post:
       operationId: adminEnableWebhookEndpoint
       tags: [Admin webhooks]
-      summary: Re-enable an auto-disabled endpoint.
-      description: Clears `disabled_reason` and resets `consecutive_failures`.
+      summary: Clear a disable.
+      description: |
+        Clears `disabled_reason` **and** resets `consecutive_failures`. Leaving the counter one
+        dead-letter below the threshold would disable the endpoint again on its next hiccup,
+        which reads to an operator as "the enable button does not work".
       security:
         - AdminKey: []
       responses:
@@ -1339,7 +1548,139 @@ paths:
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '404': { $ref: '#/components/responses/NotFoundProblem' }
 
-  /admin/webhook-deliveries:
+  /v1/admin/webhook-endpoints/{public_id}/disable:
+    parameters:
+      - $ref: '#/components/parameters/EndpointPublicId'
+    post:
+      operationId: adminDisableWebhookEndpoint
+      tags: [Admin webhooks]
+      summary: Stop delivering to this endpoint.
+      description: |
+        **This — not `subscribed_events: []` — is how you say "this endpoint should receive
+        nothing".** A disabled endpoint keeps its URL, its secret and its history; an endpoint
+        subscribed to nothing looks configured and is silently dead, which is why an empty
+        array is a `400`.
+
+        Always records a reason, defaulted to `"Disabled by an operator"` rather than left
+        null, so a non-null `disabled_reason` never has to be read as "auto-disabled, reason
+        lost".
+      security:
+        - AdminKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DisableWebhookEndpointRequest' }
+      responses:
+        '200':
+          description: The endpoint, disabled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '401': { $ref: '#/components/responses/UnauthorizedProblem' }
+        '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+
+  /v1/admin/webhook-endpoints/{public_id}/test:
+    parameters:
+      - $ref: '#/components/parameters/EndpointPublicId'
+    post:
+      operationId: adminTestWebhookEndpoint
+      tags: [Admin webhooks]
+      summary: Deliver a `webhook.ping` now, synchronously.
+      description: |
+        **Why this route exists.** Without it the only way to prove a URL and a secret are
+        right is to cause a real transition — and the operator configuring an endpoint is
+        usually not the person who can take a payment. Every misconfiguration would then
+        surface as a dead-letter hours later, attached to a real business event that was also
+        lost.
+
+        Shares the envelope, the renderer, the signature, the URL guard, the 5 s timeout, the
+        redirect rule and the excerpt cap with a real delivery — a test button that exercises
+        its own copy of the delivery path proves only that the copy works.
+
+        Writes **no event row and no delivery row**, bypasses `subscribed_events` and the
+        ladder, and never touches `consecutive_failures`: a probe is not a fact about a
+        payment, and a failed probe is an operator mid-configuration rather than a receiver
+        that has gone away.
+
+        > **Answers `200` whatever the receiver said.** The operator's request succeeded; what
+        > the receiver answered is the *result*. Read `ok`, never the HTTP status — returning
+        > their `401` as ours would make a working diagnostic look like a broken endpoint.
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: 'What the probe found. `ok: false` is still a `200`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookPingResult' }
+        '401': { $ref: '#/components/responses/UnauthorizedProblem' }
+        '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+        '404': { $ref: '#/components/responses/NotFoundProblem' }
+        '422':
+          description: |
+            The endpoint has no signing secret, so there is nothing to sign a test with
+            (`code: secret_missing`). Rotate its secret first.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/admin/webhook-events:
+    get:
+      operationId: adminListWebhookEvents
+      tags: [Admin webhooks]
+      summary: The outbox — what exactly did we send?
+      description: |
+        Answers the one question no other list can: **we say we emitted it — what were the
+        bytes?** The only place a stored payload is readable.
+
+        Separate from the delivery list because an event emitted for a merchant with **no
+        endpoint configured has no delivery row at all** and must still be findable. The event
+        is the fact; having somewhere to send it is a separate question.
+
+        `correlation_id` is the cross-service query: one value returns everything one payment
+        caused, here and — with the same value against a sibling service's copy of this route —
+        everywhere else in the estate.
+      security:
+        - AdminKey: []
+      parameters:
+        - name: merchant
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: event_type
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/WebhookEventType' }
+        - name: correlation_id
+          in: query
+          required: false
+          description: Everything one causal chain produced. Equals `event_id` on a root event.
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Until'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of events, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CursorPage'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/WebhookEvent' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '401': { $ref: '#/components/responses/UnauthorizedProblem' }
+        '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
+
+  /v1/admin/webhook-deliveries:
     get:
       operationId: adminListWebhookDeliveries
       tags: [Admin webhooks]
@@ -1348,6 +1689,10 @@ paths:
         Defaults to **`status=all`**, unlike the merchant-facing list which defaults to
         `pending`. An operator arrives here from a health-strip count about dead-letters, and
         defaulting to `pending` would show a different set than the one they clicked.
+
+        `cross_service` binds **the same predicate the health counts use**, which is what makes
+        `dead_lettered_deliveries_cross_service` and the list behind it the same set by
+        construction rather than by two queries that agree today.
       security:
         - AdminKey: []
       parameters:
@@ -1355,6 +1700,15 @@ paths:
           in: query
           required: false
           schema: { type: string, format: uuid }
+        - name: endpoint
+          in: query
+          required: false
+          description: An endpoint's `public_id`. The drill-down from one row of the endpoint list.
+          schema: { type: string, format: uuid }
+        - name: event_type
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/WebhookEventType' }
         - name: status
           in: query
           required: false
@@ -1362,6 +1716,14 @@ paths:
             type: string
             enum: [pending, delivered, dead_lettered, all]
             default: all
+        - name: cross_service
+          in: query
+          required: false
+          description: |
+            `true` narrows to deliveries aimed at **another Lamido service**, recognised by the
+            URL ending `/v1/hooks/payment-service` rather than by a hand-set column. `false` is
+            its exact complement.
+          schema: { type: boolean }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -1380,14 +1742,20 @@ paths:
                           allOf:
                             - $ref: '#/components/schemas/WebhookDelivery'
                             - type: object
-                              required: [merchant_public_id]
+                              required: [merchant_public_id, endpoint_public_id]
                               properties:
                                 merchant_public_id: { type: string, format: uuid }
+                                endpoint_public_id:
+                                  type: string
+                                  format: uuid
+                                  description: |
+                                    Which destination this attempt was aimed at. Present because
+                                    this list is cross-endpoint as well as cross-tenant.
         '400': { $ref: '#/components/responses/ValidationProblem' }
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
 
-  /admin/webhook-deliveries/{id}/redeliver:
+  /v1/admin/webhook-deliveries/{id}/redeliver:
     parameters:
       - name: id
         in: path
@@ -1401,11 +1769,17 @@ paths:
       description: |
         **Resets the existing row** rather than inserting a second one — the unique index on
         `(event_id, endpoint_id)` makes two queues of attempts for one event impossible. The
-        attempt counter goes back to 1 and `delivery_id` is regenerated, because it identifies
-        one HTTP request. The `event_id` is unchanged, so the merchant's own dedupe still works.
+        attempt counter goes back to 1, so a redelivered dead-letter gets the whole ladder
+        again: an operator redelivering has usually just fixed something, and one attempt
+        before dead-lettering again would waste the fix.
 
-        It does **not** deliver inline: the row becomes due immediately and the next sweep takes
-        it. Redelivering to a disabled endpoint is `422 endpoint_disabled` — enable it first.
+        `delivery_id` is regenerated because it identifies one HTTP request. **`X-Event-Id` does
+        not change**, so a receiver is entitled to recognise the event and skip it.
+
+        It does **not** deliver inline: the row becomes due immediately and the next sweep of
+        any kind takes it. On the current hosting tier cron sweeps twice a day, so a redelivery
+        can sit for hours on a quiet service — manual redelivery is a first-class operator
+        tool, not a fallback.
       security:
         - AdminKey: []
       responses:
@@ -1418,7 +1792,10 @@ paths:
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
         '404': { $ref: '#/components/responses/NotFoundProblem' }
         '422':
-          description: The endpoint is disabled.
+          description: |
+            The endpoint is disabled (`code: endpoint_disabled`) — a redelivery would be
+            attempted and immediately refused, so enable it first — or it has no signing secret
+            (`code: secret_missing`), so the delivery could not be signed.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1426,7 +1803,7 @@ paths:
   # =========================================================================
   # Admin — stats
   # =========================================================================
-  /admin/stats/overview:
+  /v1/admin/stats/overview:
     get:
       operationId: adminStatsOverview
       tags: [Admin stats]
@@ -1463,7 +1840,7 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
 
-  /admin/stats/timeseries:
+  /v1/admin/stats/timeseries:
     get:
       operationId: adminStatsTimeseries
       tags: [Admin stats]
@@ -1507,7 +1884,7 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
 
-  /admin/stats/merchants:
+  /v1/admin/stats/merchants:
     get:
       operationId: adminStatsMerchants
       tags: [Admin stats]
@@ -1552,7 +1929,7 @@ paths:
   # =========================================================================
   # Admin — keys and audit
   # =========================================================================
-  /admin/keys:
+  /v1/admin/keys:
     get:
       operationId: adminListKeys
       tags: [Admin keys]
@@ -1623,7 +2000,7 @@ paths:
         '401': { $ref: '#/components/responses/UnauthorizedProblem' }
         '403': { $ref: '#/components/responses/ForbiddenScopeProblem' }
 
-  /admin/keys/{id}:
+  /v1/admin/keys/{id}:
     parameters:
       - $ref: '#/components/parameters/InternalId'
     delete:
@@ -1648,7 +2025,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFoundProblem' }
         '409': { $ref: '#/components/responses/ConflictProblem' }
 
-  /admin/audit:
+  /v1/admin/audit:
     get:
       operationId: adminListAudit
       tags: [Admin audit]
@@ -1710,7 +2087,7 @@ components:
       bearerFormat: pmk_...
       description: |
         A merchant API key. Server-to-server only: a request carrying `Origin` or
-        `Sec-Fetch-Mode: cors` is rejected with 403 before authentication runs.
+        `Sec-Fetch-Dest` is rejected with 403 before authentication runs. A plain Node `fetch` is not.
     AdminKey:
       type: http
       scheme: bearer
@@ -1756,6 +2133,16 @@ components:
       in: path
       required: true
       description: The merchant's `public_id`, baked into the callback URL at credential-save time.
+      schema: { type: string, format: uuid }
+    EndpointPublicId:
+      name: public_id
+      in: path
+      required: true
+      description: |
+        The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+        addressed by `id`, which was defensible while an endpoint was a property of a merchant
+        with no external identity of its own; it stopped being defensible the moment an operator
+        points at one from a UI that spans five services.
       schema: { type: string, format: uuid }
     ProviderName:
       name: provider
@@ -1822,7 +2209,7 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     BrowserTripwireProblem:
       description: |
-        A browser-shaped request — `Origin` or `Sec-Fetch-Mode: cors`. A **tripwire, not a
+        A browser-shaped request — `Origin` or `Sec-Fetch-Dest`. A **tripwire, not a
         security boundary**: `Origin` is forgeable, and the real boundary is the API key.
       content:
         application/problem+json:
@@ -1855,17 +2242,31 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     RateLimitProblem:
-      description: Too many requests. `Retry-After` says how long.
+      description: |
+        Too many requests. The seconds to wait are carried **both** in the `Retry-After`
+        header and in the `retry_after` extension member, and the two always agree — the
+        header is derived from the member in the problem serializer.
       headers:
         Retry-After:
+          description: Seconds to wait. Always equal to the `retry_after` member.
           schema: { type: integer }
       content:
         application/problem+json:
-          schema: { $ref: '#/components/schemas/Problem' }
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  retry_after: { type: integer, description: Seconds. }
     RefreshThrottledProblem:
       description: |
         This payment was refreshed within the last 5 seconds. **No provider call was made.**
-        The `retry_after` extension member carries the seconds to wait.
+        The seconds to wait are carried both in the `Retry-After` header and in the
+        `retry_after` extension member, and the two always agree.
+      headers:
+        Retry-After:
+          description: Seconds to wait. Always equal to the `retry_after` member.
+          schema: { type: integer }
       content:
         application/problem+json:
           schema:
@@ -1939,10 +2340,72 @@ components:
       enum: [sandbox, live]
       description: A property of the credential used, not of the request. There is no test flag and no sandbox hostname.
 
+    # -------------------------------------------------------------- health
+    HealthBase:
+      type: object
+      required: [version, commit, now]
+      properties:
+        version:
+          type: string
+          examples: ['0.1.0']
+          description: The service's own version, compiled in from source.
+        commit:
+          type: string
+          description: '`VERCEL_GIT_COMMIT_SHA`, or `dev` locally. Answers "which build is live?".'
+        now: { type: string, format: date-time }
+
+    HealthOk:
+      allOf:
+        - $ref: '#/components/schemas/HealthBase'
+        - type: object
+          required: [status, db]
+          properties:
+            status: { const: ok }
+            db: { const: ok }
+
+    HealthDegraded:
+      allOf:
+        - $ref: '#/components/schemas/HealthBase'
+        - type: object
+          required: [status, db, code]
+          description: Served with HTTP **200**, not 503.
+          properties:
+            status: { const: degraded }
+            db: { const: unreachable }
+            code:
+              type: string
+              description: The driver's error code. Never its message.
+              examples: ['ECONNREFUSED']
+
     # -------------------------------------------------------------- problem
+    ProblemFieldError:
+      type: object
+      description: One field-level failure, an entry of the `errors` member.
+      required: [pointer, code, detail]
+      properties:
+        pointer:
+          type: string
+          description: |
+            An RFC 6901 JSON Pointer into the request body (`/amount_minor`,
+            `/items/0/amount_minor`), or `#/<target>/<name>` for anything that did not arrive
+            in the body — `#/query/limit`, `#/param/public_id`.
+          examples: ['/amount_minor', '#/query/limit']
+        code:
+          type: string
+          description: |
+            The branchable sub-case. The documented set is `required`, `invalid_type`,
+            `invalid_format`, `invalid_enum`, `unknown_field`, `invalid_union`, `too_small`,
+            `too_big` and `invalid` — but it is **not closed**: an unmapped validator failure
+            falls through carrying its own code rather than being flattened to `invalid`.
+            Branch on the documented values and treat anything else as a generic invalid field.
+          examples: ['unknown_field']
+        detail:
+          type: string
+          description: A sentence about this one field. Prose — do not branch on it.
+
     Problem:
       type: object
-      description: RFC 7807 Problem Details. Served as `application/problem+json`.
+      description: RFC 9457 Problem Details. Served as `application/problem+json`.
       required: [type, title, status, detail, instance]
       properties:
         type:
@@ -1969,6 +2432,25 @@ components:
         instance:
           type: string
           description: The request **path**. Never a full URL and never with a query string.
+        request_id:
+          type: string
+          description: |
+            The value of the response's `X-Request-Id` header, present on **every** problem.
+            Quote it in a support request — it is the one string that joins this response to
+            the service's logs and audit trail.
+          examples: ['019e4a91-3f2b-7c14-9d5e-2a6b8c0d1f33']
+        errors:
+          type: array
+          description: |
+            Present on validation `400`s. Carries **every** field problem in the request, not
+            just the first — `detail` names one failure so the message reads well in a
+            support ticket, this is the complete list.
+
+            **Breaking change at `058fddc`:** this was previously the validator's own
+            `flatten()` object (`{formErrors, fieldErrors}`), whose keys were top-level only.
+            Code doing `errors.fieldErrors[name]` now reads `undefined` rather than throwing.
+          items:
+            $ref: '#/components/schemas/ProblemFieldError'
       additionalProperties: true
 
     # -------------------------------------------------------------- merchant
@@ -2043,7 +2525,12 @@ components:
 
     CreatePaymentRequest:
       type: object
+      description: |
+        **Rejects unknown fields** (400, `errors[].code = unknown_field`). Changed at
+        `058fddc`; unknown keys were previously stripped in silence. `metadata` is exempt —
+        its contents are the merchant's and are never inspected.
       required: [merchant_payment_ref, amount_minor, currency]
+      additionalProperties: false
       properties:
         merchant_payment_ref: { type: string, minLength: 1, maxLength: 200 }
         amount_minor: { $ref: '#/components/schemas/MinorAmount' }
@@ -2060,7 +2547,103 @@ components:
         metadata:
           type: object
           additionalProperties: true
-          description: 'Capped at 4096 bytes serialised. Default when omitted: `null`.'
+          description: 'Capped at 4096 bytes serialised. Default when omitted: `null`. Never buyer PII.'
+        invoice_details:
+          allOf:
+            - $ref: '#/components/schemas/InvoiceDetails'
+          description: |
+            The buyer and lines for an invoice to be issued automatically when this payment
+            succeeds. **Default when omitted: `null`** — nothing is stored and no invoice is
+            issued, which is the normal case.
+
+            This is the only field on this API carrying personal data. It leaves the service
+            only on `payment.succeeded`, and only to a webhook endpoint whose operator has set
+            `include_invoice_details`. This service never reads inside it: the receiving service
+            validates it against its own invoice schema, so a shape accepted here can still be
+            refused downstream — after the money has been taken.
+
+    InvoiceDetails:
+      type: object
+      description: |
+        Buyer identity and invoice lines, passed through verbatim to invoice-service.
+
+        Every object here is `additionalProperties: false`, because each ends up on a legal
+        document reported to NAV: a silently stripped `vat_rat` typo would issue an invoice with
+        the wrong tax on it and return 201. Capped at 16384 bytes serialised.
+
+        Currency is **not** here — the invoice is issued in the payment's `currency`.
+      required: [partner, items]
+      additionalProperties: false
+      properties:
+        partner:
+          type: object
+          required: [name, address]
+          additionalProperties: false
+          properties:
+            name: { type: string, minLength: 1, description: The buyer as they must appear on the document. }
+            tax_number:
+              type: string
+              minLength: 1
+              description: |
+                Required by the provider for a company buyer; not enforced by this API.
+                Default when omitted: absent.
+            email:
+              type: string
+              format: email
+              description: 'Where the issuing service may send the document. Default when omitted: absent.'
+            address:
+              type: object
+              required: [postal_code, city, address]
+              additionalProperties: false
+              properties:
+                postal_code: { type: string, minLength: 1 }
+                city: { type: string, minLength: 1 }
+                address: { type: string, minLength: 1, description: Street and number. }
+                country:
+                  type: string
+                  minLength: 1
+                  description: "Default when omitted: the issuer's default, `Magyarország`."
+        items:
+          type: array
+          minItems: 1
+          description: At least one line, or 400.
+          items:
+            type: object
+            required: [name, quantity, net_unit_price_minor, vat_rate]
+            additionalProperties: false
+            properties:
+              name: { type: string, minLength: 1 }
+              quantity: { type: number, exclusiveMinimum: 0 }
+              unit:
+                type: string
+                minLength: 1
+                description: "Default when omitted: the issuer's default, `db`."
+              net_unit_price_minor:
+                allOf:
+                  - $ref: '#/components/schemas/MinorAmount'
+                description: '**Net**, per unit, in canonical minor units. HUF is zero-decimal.'
+              vat_rate:
+                type: string
+                minLength: 1
+                description: A percentage (`27`, `5`) or a provider code (`AAM`, `TAM`, `EU`).
+              comment: { type: string, description: 'Default when omitted: absent.' }
+        payment_method:
+          type: string
+          minLength: 1
+          description: "Free text on the document. Default when omitted: the issuer's default, `átutalás`."
+        language:
+          type: string
+          minLength: 1
+          description: "Default when omitted: the issuer's default, `hu`."
+        e_invoice:
+          type: boolean
+          description: "Default when omitted: the issuer's default, `true`."
+        comment: { type: string, description: 'Free text on the document. Default when omitted: absent.' }
+        partner_ref:
+          type: string
+          description: |
+            The merchant's own reference, persisted by the issuer for lookups.
+            Default when omitted: the payment's `merchant_payment_ref`.
 
     Refund:
       type: object
@@ -2089,7 +2672,12 @@ components:
 
     CreateRefundRequest:
       type: object
+      description: |
+        **Rejects unknown fields** (400, `errors[].code = unknown_field`). Changed at
+        `058fddc` — a silently dropped key on a refund body is a refund for an amount nobody
+        asked for.
       required: [amount_minor, currency]
+      additionalProperties: false
       properties:
         amount_minor:
           allOf:
@@ -2110,48 +2698,160 @@ components:
 
     WebhookEventType:
       type: string
-      enum: [payment.succeeded, payment.failed, payment.canceled, payment.expired, refund.succeeded, refund.failed]
+      enum:
+        [payment.succeeded, payment.failed, payment.canceled, payment.expired, refund.succeeded,
+        refund.failed, refund.canceled]
       description: |
-        There is deliberately no event for `pending`, `initializing` or `authorized` — those are
-        steps, not outcomes — and no `payment.refunded`: the thing that happened is a refund, so
-        it arrives as `refund.succeeded`, whose payload carries the payment's new status.
+        The closed catalogue, **additive only** — read it from `GET /v1/admin/event-types` rather
+        than hardcoding this list. An unrecognised `event_type` must be ignored and answered
+        `2xx`, which is the condition that lets a type be added without a version bump.
 
-    WebhookPayload:
+        There is deliberately no event for `pending`, `initializing` or `authorized` — those are
+        steps, not outcomes — and no `payment.refunded` or `payment.partially_refunded`: the
+        thing that happened is a refund, so it arrives as `refund.succeeded`, whose payload
+        carries the payment's new status in the related block. **Two event types must never
+        describe one fact** — a receiver handling both would double-count, and one handling
+        either would look complete.
+
+        `webhook.ping` is **not** here: it is reserved estate-wide, delivered only by
+        `POST /v1/admin/webhook-endpoints/{public_id}/test`, and not subscribable.
+
+    WebhookPingEventType:
+      type: string
+      enum: [webhook.ping]
+      description: The reserved probe type. Never emitted by a transition.
+
+    WebhookEnvelopeMeta:
       type: object
       description: |
-        The body we POST to a merchant's endpoint. **This shape is frozen** — it is stored at
-        emission and delivered verbatim afterwards, so it does not grow the way the REST
-        responses may. Note `payment.id` here is the payment's `public_id`.
-      required: [event_id, event_type, created_at, payment]
+        The metadata every delivered body carries, **byte-identical in shape across every Lamido
+        service**, so one receiver verifies, logs and dedupes every event with one piece of code
+        before it knows what the event is.
+
+        Member order in the wire body is the order listed here, and **the bytes are signed** —
+        verify against the raw body, never against re-serialised JSON.
+      required:
+        [event_id, event_type, contract_version, occurred_at, service, account_id, tenant,
+        correlation_id, causation_id, hop, data]
       properties:
         event_id:
           type: string
           format: uuid
-          description: Matches `X-Event-Id`. **Dedupe on this** — delivery is at-least-once.
-        event_type: { $ref: '#/components/schemas/WebhookEventType' }
-        created_at: { type: string, format: date-time }
-        payment:
+          description: UUIDv7. Matches `X-Event-Id`. **Dedupe on this** — delivery is at-least-once.
+        contract_version:
+          type: integer
+          description: |
+            The envelope version **these bytes were rendered at**, which is the receiving
+            endpoint's own pin — not necessarily the latest the service supports.
+        occurred_at:
+          type: string
+          format: date-time
+          description: |
+            ISO 8601 UTC. **When the fact became true, not when it was sent.** A retry three days
+            later carries the original value.
+        service:
+          type: string
+          enum: [payment-service]
+          description: The emitter's slug.
+        account_id:
+          type: [string, 'null']
+          description: |
+            The lamido-admin `accountId` (`merchants.external_ref`) as it stood inside the
+            emitting transaction. **`null` for a merchant lamido-admin has not paired** — such a
+            merchant cannot participate cross-service, and a receiver should refuse at its
+            resolve step rather than guess.
+        tenant:
           type: object
-          required: [id, merchant_payment_ref, status, amount_minor, currency, provider]
+          description: Which tenant, in the emitter's own noun. Means nothing outside this service.
+          required: [kind, public_id]
           properties:
-            id: { type: string, format: uuid }
-            merchant_payment_ref: { type: string }
-            status: { $ref: '#/components/schemas/PaymentStatus' }
-            amount_minor: { $ref: '#/components/schemas/MinorAmount' }
-            currency: { $ref: '#/components/schemas/Currency' }
-            provider:
-              oneOf:
-                - $ref: '#/components/schemas/Provider'
-                - type: 'null'
-        refund:
-          type: object
-          description: Present on `refund.*` events only.
-          required: [id, status, amount_minor, currency]
+            kind: { type: string, enum: [merchant] }
+            public_id: { type: string, format: uuid }
+        correlation_id:
+          type: string
+          format: uuid
+          description: |
+            Stable across a whole causal chain, and **equal to `event_id`** on an event this
+            service produced natively — which today is every event. One value answers "what did
+            this payment cause, across five services".
+        causation_id:
+          type: [string, 'null']
+          description: |
+            The `event_id` that caused this one. **Never absent**, and always `null` here because
+            nothing in the estate sends *to* payment-service.
+        hop:
+          type: integer
+          description: |
+            `0` on a natively-produced event, which is all of them here. A blunt backstop that
+            bounds the cost of an undeclared cycle; present so the envelope is one shape
+            estate-wide.
+
+    WebhookPayload:
+      description: |
+        The body we POST to a merchant's endpoint. **Stored at emission and delivered verbatim
+        afterwards** — it does not grow the way the REST responses may, and a delayed retry
+        describes the state that fired the event rather than the state now.
+
+        Note `data.payment.public_id`, not `id`: the wire format never carries an internal uuid.
+      allOf:
+        - $ref: '#/components/schemas/WebhookEnvelopeMeta'
+        - type: object
+          required: [event_type, data]
           properties:
-            id: { type: string, format: uuid }
-            status: { $ref: '#/components/schemas/RefundStatus' }
-            amount_minor: { $ref: '#/components/schemas/MinorAmount' }
-            currency: { $ref: '#/components/schemas/Currency' }
+            event_type: { $ref: '#/components/schemas/WebhookEventType' }
+            data:
+              type: object
+              description: |
+                The resource blocks, keyed by resource name so the subject can be found
+                mechanically. The **only** part of the envelope that varies by event type.
+              required: [payment]
+              properties:
+                payment:
+                  type: object
+                  description: |
+                    Always present — the primary block on a `payment.*` event, and the related
+                    block on a `refund.*` one, where a receiver almost always needs to know what
+                    the refund did to the order.
+                  required: [public_id, status, merchant_payment_ref, amount_minor, currency, provider]
+                  properties:
+                    public_id: { type: string, format: uuid }
+                    status: { $ref: '#/components/schemas/PaymentStatus' }
+                    merchant_payment_ref: { type: string }
+                    amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+                    currency: { $ref: '#/components/schemas/Currency' }
+                    provider:
+                      oneOf:
+                        - $ref: '#/components/schemas/Provider'
+                        - type: 'null'
+                refund:
+                  type: object
+                  description: |
+                    Present on `refund.*` events only, where it is the **primary** block and the
+                    one the status invariant binds: `refund.canceled` carries
+                    `data.refund.status == "canceled"` while `data.payment.status` is whatever
+                    the ledger now implies.
+                  required: [public_id, status, amount_minor, currency]
+                  properties:
+                    public_id: { type: string, format: uuid }
+                    status: { $ref: '#/components/schemas/RefundStatus' }
+                    amount_minor: { $ref: '#/components/schemas/MinorAmount' }
+                    currency: { $ref: '#/components/schemas/Currency' }
+
+    WebhookPingPayload:
+      description: |
+        The probe body. **The same envelope with an empty `data`**, signed identically and
+        carrying a real `event_id`, so that what a receiver's verification code sees on a test is
+        what it will see in production. Deliberately not stored.
+      allOf:
+        - $ref: '#/components/schemas/WebhookEnvelopeMeta'
+        - type: object
+          required: [event_type, data]
+          properties:
+            event_type: { $ref: '#/components/schemas/WebhookPingEventType' }
+            data:
+              type: object
+              description: Always empty.
+              maxProperties: 0
 
     WebhookDelivery:
       type: object
@@ -2611,58 +3311,251 @@ components:
 
     WebhookEndpoint:
       type: object
-      required: [id, merchant_public_id, url, subscribed_events, enabled, disabled_reason, consecutive_failures, secret_last4, secret_fingerprint, created_at, updated_at]
+      description: |
+        A destination. **The member set is identical across all five services of the estate**,
+        because lamido-admin drives every one of them from one screen and one client — adding a
+        member is a house-rules change, not a local decision.
+
+        There is deliberately no route that reveals a stored secret.
+      required:
+        [public_id, merchant_public_id, url, description, subscribed_events, contract_version,
+        include_invoice_details, enabled, disabled_reason, consecutive_failures, secret_last4,
+        secret_fingerprint, created_at, updated_at]
       properties:
-        id: { type: string, format: uuid }
+        public_id:
+          type: string
+          format: uuid
+          description: UUIDv7. **What every route addresses this endpoint by**, never the row id.
         merchant_public_id: { type: string, format: uuid }
         url:
           type: string
           description: |
             HTTPS on port 443, and validated against private/link-local ranges at save time
             **and again at delivery time**, because DNS can be re-pointed in between.
+        description:
+          type: [string, 'null']
+          description: The operator's note. What the admin list shows beside the URL.
         subscribed_events:
           oneOf:
             - type: array
               items: { $ref: '#/components/schemas/WebhookEventType' }
             - type: 'null'
-          description: '`null` means every event type, which is the default. An empty array is rejected on write.'
+          description: |
+            `null` means every event type **including ones added later**, which is the default and
+            what nearly every merchant should use. An empty array is rejected on write.
+        contract_version:
+          type: integer
+          description: |
+            The envelope version this endpoint's deliveries are rendered at. **Pinned at
+            creation and not patchable** — moving a live endpoint between versions changes the
+            bytes its receiver verifies, which is a new endpoint rather than an edit.
+        include_invoice_details:
+          type: boolean
+          description: |
+            Whether `payment.succeeded` carries `data.invoice_details` to this endpoint — the
+            buyer's name and postal address, and optionally their email and tax number.
+
+            **False by default, including on every endpoint that already existed.** This is the
+            only control that lets personal data leave this service. Setting it either way writes
+            an audit row recording the resulting value and the acting admin key.
+
+            Per endpoint, not per merchant: one stored event produces a different body per
+            endpoint, each signed over what that recipient actually received.
         enabled: { type: boolean }
         disabled_reason:
           type: [string, 'null']
-          description: Set when 5 consecutive dead-lettered deliveries auto-disabled the endpoint.
-        consecutive_failures: { type: integer, description: Reset by any 2xx, and by a save. }
-        secret_last4: { type: string }
-        secret_fingerprint: { type: string }
+          description: |
+            Why it is off — auto-disabled after 5 consecutive dead-lettered deliveries, or
+            switched off by an operator, whose own words are recorded. Non-null **only** when
+            `enabled` is false.
+        consecutive_failures:
+          type: integer
+          description: |
+            Dead-letters in a row; at 5 the endpoint is auto-disabled. Reset by any `2xx`, by
+            `POST …/enable` and by a rotation — but **not** by a `PATCH`.
+        secret_last4:
+          type: [string, 'null']
+          description: |
+            Last four characters of the signing secret. Never the secret.
+
+            **`null` means this endpoint has no secret and cannot deliver** — every delivery is
+            refused before it is attempted — which is the state the per-endpoint-secret migration
+            left every pre-existing endpoint in. Rotate one in.
+        secret_fingerprint:
+          type: [string, 'null']
+          description: First 8 hex of its SHA-256, for confirming a rotation landed.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
-    UpsertWebhookEndpointRequest:
+    WebhookEventTypeDescriptor:
+      type: object
+      description: One entry of the closed catalogue, as `GET /v1/admin/event-types` returns it.
+      required:
+        [event_type, resource, fires_when, target_status, contract_version, sensitive_blocks,
+        cross_service]
+      properties:
+        event_type: { $ref: '#/components/schemas/WebhookEventType' }
+        resource:
+          type: string
+          enum: [payment, refund]
+          description: The `data` key carrying the subject. Equals the event type's prefix.
+        fires_when:
+          type: string
+          description: One sentence, present tense, suitable for an admin trigger picker.
+        target_status:
+          type: string
+          description: |
+            The status the primary resource reaches, and the participle in the event name. The
+            payload is asserted against it.
+        contract_version: { type: integer }
+        sensitive_blocks:
+          type: array
+          items: { type: string }
+          description: |
+            Blocks that appear only behind an `include_*` flag. **Empty for every type** — no
+            payload this service emits carries PII.
+        cross_service:
+          type: boolean
+          description: |
+            Whether a sibling Lamido service acts on it today. True only for
+            `payment.succeeded`, on which invoice-service issues an invoice.
+
+    WebhookEvent:
+      type: object
+      description: |
+        An event as the admin outbox returns it — the only place a stored payload is readable. A
+        merchant's own delivery list omits it, because they already have the body: it is what we
+        POSTed them.
+
+        `payment_id` and `refund_id` are internal uuids and stay internal; the payload carries the
+        `public_id`s an operator can search for.
+      required:
+        [event_id, event_type, merchant_public_id, account_id, correlation_id, causation_id, hop,
+        payload, created_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Matches `X-Event-Id`. Stable across every retry **and every redelivery**.
+        event_type: { $ref: '#/components/schemas/WebhookEventType' }
+        merchant_public_id: { type: string, format: uuid }
+        account_id:
+          type: [string, 'null']
+          description: The lamido-admin account this belonged to, or `null` if the merchant was unpaired.
+        correlation_id: { type: string, format: uuid }
+        causation_id:
+          type: [string, 'null']
+          description: Always `null` here — nothing sends to this service.
+        hop: { type: integer }
+        payload:
+          allOf:
+            - $ref: '#/components/schemas/WebhookPayload'
+          description: The frozen body, exactly as it was signed and sent.
+        created_at: { type: string, format: date-time }
+
+    WebhookPingResult:
+      type: object
+      description: |
+        What `POST /v1/admin/webhook-endpoints/{public_id}/test` found. **Read `ok`, not the HTTP
+        status** — the route answers `200` whatever the receiver said.
+      required: [event_id, ok, response_status, latency_ms, response_body_excerpt, error]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: The id on the wire, so an operator can find it in the receiver's own log.
+        ok:
+          type: boolean
+          description: Whether the receiver answered `2xx`. The same rule every real delivery uses.
+        response_status:
+          type: [integer, 'null']
+          description: The receiver's HTTP status, or `null` when the request never completed.
+        latency_ms:
+          type: integer
+          description: Round trip, including the URL guard's DNS lookup.
+        response_body_excerpt:
+          type: [string, 'null']
+          description: Truncated at 500 bytes, for when the status alone is not enough.
+        error:
+          type: [string, 'null']
+          description: |
+            Transport-level failure, or the URL guard's refusal (`Refused by URL guard: …`).
+            `null` when we got an answer.
+
+    CreateWebhookEndpointRequest:
       type: object
       required: [url]
       properties:
-        url: { type: string, examples: ['https://acme.example.com/api/payment-webhook'] }
+        url: { type: string, maxLength: 2000, examples: ['https://acme.example.com/api/payment-webhook'] }
+        description:
+          type: [string, 'null']
+          maxLength: 500
+          description: The operator's note. What the admin list shows beside the URL.
         subscribed_events:
           oneOf:
             - type: array
               minItems: 1
               items: { $ref: '#/components/schemas/WebhookEventType' }
             - type: 'null'
-          description: 'Omitted or `null` means every event type. `[]` is rejected.'
-        rotate_secret:
-          type: boolean
-          default: false
           description: |
-            Mint a new secret even though one exists. The previous one stops working
-            **immediately** — there is no grace period, so coordinate with the merchant's deploy.
+            Omitted or `null` means every event type, including ones added later. **`[]` is a
+            `400`** — an endpoint subscribed to nothing is a configured destination that silently
+            receives no traffic, which is indistinguishable from a broken one. To say "this
+            endpoint should receive nothing", disable or delete it.
+        contract_version:
+          type: integer
+          description: |
+            Envelope version to pin this endpoint to. Defaults to the latest, and **cannot be
+            changed afterwards**. Only supply it when onboarding a receiver written against an
+            older envelope; an unsupported value is a `400`.
+
+    PatchWebhookEndpointRequest:
+      type: object
+      description: |
+        **At least one member is required**; an empty body is a `400`.
+
+        There is no `enabled` member and no `rotate_secret` flag — both are their own routes, so
+        that neither is reachable by an operator who thought they were editing a URL.
+      minProperties: 1
+      properties:
+        url: { type: string, maxLength: 2000 }
+        description:
+          type: [string, 'null']
+          maxLength: 500
+          description: '`null` **clears** it; omitting the member leaves it alone.'
+        subscribed_events:
+          oneOf:
+            - type: array
+              minItems: 1
+              items: { $ref: '#/components/schemas/WebhookEventType' }
+            - type: 'null'
+          description: '`null` means every type. `[]` is a `400`.'
+
+    DisableWebhookEndpointRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: |
+            Recorded as `disabled_reason`. Optional, and defaulted to `"Disabled by an operator"`
+            rather than stored as null, so a non-null reason always means "and it is off".
 
     MintedWebhookEndpoint:
       type: object
-      required: [key, secret, warning]
+      description: |
+        Returned by the create and the rotation, and **only** by those two. The plaintext is a
+        separate top-level member rather than a field on the endpoint object, so a client that
+        persists the endpoint record cannot persist the secret alongside it by accident — the
+        same shape, and the same reason, as a minted API key.
+      required: [endpoint, secret, warning]
       properties:
-        key: { $ref: '#/components/schemas/WebhookEndpoint' }
+        endpoint: { $ref: '#/components/schemas/WebhookEndpoint' }
         secret:
           type: string
-          description: The plaintext `whsec_` signing secret. **Shown once.** The whole string, prefix included, is the HMAC key.
+          description: |
+            The plaintext `whsec_` signing secret. **Shown once**; stored only as ciphertext and
+            unrecoverable afterwards. The whole string, prefix included, is the HMAC key.
           examples: ['whsec_YOUR_SIGNING_SECRET']
         warning: { type: string }
 
@@ -2679,24 +3572,68 @@ components:
 
     HealthStrip:
       type: object
-      required: [status, database, encryption_key_configured, stuck_payments, failing_credentials, dead_lettered_deliveries, disabled_webhook_endpoints, unmapped_provider_statuses_24h]
+      description: |
+        Every count here comes from a predicate shared with the listing an operator drills into,
+        so a tile and the list behind it are the same set by construction.
+      required:
+        [status, database, encryption_key_configured, stuck_payments, failing_credentials,
+        pending_deliveries, dead_lettered_deliveries, dead_lettered_deliveries_cross_service,
+        disabled_webhook_endpoints, tenants_without_external_ref, unmapped_provider_statuses_24h]
       properties:
         status:
           type: string
           enum: [ok, attention, degraded]
           description: |
             Derived by **blast radius, not severity**. `degraded`: someone cannot take payments,
-            or we cannot tell — database unreachable, no encryption key, any failing credential,
-            any disabled webhook endpoint. `attention`: something needs a human while payments
-            still flow.
+            we cannot tell, or a business process has stopped with nobody watching — database
+            unreachable, no encryption key, any failing credential, any disabled webhook
+            endpoint, or any **cross-service** dead-letter. `attention`: something needs a human
+            while payments still flow — stuck payments, a merchant's own dead-letters, or an
+            unmapped provider status.
+
+            `pending_deliveries` and `tenants_without_external_ref` move the verdict **not at
+            all**: pending is what a working queue looks like and an unpaired merchant is a
+            provisioning step in progress. A count that is routinely non-zero and routinely fine
+            is how a dashboard stops being read.
         database: { type: string, enum: [ok, unreachable] }
         encryption_key_configured: { type: boolean, description: Without a KEK no credential can be decrypted. }
         stuck_payments:
           type: integer
-          description: 'Drill-down: `GET /admin/payments/stuck`. A handful is the normal residue of buyers closing tabs.'
-        failing_credentials: { type: integer, description: 'Drill-down: `GET /admin/credentials?failing=true`.' }
-        dead_lettered_deliveries: { type: integer, description: 'Drill-down: `GET /admin/webhook-deliveries?status=dead_lettered`.' }
-        disabled_webhook_endpoints: { type: integer, description: 'Drill-down: `GET /admin/webhook-endpoints?enabled=false`.' }
+          description: 'Drill-down: `GET /v1/admin/payments/stuck`. A handful is the normal residue of buyers closing tabs.'
+        failing_credentials: { type: integer, description: 'Drill-down: `GET /v1/admin/credentials?failing=true`.' }
+        pending_deliveries:
+          type: integer
+          description: |
+            Waiting on the ladder. Drill-down:
+            `GET /v1/admin/webhook-deliveries?status=pending`. Ordinary — the number to watch for
+            a **spike**, not for being non-zero.
+        dead_lettered_deliveries:
+          type: integer
+          description: |
+            Ladders exhausted on a **merchant's own** endpoint. Drill-down:
+            `GET /v1/admin/webhook-deliveries?status=dead_lettered&cross_service=false`.
+            Recoverable — their reconciliation poll covers it — so `attention`.
+        dead_lettered_deliveries_cross_service:
+          type: integer
+          description: |
+            Ladders exhausted on an endpoint pointing at **another Lamido service**. Drill-down:
+            `GET /v1/admin/webhook-deliveries?status=dead_lettered&cross_service=true`.
+
+            **A different fact from the count above, not a subset of it**: a payment took money
+            and the invoice it should have caused does not exist, and nobody outside this estate
+            is watching for that. Hence `degraded` rather than `attention`, and hence two counts
+            rather than one — so the louder signal cannot be diluted by the noisier one.
+        disabled_webhook_endpoints: { type: integer, description: 'Drill-down: `GET /v1/admin/webhook-endpoints?enabled=false`.' }
+        tenants_without_external_ref:
+          type: integer
+          description: |
+            Merchants lamido-admin has not paired with an account. Drill-down:
+            `GET /v1/admin/merchants?external_ref=missing`.
+
+            Not a data-hygiene number: their events carry `account_id: null` and **can never be
+            routed cross-service**, so these customers will never get an invoice for a payment
+            they made — and it is invisible without this count because everything else about
+            them works.
         unmapped_provider_statuses_24h:
           type: integer
           description: |

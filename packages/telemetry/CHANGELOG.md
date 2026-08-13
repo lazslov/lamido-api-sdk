@@ -1,5 +1,32 @@
 # @lamido/telemetry
 
+## 0.2.0
+
+Verified against knowledge base `54fd521`: content-service `ecf20fd`, invoice-service `3aa099f`,
+payment-service `4e3a0a5`.
+
+### Minor Changes
+
+- Implement OB-4 and OB-5, the two envelope rules the package shipped without.
+
+  The observability house rules were merged as OB-1…OB-20 after this package was written against a
+  draft. The numbering matches; two rules inside its own scope were not covered.
+
+  - **OB-4 — `correlation_id`.** `telemetry.correlated(id, from?)` binds the id onto a logger so
+    every line it writes carries it. Deliberately not part of `requestMiddleware`: a correlation id
+    arrives in the **event envelope body**, not a header, so a webhook receiver only has it after
+    parsing and no middleware can bind it for them. It is what turns "a payment succeeded, an
+    invoice was issued, an email was sent" into one query.
+  - **OB-5 — the flag vocabulary.** `LogMeta` now names the seven closed, estate-wide boolean flags
+    — `alert`, `anomaly`, `security`, `unmapped`, `external_refund`, `recovered`, `fail_open` — so a
+    typo in one is a compile error. `correlation_id` is typed too. The record stays open; only these
+    members are named.
+
+  OB-16…OB-20 are deliberately not implemented: they govern the vendor projection (Grafana rule
+  files, probe topology) and the process for adopting a rule. Neither is an npm library's to carry.
+
+  Nothing was removed, and no existing call site changes.
+
 ## 0.1.0
 
 Initial release: the OB-1…OB-15 mechanics. The canonical log envelope (`time`, `service`,

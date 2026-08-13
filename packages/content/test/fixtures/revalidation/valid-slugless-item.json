@@ -1,0 +1,34 @@
+{
+  "name": "valid-slugless-item",
+  "describes": "an item with no slug, which is legal: only URL-addressable items need one",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019fc236-0c4e-7e3f-8203-70fcad1d20e2\",\"event_type\":\"collection_item.archived\",\"contract_version\":1,\"occurred_at\":\"2026-07-28T09:12:44.101Z\",\"service\":\"content-service\",\"account_id\":\"3f7c1a92-5d84-4e60-b1c7-9a2e0f6b8d43\",\"tenant\":{\"kind\":\"site\",\"public_id\":\"bb0e8f21-3c4d-4a5b-9e6f-7a8b9c0d1e2f\"},\"correlation_id\":\"019fc236-0c4e-7e3f-8203-70fcad1d20e2\",\"causation_id\":null,\"hop\":0,\"data\":{\"collection_item\":{\"collection\":\"news\",\"slug\":null,\"status\":\"archived\"}}}",
+  "timestamp": "1785168000",
+  "signature": "sha256=04048522c3750e81a4cc6b75ff8e4f8267897da723a354596736ac9bee50ce3d",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": true,
+    "event": {
+      "event_id": "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+      "event_type": "collection_item.archived",
+      "contract_version": 1,
+      "occurred_at": "2026-07-28T09:12:44.101Z",
+      "service": "content-service",
+      "account_id": "3f7c1a92-5d84-4e60-b1c7-9a2e0f6b8d43",
+      "tenant": {
+        "kind": "site",
+        "public_id": "bb0e8f21-3c4d-4a5b-9e6f-7a8b9c0d1e2f"
+      },
+      "correlation_id": "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+      "causation_id": null,
+      "hop": 0,
+      "data": {
+        "collection_item": {
+          "collection": "news",
+          "slug": null,
+          "status": "archived"
+        }
+      }
+    }
+  }
+}

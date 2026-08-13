@@ -1,5 +1,5 @@
 /**
- * `/api/client/assets/*` — images, in three steps, and the bytes never touch your server.
+ * `/v1/assets/*` — images, in three steps, and the bytes never touch your server.
  *
  * @remarks
  * ```
@@ -16,15 +16,16 @@
  */
 
 import type { ResolvedConfig } from "@lazslov/api-core";
-import { call, callList } from "../call.js";
-import { type ListOptions, passInit, type RequestOptions } from "../options.js";
+import { call, callCursorList } from "../call.js";
+import { type CursorListOptions, passInit, type RequestOptions } from "../options.js";
 import type {
   ContentAsset,
-  ContentList,
+  ContentCursorList,
   DeleteResult,
   ImageContentType,
   UploadToken,
 } from "../types.js";
+import { assetId } from "../types.js";
 
 /** What step 1 asks for. */
 export interface UploadTokenRequest extends RequestOptions {
@@ -70,7 +71,7 @@ export interface AssetMethods {
    * @remarks
    * The token reaches the browser; the `csk_` key never does. It is valid for **15 minutes** and for
    * one pathname under this site's prefix — a capability should cover one upload, not one session.
-   * Tell the user *why* a file was refused, from `allowedContentTypes` and `maximumSizeInBytes`,
+   * Tell the user *why* a file was refused, from `allowed_content_types` and `maximum_size_in_bytes`,
    * rather than letting Blob reject the PUT opaquely.
    */
   createUploadToken(request: UploadTokenRequest): Promise<UploadToken>;
@@ -92,7 +93,7 @@ export interface AssetMethods {
    * `references: 0` means safe to delete. This is also the list an image picker needs, and the list
    * {@link AssetMethods.getAssetIdByUrl} maps.
    */
-  listAssets(options?: ListOptions): Promise<ContentList<ContentAsset>>;
+  listAssets(options?: CursorListOptions): Promise<ContentCursorList<ContentAsset>>;
 
   /**
    * Delete an asset, row first and object second.
@@ -136,53 +137,57 @@ export function bindAssetMethods(cfg: ResolvedConfig): AssetMethods {
     createUploadToken: (request) =>
       call<UploadToken>(cfg, {
         method: "POST",
-        path: "/api/client/assets/upload-token",
-        body: { filename: request.filename, contentType: request.contentType },
-        read: { kind: "data" },
+        path: "/v1/assets/upload-token",
+        body: { filename: request.filename, content_type: request.contentType },
+        read: { kind: "raw" },
         ...passInit(request),
       }),
 
     registerAsset: (registration) =>
       call<ContentAsset>(cfg, {
         method: "POST",
-        path: "/api/client/assets",
+        path: "/v1/assets",
         // `blobPathname` becomes the wire's `pathname`: the rename is the whole guard.
         body: {
           pathname: registration.blobPathname,
           url: registration.url,
-          contentType: registration.contentType,
+          content_type: registration.contentType,
           size: registration.size,
           ...(registration.width === undefined ? {} : { width: registration.width }),
           ...(registration.height === undefined ? {} : { height: registration.height }),
         },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(registration),
       }),
 
     listAssets: (options = {}) =>
-      callList<ContentAsset>(cfg, {
+      callCursorList<ContentAsset>(cfg, {
         method: "GET",
-        path: "/api/client/assets",
-        query: { limit: options.limit, offset: options.offset },
+        path: "/v1/assets",
+        query: { limit: options.limit, cursor: options.cursor },
         ...passInit(options),
       }),
 
     deleteAsset: (id, options = {}) =>
       call<DeleteResult>(cfg, {
         method: "DELETE",
-        path: `/api/client/assets/${encodeURIComponent(id)}`,
-        read: { kind: "data" },
+        path: `/v1/assets/${encodeURIComponent(id)}`,
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
     async getAssetIdByUrl(url, options = {}) {
       try {
-        for (let offset = 0; ; offset += pageSize) {
-          const page = await methods.listAssets({ ...options, limit: pageSize, offset });
+        // Walked by cursor, and the cursor is the only terminator: the asset library grows with
+        // every upload, so it is keyset-paged and reports no `total` to count against.
+        let cursor: string | undefined;
+        do {
+          const page = await methods.listAssets({ ...options, limit: pageSize, cursor });
           const found = page.items.find((asset) => asset.url === url);
-          if (found) return found.id;
-          if (page.items.length === 0 || offset + page.items.length >= page.total) return null;
-        }
+          if (found) return assetId(found);
+          cursor = page.nextCursor ?? undefined;
+        } while (cursor !== undefined);
+        return null;
       } catch {
         // The documented degradation, and the reason this returns null rather than throwing.
         return null;
@@ -193,5 +198,5 @@ export function bindAssetMethods(cfg: ResolvedConfig): AssetMethods {
   return methods;
 }
 
-/** The documented maximum page size, so the library is walked in as few reads as allowed. */
-const pageSize = 100;
+/** The documented maximum keyset page size, so the library is walked in as few reads as allowed. */
+const pageSize = 200;

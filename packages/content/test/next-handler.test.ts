@@ -66,16 +66,7 @@ describe("a valid delivery", () => {
     const seen: unknown[] = [];
     await handler({ onPublish: (event: unknown) => void seen.push(event) })(deliveryRequest());
 
-    expect(seen).toEqual([
-      {
-        site: "acme_foundation",
-        type: "page",
-        slug: "home",
-        collection: null,
-        version: 8,
-        publishedAt: "2026-07-28T09:12:44.101Z",
-      },
-    ]);
+    expect(seen).toEqual([JSON.parse(deliveryBody())]);
   });
 
   it("awaits an async onPublish before answering", async () => {
@@ -99,41 +90,46 @@ describe("a valid delivery", () => {
 });
 
 describe("the payload shapes that are easy to crash on", () => {
-  it("survives slug: null, which means revalidate everything", async () => {
-    const body = deliveryBody({ slug: null, version: null });
+  it("busts the tag for a whole-site re-fire, which is its own event type now", async () => {
+    const body = deliveryBody({
+      event_type: "site.revalidation_requested",
+      data: { site: { slug: "acme_foundation", scope: null } },
+    });
     const response = await handler()(deliveryRequest({ body }));
 
     expect(response.status).toBe(200);
     expect(revalidateTagSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("survives version: null on a page delivery", async () => {
-    // Null for a collection item AND for a whole-site re-fire, so a page delivery can carry it too.
-    const response = await handler()(deliveryRequest({ body: deliveryBody({ version: null }) }));
-    expect(response.status).toBe(200);
-  });
-
-  it("handles a collection item", async () => {
+  it("handles a collection item, including a slugless one", async () => {
     const body = deliveryBody({
-      type: "collection_item",
-      slug: "elso_hir",
-      collection: "news",
-      version: null,
+      event_type: "collection_item.archived",
+      data: { collection_item: { collection: "news", slug: null, status: "archived" } },
     });
-    const seen: { type?: string }[] = [];
-    const response = await handler({ onPublish: (e: { type?: string }) => void seen.push(e) })(
-      deliveryRequest({ body }),
-    );
+    const seen: { event_type?: string }[] = [];
+    const response = await handler({
+      onPublish: (e: { event_type?: string }) => void seen.push(e),
+    })(deliveryRequest({ body }));
 
     expect(response.status).toBe(200);
-    expect(seen[0]?.type).toBe("collection_item");
+    expect(seen[0]?.event_type).toBe("collection_item.archived");
   });
 
-  it("does not compare site, so a renamed slug does not reject your own deliveries", async () => {
-    // The signing secret is per site: a valid signature already proves which tenant sent it.
-    const response = await handler()(
-      deliveryRequest({ body: deliveryBody({ site: "renamed_last_tuesday" }) }),
-    );
+  it("answers 200 for an event type it has never heard of", async () => {
+    // Five non-2xx answers auto-disable the endpoint, so rejecting an unrecognised type would
+    // take the whole integration down over an event the service added later.
+    const body = deliveryBody({ event_type: "page.unpublished" });
+    const response = await handler()(deliveryRequest({ body }));
+
+    expect(response.status).toBe(200);
+    expect(revalidateTagSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not compare tenant, so it cannot reject your own deliveries", async () => {
+    // The signing secret is per endpoint: a valid signature already proves who sent it.
+    const body = deliveryBody({ tenant: { kind: "site", public_id: "some-other-id" } });
+    const response = await handler()(deliveryRequest({ body }));
+
     expect(response.status).toBe(200);
     expect(revalidateTagSpy).toHaveBeenCalledTimes(1);
   });
@@ -194,7 +190,7 @@ describe("a delivery that does not verify", () => {
     const reordered = new Request(signed.url, {
       method: "POST",
       headers: signed.headers,
-      body: JSON.stringify({ publishedAt: "2026-07-28T09:12:44.101Z", site: "acme_foundation" }),
+      body: JSON.stringify({ occurred_at: "2026-07-28T09:12:44.101Z", service: "content-service" }),
     });
     // …and a genuinely different byte sequence does not.
     expect((await handler()(reordered)).status).toBe(401);
@@ -233,7 +229,7 @@ describe("end to end: the tag a read sets is the tag a delivery busts", () => {
   it("matches by default, with neither side naming a string literal", async () => {
     // The failure this guards has no error message: two string literals in two files, a 200 from the
     // webhook, nothing invalidated, and content stale for as long as the time-based fallback.
-    const stub = fetchStub([jsonResponse({ data: pageDocument([{ key: "hero", fields: {} }]) })]);
+    const stub = fetchStub([jsonResponse(pageDocument([{ key: "hero", fields: {} }]))]);
     const { published, tag } = createNextContentGateway({
       baseUrl: testBaseUrl,
       apiKey: testSecretKey,
@@ -252,7 +248,7 @@ describe("end to end: the tag a read sets is the tag a delivery busts", () => {
   });
 
   it("matches when both are overridden from one value", async () => {
-    const stub = fetchStub([jsonResponse({ data: pageDocument([{ key: "hero", fields: {} }]) })]);
+    const stub = fetchStub([jsonResponse(pageDocument([{ key: "hero", fields: {} }]))]);
     const { published, tag } = createNextContentGateway({
       baseUrl: testBaseUrl,
       apiKey: testSecretKey,

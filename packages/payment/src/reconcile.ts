@@ -53,7 +53,7 @@ export interface ReconcileResult {
    * retried here: a failed refresh consumes the throttle window too, so a helper that slept and
    * retried would be the loop the throttle exists to prevent.
    */
-  readonly retryAfterSeconds?: number;
+  readonly retryAfter?: number;
   /** The error that stopped this id. The other ids still ran. */
   readonly error?: unknown;
 }
@@ -74,7 +74,7 @@ export interface ReconcileResult {
  *    payment is a PSP round trip that can only return the same answer.
  * 3. **Only `pending` is refreshed.** That is the status the loop exists for: the buyer has a gateway
  *    URL and nothing else is known.
- * 4. **A 429 is reported, not retried.** `retryAfterSeconds` comes back in the result so the caller's
+ * 4. **A 429 is reported, not retried.** `retryAfter` comes back in the result so the caller's
  *    scheduler can decide, which is where that decision belongs.
  *
  * Returns a report rather than nothing, because a `void` return cannot surface a throttle — and a
@@ -87,7 +87,7 @@ export interface ReconcileResult {
  *   onStatus: (publicId, payment) => applyPaymentStatus(publicId, payment.status),
  * });
  * for (const result of results) {
- *   if (result.retryAfterSeconds) scheduleRecheck(result.publicId, result.retryAfterSeconds);
+ *   if (result.retryAfter) scheduleRecheck(result.publicId, result.retryAfter);
  * }
  * ```
  */
@@ -134,9 +134,7 @@ async function reconcileOne(
       return {
         ...(await report(publicId, payment, onStatus)),
         refreshed: false,
-        ...(error.retryAfterSeconds === undefined
-          ? {}
-          : { retryAfterSeconds: error.retryAfterSeconds }),
+        ...(error.retryAfter === undefined ? {} : { retryAfter: error.retryAfter }),
       };
     }
     return { publicId, payment, refreshed: false, error };

@@ -22,15 +22,20 @@ export function sign(rawBody: string, timestamp: string, secret = testRevalidate
   return `sha256=${createHmac("sha256", secret).update(`${timestamp}.${rawBody}`, "utf8").digest("hex")}`;
 }
 
-/** One delivery body, as the service composes it. */
+/** One delivery body, in the estate's standard event envelope. */
 export function deliveryBody(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    site: "acme_foundation",
-    type: "page",
-    slug: "home",
-    collection: null,
-    version: 8,
-    publishedAt: "2026-07-28T09:12:44.101Z",
+    event_id: "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+    event_type: "page.published",
+    contract_version: 1,
+    occurred_at: "2026-07-28T09:12:44.101Z",
+    service: "content-service",
+    account_id: "3f7c1a92-5d84-4e60-b1c7-9a2e0f6b8d43",
+    tenant: { kind: "site", public_id: "bb0e8f21-3c4d-4a5b-9e6f-7a8b9c0d1e2f" },
+    correlation_id: "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+    causation_id: null,
+    hop: 0,
+    data: { page: { slug: "home", version: 8, locales: ["hu"] } },
     ...overrides,
   });
 }

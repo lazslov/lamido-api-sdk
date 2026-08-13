@@ -38,13 +38,18 @@ describe("the main entry's runtime exports", () => {
     expect(Object.keys(content).sort()).toEqual([
       "ContentApiError",
       "VERSION",
+      "assetId",
       "createContentClient",
       "createWebsiteClient",
+      "deliveryIdHeader",
+      "eventIdHeader",
+      "recordId",
       "signatureHeader",
+      "subjectOf",
       "timestampHeader",
       "tryCreateContentClient",
       "tryCreateWebsiteClient",
-      "verifyRevalidationWebhook",
+      "verifyContentWebhook",
     ]);
   });
 });

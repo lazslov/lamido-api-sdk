@@ -1,7 +1,7 @@
 [
   {
     "file": "README.md",
-    "line": 92,
+    "line": 108,
     "context": "60-second orientation",
     "json": {
       "public_id": "019e4a91-3f2b-7c14-9d5e-2a6b8c0d1f33",
@@ -13,22 +13,25 @@
   },
   {
     "file": "admin-api.md",
-    "line": 98,
-    "context": "`GET /admin/health` — the dashboard strip",
+    "line": 110,
+    "context": "`GET /v1/admin/health` — the dashboard strip",
     "json": {
       "status": "ok",
       "database": "ok",
       "encryption_key_configured": true,
       "stuck_payments": 0,
       "failing_credentials": 0,
+      "pending_deliveries": 0,
       "dead_lettered_deliveries": 0,
+      "dead_lettered_deliveries_cross_service": 0,
       "disabled_webhook_endpoints": 0,
+      "tenants_without_external_ref": 0,
       "unmapped_provider_statuses_24h": 0
     }
   },
   {
     "file": "admin-api.md",
-    "line": 238,
+    "line": 275,
     "context": "Credentials",
     "json": {
       "ok": false,
@@ -40,21 +43,42 @@
     }
   },
   {
+    "file": "admin-api.md",
+    "line": 567,
+    "context": "`POST …/test` — the ping",
+    "json": {
+      "event_id": "…",
+      "ok": true,
+      "response_status": 200,
+      "latency_ms": 42,
+      "response_body_excerpt": "ok",
+      "error": null
+    }
+  },
+  {
     "file": "conventions.md",
-    "line": 149,
+    "line": 195,
     "context": "4. Errors",
     "json": {
       "type": "urn:payment-service:problem:validation",
       "title": "Bad Request",
       "status": 400,
-      "detail": "body.amount_minor: Amount must be a decimal string of minor units with no sign, decimal point or leading zero; received \"25.00\"",
-      "instance": "/v1/payments"
+      "detail": "json.amount_minor Amount must be a decimal string of minor units with no sign, decimal point or leading zero; received \"25.00\"",
+      "instance": "/v1/payments",
+      "request_id": "019e4a91-3f2b-7c14-9d5e-2a6b8c0d1f33",
+      "errors": [
+        {
+          "pointer": "/amount_minor",
+          "code": "invalid",
+          "detail": "Amount must be a decimal string of minor units with no sign, decimal point or leading zero; received \"25.00\""
+        }
+      ]
     }
   },
   {
     "file": "examples.http",
-    "line": 77,
-    "context": "POST {{host}}/admin/merchants",
+    "line": 98,
+    "context": "POST {{host}}/v1/admin/merchants",
     "json": {
       "name": "Acme Kft",
       "default_currency": "HUF",
@@ -65,8 +89,8 @@
   },
   {
     "file": "examples.http",
-    "line": 94,
-    "context": "PATCH {{host}}/admin/merchants/{{merchantId}}",
+    "line": 115,
+    "context": "PATCH {{host}}/v1/admin/merchants/{{merchantId}}",
     "json": {
       "notes": "Onboarded 2026-07-27. Barion sandbox until go-live.",
       "allowed_currencies": [
@@ -77,16 +101,16 @@
   },
   {
     "file": "examples.http",
-    "line": 104,
-    "context": "POST {{host}}/admin/merchants/{{merchantId}}/api-keys",
+    "line": 125,
+    "context": "POST {{host}}/v1/admin/merchants/{{merchantId}}/api-keys",
     "json": {
       "label": "staging"
     }
   },
   {
     "file": "examples.http",
-    "line": 137,
-    "context": "PUT {{host}}/admin/merchants/{{merchantId}}/credentials/barion",
+    "line": 158,
+    "context": "PUT {{host}}/v1/admin/merchants/{{merchantId}}/credentials/barion",
     "json": {
       "mode": "sandbox",
       "label": "Acme Barion sandbox",
@@ -101,8 +125,8 @@
   },
   {
     "file": "examples.http",
-    "line": 150,
-    "context": "PUT {{host}}/admin/merchants/{{merchantId}}/credentials/stripe",
+    "line": 171,
+    "context": "PUT {{host}}/v1/admin/merchants/{{merchantId}}/credentials/stripe",
     "json": {
       "mode": "sandbox",
       "secrets": {
@@ -116,8 +140,8 @@
   },
   {
     "file": "examples.http",
-    "line": 161,
-    "context": "PUT {{host}}/admin/merchants/{{merchantId}}/credentials/barion",
+    "line": 182,
+    "context": "PUT {{host}}/v1/admin/merchants/{{merchantId}}/credentials/barion",
     "json": {
       "mode": "sandbox",
       "label": "Acme Barion (renamed)",
@@ -129,38 +153,68 @@
   },
   {
     "file": "examples.http",
-    "line": 186,
-    "context": "PUT {{host}}/admin/merchants/{{merchantId}}/webhook-endpoint",
+    "line": 215,
+    "context": "POST {{host}}/v1/admin/merchants/{{merchantId}}/webhook-endpoints",
     "json": {
-      "url": "https://acme.example.com/api/payment-webhook"
+      "url": "https://acme.example.com/api/payment-webhook",
+      "description": "Acme production"
     }
   },
   {
     "file": "examples.http",
-    "line": 193,
-    "context": "PUT {{host}}/admin/merchants/{{merchantId}}/webhook-endpoint",
+    "line": 225,
+    "context": "POST {{host}}/v1/admin/merchants/{{merchantId}}/webhook-endpoints",
     "json": {
-      "url": "https://acme.example.com/api/payment-webhook",
+      "url": "https://acme.example.com/api/ledger-hook",
+      "description": "Bookkeeping feed",
       "subscribed_events": [
         "payment.succeeded",
-        "payment.failed",
-        "refund.succeeded"
+        "refund.succeeded",
+        "refund.canceled"
       ]
     }
   },
   {
     "file": "examples.http",
-    "line": 204,
-    "context": "PUT {{host}}/admin/merchants/{{merchantId}}/webhook-endpoint",
+    "line": 240,
+    "context": "POST {{host}}/v1/admin/merchants/{{merchantId}}/webhook-endpoints",
     "json": {
-      "url": "https://acme.example.com/api/payment-webhook",
-      "rotate_secret": true
+      "url": "https://invoice.example.com/v1/hooks/payment-service",
+      "description": "invoice-service — automatic invoicing",
+      "subscribed_events": [
+        "payment.succeeded"
+      ],
+      "include_invoice_details": true
     }
   },
   {
     "file": "examples.http",
-    "line": 275,
-    "context": "POST {{host}}/admin/payments/{{paymentId}}/reconcile",
+    "line": 253,
+    "context": "PATCH {{host}}/v1/admin/webhook-endpoints/{{endpointId}}",
+    "json": {
+      "include_invoice_details": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 279,
+    "context": "PATCH {{host}}/v1/admin/webhook-endpoints/{{endpointId}}",
+    "json": {
+      "url": "https://acme.example.com/api/payment-webhook-v2"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 309,
+    "context": "POST {{host}}/v1/admin/webhook-endpoints/{{endpointId}}/disable",
+    "json": {
+      "reason": "Receiver decommissioned, awaiting new URL from Acme"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 396,
+    "context": "POST {{host}}/v1/admin/payments/{{paymentId}}/reconcile",
     "json": {
       "action": "mark_failed",
       "reason": "Barion has no record; buyer never reached the gateway"
@@ -168,8 +222,8 @@
   },
   {
     "file": "examples.http",
-    "line": 283,
-    "context": "POST {{host}}/admin/payments/{{paymentId}}/reconcile",
+    "line": 404,
+    "context": "POST {{host}}/v1/admin/payments/{{paymentId}}/reconcile",
     "json": {
       "action": "attach",
       "reason": "Found in the Barion dashboard, created 12:46",
@@ -178,8 +232,8 @@
   },
   {
     "file": "examples.http",
-    "line": 296,
-    "context": "POST {{host}}/admin/payments/{{paymentId}}/reconcile",
+    "line": 417,
+    "context": "POST {{host}}/v1/admin/payments/{{paymentId}}/reconcile",
     "json": {
       "action": "release",
       "reason": "Create died before Barion saw it; merchant needs to retry"
@@ -187,8 +241,8 @@
   },
   {
     "file": "examples.http",
-    "line": 317,
-    "context": "POST {{host}}/admin/payments/{{paymentId}}/refunds",
+    "line": 438,
+    "context": "POST {{host}}/v1/admin/payments/{{paymentId}}/refunds",
     "json": {
       "amount_minor": "1000",
       "reason": "Goodwill, ticket #812"
@@ -196,8 +250,8 @@
   },
   {
     "file": "examples.http",
-    "line": 354,
-    "context": "POST {{host}}/admin/keys",
+    "line": 475,
+    "context": "POST {{host}}/v1/admin/keys",
     "json": {
       "label": "reporting",
       "scopes": [
@@ -208,8 +262,8 @@
   },
   {
     "file": "examples.http",
-    "line": 361,
-    "context": "POST {{host}}/admin/keys",
+    "line": 482,
+    "context": "POST {{host}}/v1/admin/keys",
     "json": {
       "label": "ops-box",
       "scopes": [
@@ -222,7 +276,7 @@
   },
   {
     "file": "examples.http",
-    "line": 401,
+    "line": 522,
     "context": "POST {{host}}/v1/payments",
     "json": {
       "merchant_payment_ref": "order-42",
@@ -233,7 +287,66 @@
   },
   {
     "file": "examples.http",
-    "line": 423,
+    "line": 541,
+    "context": "POST {{host}}/v1/payments",
+    "json": {
+      "merchant_payment_ref": "order-44",
+      "amount_minor": "2500",
+      "currency": "HUF",
+      "provider": "barion",
+      "invoice_details": {
+        "partner": {
+          "name": "Példa Vásárló Kft",
+          "tax_number": "12345678-2-42",
+          "email": "buyer@example.invalid",
+          "address": {
+            "postal_code": "1051",
+            "city": "Budapest",
+            "address": "Példa utca 1."
+          }
+        },
+        "items": [
+          {
+            "name": "Widget",
+            "quantity": 1,
+            "net_unit_price_minor": "1969",
+            "vat_rate": "27"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 571,
+    "context": "POST {{host}}/v1/payments",
+    "json": {
+      "merchant_payment_ref": "order-45",
+      "amount_minor": "2500",
+      "currency": "HUF",
+      "invoice_details": {
+        "partner": {
+          "name": "Példa Vásárló Kft",
+          "address": {
+            "postal_code": "1051",
+            "city": "Budapest",
+            "address": "Példa utca 1."
+          }
+        },
+        "items": [
+          {
+            "name": "Widget",
+            "quantity": 1,
+            "net_unit_price_minor": "1969",
+            "vat_rat": "27"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 603,
     "context": "POST {{host}}/v1/payments/{{paymentId}}/refunds",
     "json": {
       "amount_minor": "400",
@@ -243,8 +356,8 @@
   },
   {
     "file": "examples.http",
-    "line": 466,
-    "context": "POST {{host}}/admin/merchants",
+    "line": 646,
+    "context": "POST {{host}}/v1/admin/merchants",
     "json": {
       "name": "Broken",
       "default_currency": "HUF",
@@ -253,8 +366,8 @@
   },
   {
     "file": "examples.http",
-    "line": 474,
-    "context": "POST {{host}}/admin/payments/{{paymentId}}/reconcile",
+    "line": 654,
+    "context": "POST {{host}}/v1/admin/payments/{{paymentId}}/reconcile",
     "json": {
       "action": "release",
       "reason": "x",
@@ -263,7 +376,7 @@
   },
   {
     "file": "examples.http",
-    "line": 486,
+    "line": 666,
     "context": "POST {{host}}/v1/payments",
     "json": {
       "merchant_payment_ref": "order-43",
@@ -273,7 +386,7 @@
   },
   {
     "file": "examples.http",
-    "line": 495,
+    "line": 675,
     "context": "POST {{host}}/v1/payments",
     "json": {
       "merchant_payment_ref": "order-44",
@@ -293,12 +406,36 @@
       "metadata": {
         "cart_id": "c_88f1",
         "campaign": "spring"
+      },
+      "invoice_details": {
+        "partner": {
+          "name": "Példa Vásárló Kft",
+          "tax_number": "12345678-2-42",
+          "email": "buyer@example.invalid",
+          "address": {
+            "postal_code": "1051",
+            "city": "Budapest",
+            "address": "Példa utca 1.",
+            "country": "Magyarország"
+          }
+        },
+        "items": [
+          {
+            "name": "Widget",
+            "quantity": 1,
+            "unit": "db",
+            "net_unit_price_minor": "1969",
+            "vat_rate": "27"
+          }
+        ],
+        "payment_method": "bankkártya",
+        "partner_ref": "order-12345"
       }
     }
   },
   {
     "file": "merchant-api.md",
-    "line": 116,
+    "line": 140,
     "context": "`POST /v1/payments` — create a payment",
     "json": {
       "merchant_payment_ref": "order-12345",
@@ -308,8 +445,8 @@
   },
   {
     "file": "merchant-api.md",
-    "line": 133,
-    "context": "`POST /v1/payments` — create a payment",
+    "line": 217,
+    "context": "`invoice_details` — automatic invoicing",
     "json": {
       "public_id": "019e4a91-3f2b-7c14-9d5e-2a6b8c0d1f33",
       "merchant_payment_ref": "order-12345",
@@ -334,7 +471,7 @@
   },
   {
     "file": "merchant-api.md",
-    "line": 224,
+    "line": 308,
     "context": "`POST /v1/payments/{public_id}/refunds` — refund",
     "json": {
       "amount_minor": "1000",
@@ -344,7 +481,7 @@
   },
   {
     "file": "merchant-api.md",
-    "line": 238,
+    "line": 326,
     "context": "`POST /v1/payments/{public_id}/refunds` — refund",
     "json": {
       "public_id": "019e4a95-77c1-7a02-8f31-9b0c4d5e6f70",
@@ -364,7 +501,7 @@
   },
   {
     "file": "merchant-api.md",
-    "line": 314,
+    "line": 402,
     "context": "`GET /v1/webhook-deliveries` — your own queue",
     "json": [
       {
@@ -384,44 +521,80 @@
   },
   {
     "file": "merchant-api.md",
-    "line": 419,
+    "line": 569,
     "context": "Payload",
     "json": {
       "event_id": "019e4a91-0000-7000-8000-000000000001",
       "event_type": "payment.succeeded",
-      "created_at": "2026-01-21T12:53:20.000Z",
-      "payment": {
-        "id": "019e4a91-0000-7000-8000-000000000002",
-        "merchant_payment_ref": "order-12345",
-        "status": "succeeded",
-        "amount_minor": "1000",
-        "currency": "HUF",
-        "provider": "barion"
+      "contract_version": 1,
+      "occurred_at": "2026-01-21T12:53:20.000Z",
+      "service": "payment-service",
+      "account_id": "7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46",
+      "tenant": {
+        "kind": "merchant",
+        "public_id": "019e4a91-0000-7000-8000-000000000002"
+      },
+      "correlation_id": "019e4a91-0000-7000-8000-000000000001",
+      "causation_id": null,
+      "hop": 0,
+      "data": {
+        "payment": {
+          "public_id": "019e4a91-0000-7000-8000-000000000003",
+          "status": "succeeded",
+          "merchant_payment_ref": "order-12345",
+          "amount_minor": "1000",
+          "currency": "HUF",
+          "provider": "barion"
+        }
       }
     }
   },
   {
     "file": "merchant-api.md",
-    "line": 438,
+    "line": 597,
     "context": "Payload",
     "json": {
-      "event_id": "019e4a95-0000-7000-8000-000000000003",
+      "event_id": "019e4a95-0000-7000-8000-000000000004",
       "event_type": "refund.succeeded",
-      "created_at": "2026-01-21T13:02:11.140Z",
-      "payment": {
-        "id": "019e4a91-0000-7000-8000-000000000002",
-        "merchant_payment_ref": "order-12345",
-        "status": "partially_refunded",
-        "amount_minor": "1000",
-        "currency": "HUF",
-        "provider": "barion"
+      "contract_version": 1,
+      "occurred_at": "2026-01-21T13:02:11.140Z",
+      "service": "payment-service",
+      "account_id": "7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46",
+      "tenant": {
+        "kind": "merchant",
+        "public_id": "019e4a91-0000-7000-8000-000000000002"
       },
-      "refund": {
-        "id": "019e4a95-77c1-7a02-8f31-9b0c4d5e6f70",
-        "status": "succeeded",
-        "amount_minor": "400",
-        "currency": "HUF"
+      "correlation_id": "019e4a95-0000-7000-8000-000000000004",
+      "causation_id": null,
+      "hop": 0,
+      "data": {
+        "payment": {
+          "public_id": "019e4a91-0000-7000-8000-000000000003",
+          "status": "partially_refunded",
+          "merchant_payment_ref": "order-12345",
+          "amount_minor": "1000",
+          "currency": "HUF",
+          "provider": "barion"
+        },
+        "refund": {
+          "public_id": "019e4a95-77c1-7a02-8f31-9b0c4d5e6f70",
+          "status": "succeeded",
+          "amount_minor": "400",
+          "currency": "HUF"
+        }
       }
+    }
+  },
+  {
+    "file": "operations.md",
+    "line": 214,
+    "context": "Deployment shape",
+    "json": {
+      "status": "ok",
+      "db": "ok",
+      "version": "1.4.0",
+      "commit": "058fddc",
+      "now": "2026-08-02T09:14:22.031Z"
     }
   }
 ]

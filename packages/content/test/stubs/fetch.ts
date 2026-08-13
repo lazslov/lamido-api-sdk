@@ -36,7 +36,7 @@ export interface FetchStub {
  * @param responses - One response per call, in order. The last one repeats once exhausted, so a
  * single-response stub serves any number of calls.
  */
-export function fetchStub(responses: Response[] = [jsonResponse({ data: {} })]): FetchStub {
+export function fetchStub(responses: Response[] = [jsonResponse({})]): FetchStub {
   const calls: RecordedCall[] = [];
   let index = 0;
 
@@ -45,7 +45,7 @@ export function fetchStub(responses: Response[] = [jsonResponse({ data: {} })]):
       calls.push({ url: String(url), init });
       const response = responses[Math.min(index, responses.length - 1)];
       index += 1;
-      return (response ?? jsonResponse({ data: {} })).clone();
+      return (response ?? jsonResponse({})).clone();
     }) as unknown as typeof fetch,
     calls,
     lastUrl() {
@@ -64,7 +64,7 @@ export function fetchStub(responses: Response[] = [jsonResponse({ data: {} })]):
   };
 }
 
-/** A JSON response, the shape every endpoint but `/api/health` answers with. */
+/** A JSON response. A single resource is the resource, unwrapped. */
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -72,11 +72,47 @@ export function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-/** The service's error envelope, at a status. */
-export function errorResponse(status: number, code: string, details?: unknown): Response {
-  return jsonResponse(
-    { error: { code, message: `stub ${code}`, ...(details === undefined ? {} : { details }) } },
-    status,
+/**
+ * A list response, in the one envelope every list on the service answers with.
+ *
+ * @param items - The rows.
+ * @param siblings - `total`, `limit` and `offset` on an offset list; `next_cursor` to page.
+ * @remarks
+ * `next_cursor` defaults to `null` rather than being omitted, because that is the contract on
+ * every list — including the ones that never page. A stub that omitted it would let a pager bug
+ * pass here and fail in production.
+ */
+export function listResponse(
+  items: unknown[],
+  siblings: Record<string, unknown> = {},
+  status = 200,
+): Response {
+  return jsonResponse({ data: items, next_cursor: null, ...siblings }, status);
+}
+
+/**
+ * An RFC 9457 problem document, at a status.
+ *
+ * @param status - The HTTP status.
+ * @param slug - The problem slug, e.g. `"conflict"`. Wrapped into the service's own URN.
+ * @param extra - Extension members: `details`, `errors`, `code`, `retry_after`.
+ */
+export function errorResponse(
+  status: number,
+  slug: string,
+  extra: Record<string, unknown> = {},
+): Response {
+  return new Response(
+    JSON.stringify({
+      type: `urn:content-service:problem:${slug}`,
+      title: `stub ${status}`,
+      status,
+      detail: `stub ${slug}`,
+      instance: "/v1/stub",
+      request_id: "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+      ...extra,
+    }),
+    { status, headers: { "content-type": "application/problem+json" } },
   );
 }
 
@@ -117,7 +153,7 @@ export function pageDocument(
     title: string;
     locale: string;
     version: number | null;
-    publishedAt: string | null;
+    published_at: string | null;
   }> = {},
 ) {
   return {
@@ -126,7 +162,8 @@ export function pageDocument(
       title: page.title ?? "Kezdőlap",
       locale: page.locale ?? "hu",
       version: page.version === undefined ? 8 : page.version,
-      publishedAt: page.publishedAt === undefined ? "2026-07-28T09:12:44.101Z" : page.publishedAt,
+      published_at:
+        page.published_at === undefined ? "2026-07-28T09:12:44.101Z" : page.published_at,
     },
     sections: sections.map((section) => ({
       key: section.key,

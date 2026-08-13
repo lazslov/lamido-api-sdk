@@ -22,7 +22,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 /** pathToFileURL, not a bare path: a Windows drive letter is not a valid ESM specifier. */
 const dist = (entry) => pathToFileURL(path.join(here, "..", "dist", entry)).href;
 
-const { createWebsiteClient, tryCreateContentClient, verifyRevalidationWebhook } = await import(
+const { createWebsiteClient, tryCreateContentClient, verifyContentWebhook } = await import(
   dist("index.js")
 );
 const { asText, isValidContentUrl, prepareValues } = await import(dist("fields/index.js"));
@@ -47,7 +47,7 @@ test("the fields entry point resolves on its own, without the main entry", () =>
   );
 });
 
-test("verifyRevalidationWebhook accepts every pinned valid fixture", async () => {
+test("verifyContentWebhook accepts every pinned valid fixture", async () => {
   const fixturesDir = path.join(here, "fixtures", "revalidation");
   const fixtures = readdirSync(fixturesDir)
     .filter((file) => file.endsWith(".json"))
@@ -57,10 +57,10 @@ test("verifyRevalidationWebhook accepts every pinned valid fixture", async () =>
 
   for (const fixture of fixtures) {
     const headers = new Headers();
-    if (fixture.signature !== null) headers.set("X-Content-Signature", fixture.signature);
-    if (fixture.timestamp !== null) headers.set("X-Content-Timestamp", fixture.timestamp);
+    if (fixture.signature !== null) headers.set("X-Signature", fixture.signature);
+    if (fixture.timestamp !== null) headers.set("X-Signature-Timestamp", fixture.timestamp);
 
-    const verdict = await verifyRevalidationWebhook({
+    const verdict = await verifyContentWebhook({
       secret: fixture.secret,
       rawBody: fixture.rawBody,
       headers,
@@ -77,15 +77,24 @@ test("a website read reaches fetch and degrades a 404 to null", async () => {
     apiKey: "cpk_YOUR_PUBLISHABLE_KEY_test",
     fetch: async (url, init) => {
       calls.push({ url, init });
-      return new Response(JSON.stringify({ error: { code: "not_found", message: "nope" } }), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          type: "urn:content-service:problem:not-found",
+          title: "Not Found",
+          status: 404,
+          detail: "nope",
+          instance: "/v1/public/pages/unpublished",
+        }),
+        {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        },
+      );
     },
   });
 
   assert.equal(await client.getPage("unpublished"), null);
-  assert.equal(calls[0].url, "https://content.example.com/api/content/pages/unpublished");
+  assert.equal(calls[0].url, "https://content.example.com/v1/public/pages/unpublished");
   assert.equal(calls[0].init.headers.Authorization, "Bearer cpk_YOUR_PUBLISHABLE_KEY_test");
 });
 

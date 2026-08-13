@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { collectAll, type Page } from "../src/paginate.js";
+import { collectAll, collectAllCursor, type Page } from "../src/paginate.js";
 
 /** A reader over a fixed list, optionally reporting `total` as the real endpoints do. */
 function pagedReader<T>(items: T[], options: { reportTotal: boolean }) {
@@ -71,5 +71,71 @@ describe("collectAll", () => {
     const reader = pagedReader([1], { reportTotal: true });
     await collectAll(reader);
     expect(reader.mock.calls[0]?.[0].limit).toBe(100);
+  });
+});
+
+/** A reader over a fixed list, paged by opaque cursor as the real endpoints are. */
+function cursorReader<T>(items: T[]) {
+  return vi.fn(async ({ limit, cursor }: { limit: number; cursor?: string }) => {
+    const offset = cursor === undefined ? 0 : Number(cursor);
+    const slice = items.slice(offset, offset + limit);
+    const next = offset + slice.length;
+    return {
+      items: slice,
+      nextCursor: next >= items.length ? null : String(next),
+    };
+  });
+}
+
+describe("collectAllCursor", () => {
+  it("follows the cursor to the end", async () => {
+    const reader = cursorReader(Array.from({ length: 250 }, (_, index) => index));
+    await expect(collectAllCursor(reader, { pageSize: 100 })).resolves.toHaveLength(250);
+    expect(reader).toHaveBeenCalledTimes(3);
+  });
+
+  it("omits the cursor on the first request rather than sending an empty one", async () => {
+    // An empty `cursor=` is a malformed cursor, which the services answer with a 400.
+    const reader = cursorReader([1, 2, 3]);
+    await collectAllCursor(reader, { pageSize: 10 });
+    expect(reader.mock.calls[0]?.[0]).toEqual({ limit: 10 });
+  });
+
+  it("passes the cursor back verbatim", async () => {
+    const reader = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [1], nextCursor: "MjAyNi0wNi0xNVQxMDowMDowMC4wMDBafDA=" })
+      .mockResolvedValueOnce({ items: [2], nextCursor: null });
+    await collectAllCursor(reader, { pageSize: 1 });
+    // Never constructed, parsed or re-encoded — the encoding is free to change.
+    expect(reader.mock.calls[1]?.[0]).toEqual({
+      limit: 1,
+      cursor: "MjAyNi0wNi0xNVQxMDowMDowMC4wMDBafDA=",
+    });
+  });
+
+  it("keeps going after a short page, because only the cursor terminates", async () => {
+    // A filtered keyset page can come back under `limit` and still have more behind it.
+    // Treating a short page as terminal here is the classic silent-truncation bug.
+    const reader = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [1], nextCursor: "c1" })
+      .mockResolvedValueOnce({ items: [2, 3], nextCursor: null });
+    await expect(collectAllCursor(reader, { pageSize: 50 })).resolves.toEqual([1, 2, 3]);
+  });
+
+  it("stops on a null cursor even when the page is full", async () => {
+    const reader = vi.fn().mockResolvedValue({ items: [1, 2], nextCursor: null });
+    await expect(collectAllCursor(reader, { pageSize: 2 })).resolves.toEqual([1, 2]);
+    expect(reader).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws rather than returning a truncated list", async () => {
+    // A silently short list is a bug nobody looks for inside a fetch helper.
+    const reader = vi.fn().mockResolvedValue({ items: [1], nextCursor: "always-more" });
+    await expect(collectAllCursor(reader, { pageSize: 1, maxPages: 3 })).rejects.toThrow(
+      /collectAllCursor stopped after 3 pages/,
+    );
+    expect(reader).toHaveBeenCalledTimes(3);
   });
 });

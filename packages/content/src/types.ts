@@ -32,13 +32,19 @@ export type PageDocumentSection = PageDocument["sections"][number];
 /** One value as it goes **onto** the wire. An `image` is written as `{ assetId, alt }`. */
 export type ContentValue = Schemas["ContentValue"];
 
-/** An entry of the published page list — a site's sitemap input. */
+/**
+ * An entry of the published page list — a site's sitemap input.
+ *
+ * @remarks
+ * Members are snake_case, like everything else on the wire since the service's 2026-08 sync.
+ * The list itself is not paginated: a site has single-digit pages.
+ */
 export interface PublishedPageSummary {
   readonly slug: string;
   readonly title: string;
   /** Never `null` here: a page that has never been published is absent from the list. */
   readonly version: number;
-  readonly publishedAt: string;
+  readonly published_at: string;
 }
 
 /** Site identity and chrome, as the website tier serves it. */
@@ -56,14 +62,84 @@ export type ContentView = "draft" | "published";
 /** One group of a dataset aggregate. `key` is `null` for the ungrouped total. */
 export type AggregateGroup = Schemas["AggregateGroup"];
 
-/** A dataset record. Written by a site's backend at runtime, never by an editor. */
-export type DatasetRecord = Schemas["Record"];
+/**
+ * A dataset record. Written by a site's backend at runtime, never by an editor.
+ *
+ * @remarks
+ * **The service's own documentation contradicts itself about this resource's identity.**
+ * `client-api.md` states a RULE — *"a record is identified by `public_id`, not `id`… it has no
+ * `id` member at all"* — and its example carries `public_id`. The OpenAPI schema declares `id`
+ * and no `public_id`.
+ *
+ * Both are declared here, both optional, until the service settles it. Reading whichever one
+ * happens to be absent would otherwise be `undefined` at runtime with no type error — and the id
+ * is what every later call to this record needs. Use {@link recordId} rather than either field.
+ */
+export type DatasetRecord = Omit<Schemas["Record"], "id"> & {
+  /** Present per the OpenAPI schema. */
+  readonly id?: string;
+  /** Present per `client-api.md`'s rule and its example. */
+  readonly public_id?: string;
+};
+
+/**
+ * The id of a record, whichever member carries it.
+ *
+ * @param record - A record from any read.
+ * @returns The id.
+ * @throws `TypeError` when neither member is present, which would mean the contract moved again.
+ * @remarks
+ * Exists only because the service's documentation disagrees with its own schema — see
+ * {@link DatasetRecord}. Once that is settled this collapses to a field read, and the change is a
+ * deprecation rather than a break.
+ */
+export function recordId(record: DatasetRecord): string {
+  const id = record.public_id ?? record.id;
+  if (id === undefined) {
+    throw new TypeError(
+      "a dataset record carried neither public_id nor id — the content-service contract has moved",
+    );
+  }
+  return id;
+}
 
 /** A record's payload: flat, and its keys are camelCase-legal unlike every addressing key. */
 export type RecordData = Schemas["RecordData"];
 
-/** A registered image. `references: 0` means it is safe to delete. */
-export type ContentAsset = Schemas["Asset"];
+/**
+ * A registered image. `references: 0` means it is safe to delete.
+ *
+ * @remarks
+ * Carries the same documented-versus-schema identity contradiction as {@link DatasetRecord}:
+ * `client-api.md` rules that *"an asset is identified by `public_id`, not `id`… there is no `id`
+ * member on an asset object at all"*, and the OpenAPI schema declares `id`. Use {@link assetId}.
+ */
+export type ContentAsset = Omit<Schemas["Asset"], "id"> & {
+  /** Present per the OpenAPI schema. */
+  readonly id?: string;
+  /** Present per `client-api.md`'s rule and its example. */
+  readonly public_id?: string;
+};
+
+/**
+ * The id of an asset, whichever member carries it.
+ *
+ * @param asset - An asset from any read.
+ * @returns The id, which is what the `/v1/assets/:id` path parameter takes.
+ * @throws `TypeError` when neither member is present.
+ * @remarks
+ * See {@link ContentAsset}. Note that the path parameter is spelled `:id` under either reading —
+ * the service documents that too.
+ */
+export function assetId(asset: ContentAsset): string {
+  const id = asset.public_id ?? asset.id;
+  if (id === undefined) {
+    throw new TypeError(
+      "an asset carried neither public_id nor id — the content-service contract has moved",
+    );
+  }
+  return id;
+}
 
 /** The four image types the service accepts. SVG is deliberately excluded. */
 export type ImageContentType = Schemas["ImageContentType"];
@@ -96,18 +172,44 @@ export interface ClientIdentity {
 }
 
 /**
- * One page of a `limit`/`offset` list.
+ * One page of a `limit`/`offset` list — the bounded, staff-curated ones.
  *
  * @remarks
- * `items` rather than `data`, and `total` alongside it, so the shape satisfies
- * `@lazslov/api-core`'s `collectAll` without an adapter — the envelope's siblings are kept because
- * a list without its `total` cannot be paged to the end.
+ * `items` rather than `data`, and the siblings alongside it, so the shape satisfies
+ * `@lazslov/api-core`'s `collectAll` without an adapter — a list read without its `total` cannot
+ * be paged to the end.
+ *
+ * Collection items, page versions and sites. An out-of-range `limit` is a `400` on these
+ * endpoints rather than a clamp, and the ceiling is 100.
  */
 export interface ContentList<T> {
   readonly items: T[];
-  readonly total: number;
-  readonly limit: number;
-  readonly offset: number;
+  /** Absent where the endpoint does not report one. **Never `null`.** */
+  readonly total?: number;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+/**
+ * One page of a keyset-cursor list — the ones that grow with your activity.
+ *
+ * @remarks
+ * Dataset records, assets, the audit trail and the publish outbox. Satisfies
+ * `@lazslov/api-core`'s `collectAllCursor` without an adapter.
+ *
+ * There is no `total`: counting a filtered, unbounded table on every page is not cheap, and the
+ * pager terminates on `nextCursor` instead. A short page is **not** the last one.
+ */
+export interface ContentCursorList<T> {
+  readonly items: T[];
+  /**
+   * The next cursor, or `null` on the last page.
+   *
+   * @remarks
+   * Opaque. Pass it back verbatim and never construct, parse or store one — the encoding is free
+   * to change, and a malformed cursor is a `400` rather than a quiet restart from page one.
+   */
+  readonly nextCursor: string | null;
 }
 
 /** What a publish did. */
@@ -115,8 +217,8 @@ export interface PublishResult {
   readonly version: number;
   readonly note: string | null;
   /** `"<siteSlug>/<keyLabel>"` — the key is the actor; this service has no users. */
-  readonly publishedBy: string;
-  readonly createdAt: string;
+  readonly published_by: string;
+  readonly created_at: string;
   /** Every locale the publish covered. Omitting `locale` publishes all of them. */
   readonly locales: string[];
   readonly document: PageDocument;
@@ -163,8 +265,8 @@ export interface UploadToken {
    * returned. See `registerAsset`'s `blobPathname`.
    */
   readonly pathname: string;
-  readonly allowedContentTypes: ImageContentType[];
-  readonly maximumSizeInBytes: number;
+  readonly allowed_content_types: ImageContentType[];
+  readonly maximum_size_in_bytes: number;
 }
 
 /**

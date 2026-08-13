@@ -36,8 +36,8 @@ unpublished draft. A `csk_` that reached a browser bundle must be **rotated**, n
 import "server-only"; // a build error, not a code review, if a client component imports this
 import { createWebsiteClient, createContentClient } from "@lazslov/content";
 
-const site = createWebsiteClient(); // /api/content/* — published reads, cpk_ or csk_
-const editor = createContentClient(); // /api/client/* — drafts and writes, csk_ only
+const site = createWebsiteClient(); // /v1/public/* — published reads, cpk_ or csk_
+const editor = createContentClient(); // /v1/* — drafts and writes, csk_ only
 ```
 
 Not one client with a tier parameter: a single object holding a `csk_` that *can* serve public
@@ -159,7 +159,7 @@ from the records it summarises.
 verdict. Branch on `code`, never on `message`.
 
 ```ts
-if (error instanceof ContentApiError && error.code === "conflict") {
+if (error instanceof ContentApiError && error.type === "conflict") {
   const missing = error.details?.missing ?? []; // required fields empty at publish
 }
 ```
@@ -171,7 +171,7 @@ sentences are yours: they belong in your voice and your language, not in a depen
 ## The revalidation webhook
 
 ```ts
-const verdict = await verifyRevalidationWebhook({
+const verdict = await verifyContentWebhook({
   secret: process.env.CONTENT_REVALIDATE_SECRET!,
   rawBody: await request.text(), // BEFORE any parsing — re-serialising breaks the signature
   headers: request.headers,
@@ -266,7 +266,7 @@ import { client, tag } from "@/lib/content";
 
 export async function saveAbout(submitted: Record<string, unknown>) {
   const prepared = prepareValues(ABOUT, submitted, page.section("about").fields);
-  if (!prepared.ok) return { ok: false as const, error: "validation_error" as const };
+  if (!prepared.ok) return { ok: false as const, error: "validation" as const };
   if (Object.keys(prepared.values).length === 0) return { ok: true as const };
 
   return asSaveResult(async () => {
@@ -278,7 +278,7 @@ export async function saveAbout(submitted: Record<string, unknown>) {
 
 `asSaveResult` never throws. Its `error` is the service's **stable code**, not prose — the sentences
 belong in your voice and your language, not in a dependency — and `fields` carries a
-`validation_error`'s `unknownKeys` and `invalid[]` so a form can render errors next to inputs instead
+`validation`'s `unknown_keys` and `invalid[]` so a form can render errors next to inputs instead
 of one toast. `not_configured` arrives through the same channel as a real `401`, so you need one
 translator rather than two.
 

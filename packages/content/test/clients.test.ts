@@ -113,7 +113,7 @@ describe("the try* constructors", () => {
     const stub = fetchStub();
     const client = tryCreateContentClient({ fetch: stub.fetch });
     await client?.getMe();
-    expect(stub.lastUrl()).toBe(`${testBaseUrl}/api/client/me`);
+    expect(stub.lastUrl()).toBe(`${testBaseUrl}/v1/me`);
   });
 });
 

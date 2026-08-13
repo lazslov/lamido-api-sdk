@@ -1,20 +1,20 @@
 /**
- * The two ways this package reaches the service: one that throws for every non-2xx, and one that
- * answers `null` for a `404`.
+ * The ways this package reaches the service: one that throws for every non-2xx, one that
+ * answers `null` for a `404`, and one reader per kind of list.
  *
  * @remarks
- * Both go through `@lazslov/api-core`'s `request`, so there is exactly one place a request leaves
- * the process and exactly one place the credential is attached.
+ * All of them go through `@lazslov/api-core`'s `request`, so there is exactly one place a
+ * request leaves the process and exactly one place the credential is attached.
  */
 
 import { type RequestSpec, type ResolvedConfig, request } from "@lazslov/api-core";
 import { ContentApiError, parseContentError } from "./errors.js";
-import type { ContentList } from "./types.js";
+import type { ContentCursorList, ContentList } from "./types.js";
 
 /** A request minus the error parser, which is always this package's. */
 export type ContentRequest = Omit<RequestSpec, "onError">;
 
-/** A list request: the read mode is always the envelope, for its `total`. */
+/** A list request: the read mode is always the envelope, for its siblings. */
 export type ContentListRequest = Omit<ContentRequest, "read">;
 
 /**
@@ -49,21 +49,32 @@ export async function callOrNull<T>(cfg: ResolvedConfig, spec: ContentRequest): 
   }
 }
 
-/** The envelope a `limit`/`offset` list answers with: `data` plus its three siblings. */
+/**
+ * The envelope every list answers with.
+ *
+ * @remarks
+ * `next_cursor` is **always present**, `null` rather than absent, on every list — including the
+ * offset-paged and the unpaginated ones. That is deliberate on the service's side: one pager
+ * reads `body.next_cursor` everywhere and gets `null` rather than `undefined`.
+ *
+ * `total` is per-endpoint. The keyset lists omit it, because counting a filtered unbounded table
+ * on every page is not cheap.
+ */
 interface ListEnvelope<T> {
   readonly data: T[];
-  readonly total: number;
-  readonly limit: number;
-  readonly offset: number;
+  readonly next_cursor: string | null;
+  readonly total?: number;
+  readonly limit?: number;
+  readonly offset?: number;
 }
 
 /**
- * Read a paginated list.
+ * Read an offset-paged list — the bounded, staff-curated ones.
  *
  * @remarks
- * Keeps `total` rather than unwrapping to the rows alone: a list read without it cannot be followed
- * to the end, and a hardcoded `limit=100` starts truncating silently the day a list outgrows it —
- * a missing row is a bug nobody goes looking for inside a fetch helper.
+ * Collection items, page versions and sites. Keeps `total` rather than unwrapping to the rows
+ * alone: a list read without it cannot be followed to the end, and a hardcoded `limit=100`
+ * starts truncating silently the day a list outgrows it.
  */
 export async function callList<T>(
   cfg: ResolvedConfig,
@@ -81,12 +92,66 @@ export async function callListOrNull<T>(
   return envelope === null ? null : toList(envelope);
 }
 
-/** Rename `data` to `items`, so the shape satisfies core's `collectAll` with no adapter. */
+/**
+ * Read a list that takes no pagination parameter at all, returning the rows alone.
+ *
+ * @remarks
+ * The **only** place this package reads `data` and discards the siblings, and it is deliberately
+ * a separate function rather than a `read` mode so that every use of it is greppable.
+ *
+ * conventions §3 forbids a general `unwrap(body.data)` helper because a pager that loses
+ * `next_cursor` silently stops after one page. That risk needs a pager: these four endpoints —
+ * `/v1/pages`, `/v1/collections`, `/v1/datasets` and `/v1/public/pages` — accept no `limit`, no
+ * `offset` and no `cursor`, so there is nothing to page and the siblings carry no information
+ * (`next_cursor` is always `null`, `total` always equals `data.length`).
+ *
+ * If one of them ever grows a pagination parameter, it moves to {@link callCursorList} and the
+ * signature change is a compile error rather than a silently short list.
+ */
+export async function callUnpaginated<T>(
+  cfg: ResolvedConfig,
+  spec: ContentListRequest,
+): Promise<T[]> {
+  const envelope = await call<ListEnvelope<T>>(cfg, { ...spec, read: { kind: "envelope" } });
+  return envelope.data;
+}
+
+/**
+ * Read a keyset-cursor list — the ones that grow with your activity.
+ *
+ * @remarks
+ * Dataset records, assets, the audit trail and the publish outbox. Carries `nextCursor` and no
+ * `total`; pass the cursor back verbatim, and never parse it.
+ */
+export async function callCursorList<T>(
+  cfg: ResolvedConfig,
+  spec: ContentListRequest,
+): Promise<ContentCursorList<T>> {
+  const envelope = await call<ListEnvelope<T>>(cfg, { ...spec, read: { kind: "envelope" } });
+  return { items: envelope.data, nextCursor: envelope.next_cursor };
+}
+
+/** As {@link callCursorList}, with a `404` answering `null`. */
+export async function callCursorListOrNull<T>(
+  cfg: ResolvedConfig,
+  spec: ContentListRequest,
+): Promise<ContentCursorList<T> | null> {
+  const envelope = await callOrNull<ListEnvelope<T>>(cfg, { ...spec, read: { kind: "envelope" } });
+  return envelope === null ? null : { items: envelope.data, nextCursor: envelope.next_cursor };
+}
+
+/**
+ * Rename `data` to `items`, so the shape satisfies core's `collectAll` with no adapter.
+ *
+ * @remarks
+ * `total` stays optional even here. An offset list that does not report one is followed by its
+ * short final page instead, which is what `collectAll` already does.
+ */
 function toList<T>(envelope: ListEnvelope<T>): ContentList<T> {
   return {
     items: envelope.data,
-    total: envelope.total,
-    limit: envelope.limit,
-    offset: envelope.offset,
+    ...(envelope.total === undefined ? {} : { total: envelope.total }),
+    ...(envelope.limit === undefined ? {} : { limit: envelope.limit }),
+    ...(envelope.offset === undefined ? {} : { offset: envelope.offset }),
   };
 }

@@ -1,68 +1,44 @@
 /**
- * invoice-service's error envelope, translated once.
+ * invoice-service's problem document, narrowed to what this package's callers branch on.
  *
  * @remarks
- * The codes and the `retryable` verdict come from conventions §5. Two of them carry a note this SDK
- * adds, because the naive reading of the status is wrong in a way that costs an idempotency key:
+ * The parse is `@lazslov/api-core`'s: the three services share one RFC 9457 document over one
+ * closed slug set. What this module adds is the advice a caller cannot derive from the status,
+ * because the naive reading of it is wrong in a way that costs an idempotency key:
  *
- * - a **502** on a create means the invoice row was written as `failed` and the key is spent, so the
- *   correct retry uses a **new** key — the opposite of `@lazslov/payment`, where a same-key retry
- *   after an unreachable PSP is the only safe move;
- * - a **500** on a create is usually a credential that could not be resolved or decrypted, which is
- *   a configuration problem rather than a transient one, and backoff will never clear it.
+ * - a **502** on a create means the invoice row was written as `failed` and the key is spent, so
+ *   the correct retry uses a **new** key — the opposite of `@lazslov/payment`, where a same-key
+ *   retry after an unreachable PSP is the only safe move;
+ * - a **500** on a create is usually a credential that could not be resolved or decrypted, which
+ *   is a configuration problem rather than a transient one, and backoff will never clear it.
  */
 
-import { type ErrorContext, LamidoApiError } from "@lazslov/api-core";
-import type { InvoiceStatus } from "./types.js";
+import { type ErrorContext, LamidoApiError, readProblem } from "@lazslov/api-core";
 
 /** The service this package talks to, named on every error it throws. */
 export const serviceName = "invoice-service";
 
 /**
- * Every code invoice-service sends, plus the one it cannot.
+ * The semantic sub-cases invoice-service names in the problem's `code` member.
  *
  * @remarks
- * Branch on this, never on `message` — a code is part of the contract and a message is written for a
- * human. `not_configured` is the SDK's own, carried on a `status: 0` error when the base URL or key
- * is missing, so a site can route a missing environment variable through the same translator as a
- * real `401`.
+ * Present where a `(type, status)` pair alone cannot identify the failure — every `422` is
+ * `conflict`, so only `code` says whether an invoice was un-downloadable or un-cancellable.
+ * **Branch on this rather than on the message.**
  */
-export type InvoiceErrorCode =
-  | "validation_error"
-  | "bad_request"
-  | "unauthorized"
-  | "forbidden"
-  | "not_found"
-  | "conflict"
-  | "provider_error"
-  | "internal_error"
-  | "not_configured";
-
-/**
- * The `details` shape a `validation_error` carries: Zod's `flatten()`.
- *
- * @remarks
- * **`fieldErrors` keys are top-level only.** A failure deep inside `partner.address.postalCode`
- * surfaces under the key `partner`, not the full path, so this type promises a top-level field name
- * and nothing more. Finding the real field means validating the body against the schema locally —
- * which is the other reason this package checks dates, VAT rates and the config id before sending.
- */
-export interface InvoiceValidationDetails {
-  readonly formErrors?: string[];
-  readonly fieldErrors?: Record<string, string[]>;
-  /** Billingo's own explanation, first 500 characters, on some `provider_error` responses. */
-  readonly body?: string;
-}
-
-/** Everything {@link InvoiceApiError} needs beyond core's fields. */ interface InvoiceErrorInit {
-  readonly status: number;
-  readonly code: InvoiceErrorCode;
-  readonly message: string;
-  readonly requestPath: string;
-  readonly retryable: boolean;
-  readonly advice?: string;
-  readonly details?: InvoiceValidationDetails;
-}
+export type InvoiceProblemCode =
+  | "idempotency_key_required"
+  | "idempotency_key_reused"
+  | "idempotency_key_in_flight"
+  | "provider_config_mismatch"
+  | "client_has_invoices"
+  | "self_deactivation"
+  | "self_revocation"
+  | "not_downloadable"
+  | "not_cancellable"
+  | "not_reconcilable"
+  | "invoice_state_changed"
+  | "missing_path_param";
 
 /**
  * A non-2xx answer from invoice-service.
@@ -74,7 +50,7 @@ export interface InvoiceValidationDetails {
  * ```ts
  * try {
  *   const { invoice } = await invoices.createInvoice(body, derivedIdempotencyKey(orderId, attempt));
- *   await store(invoice.id);
+ *   await store(invoice.public_id);
  * } catch (error) {
  *   if (!(error instanceof InvoiceApiError)) throw error;
  *   // retryable, but never under the same key — see `advice`.
@@ -84,31 +60,40 @@ export interface InvoiceValidationDetails {
  * ```
  */
 export class InvoiceApiError extends LamidoApiError {
-  declare readonly code: InvoiceErrorCode;
-  declare readonly details?: InvoiceValidationDetails;
+  declare readonly code?: InvoiceProblemCode;
+
+  /**
+   * The provider's own error text, when one reached us.
+   *
+   * @remarks
+   * Present on a `502`, where the failure is szamlazz's or Billingo's rather than ours. Read it
+   * before retrying: nothing on this side changed.
+   */
+  declare readonly providerError?: string;
 
   /**
    * What this SDK has to add about what to do next.
    *
    * @remarks
-   * Present on a create's `500` and `502`, where the retry that looks obvious is the one that cannot
-   * work. Prose, for a human; the machine-readable part is `retryable`. Also folded into `message`,
-   * so an error that is only ever logged still says it.
+   * Present on a create's `500` and `502`, where the retry that looks obvious is the one that
+   * cannot work. Prose, for a human; the machine-readable part is `retryable`. Also folded into
+   * `message`, so an error that is only ever logged still says it.
    */
   declare readonly advice?: string;
 
-  constructor(init: InvoiceErrorInit) {
+  constructor(
+    init: ConstructorParameters<typeof LamidoApiError>[0] & {
+      readonly advice?: string;
+      readonly providerError?: string;
+    },
+  ) {
     super({
-      service: serviceName,
-      status: init.status,
-      code: init.code,
+      ...init,
       message: init.advice ? `${init.message} — ${init.advice}` : init.message,
-      requestPath: init.requestPath,
-      retryable: init.retryable,
-      ...(init.details === undefined ? {} : { details: init.details }),
     });
     this.name = "InvoiceApiError";
     if (init.advice !== undefined) this.advice = init.advice;
+    if (init.providerError !== undefined) this.providerError = init.providerError;
   }
 }
 
@@ -116,13 +101,14 @@ export class InvoiceApiError extends LamidoApiError {
  * The invoice is not in a state this document can be produced from.
  *
  * @remarks
- * A `400 bad_request` on `GET …/pdf` or `GET …/download-link`, which the service raises when the
- * status is not `created`. Named rather than left as an opaque 4xx because the common case is not a
- * bug in the request at all: **a cancelled invoice is no longer downloadable here**, even though the
- * document still exists at the provider. Mint the link *before* cancelling.
+ * A `422 conflict` with `code: "not_downloadable"` on `GET …/pdf` or `GET …/download-link`. Named
+ * rather than left as an opaque 4xx because the common case is not a bug in the request at all:
+ * **a cancelled invoice is no longer downloadable here**, even though the document still exists at
+ * the provider. Mint the link *before* cancelling.
  *
- * A `pending` or `failed` invoice reaches the same error, and there the answer is different — wait,
- * or reissue under a new key.
+ * A `pending` or `failed` invoice reaches the same error, and there the answer is different —
+ * wait, or reissue under a new key. It is `retryable` for exactly that reason: `422` means the
+ * state forbids it *for now*, and a state can change.
  *
  * @example
  * ```ts
@@ -130,60 +116,20 @@ export class InvoiceApiError extends LamidoApiError {
  *   const pdf = await invoices.getInvoicePdf(id);
  *   return send(pdf.bytes, pdf.filename);
  * } catch (error) {
- *   if (error instanceof InvoiceNotDownloadableError) return renderNoPdfNotice(error.invoiceStatus);
+ *   if (error instanceof InvoiceNotDownloadableError) return renderNoPdfNotice();
  *   throw error;
  * }
  * ```
  */
 export class InvoiceNotDownloadableError extends InvoiceApiError {
-  /**
-   * The status the service named, when it named one.
-   *
-   * @remarks
-   * A convenience hint, not the authority: it is read out of the service's message, which is prose
-   * and may be reworded, so a miss is `null` rather than a guess. `getInvoice` is what actually says
-   * what state an invoice is in.
-   */
-  readonly invoiceStatus: InvoiceStatus | null;
-
-  constructor(init: InvoiceErrorInit & { readonly invoiceStatus: InvoiceStatus | null }) {
+  constructor(init: ConstructorParameters<typeof InvoiceApiError>[0]) {
     super(init);
     this.name = "InvoiceNotDownloadableError";
-    this.invoiceStatus = init.invoiceStatus;
   }
 }
 
-/** Codes the service documents. Anything else is a proxy or a bug, not the service. */
-const documented = new Set<InvoiceErrorCode>([
-  "validation_error",
-  "bad_request",
-  "unauthorized",
-  "forbidden",
-  "not_found",
-  "conflict",
-  "provider_error",
-  "internal_error",
-]);
-
-/**
- * How the service pairs a status with a code, used only when no usable body arrived.
- *
- * @remarks
- * An HTML error page from an edge proxy has no `error.code`, and inventing one from the message would
- * be branching on prose. The status is the only thing left, and this table is the service's own
- * pairing rather than a guess.
- */
-const codeByStatus: Readonly<Record<number, InvoiceErrorCode>> = {
-  400: "bad_request",
-  401: "unauthorized",
-  403: "forbidden",
-  404: "not_found",
-  409: "conflict",
-  502: "provider_error",
-};
-
 /** The create path, and the only place the key-consumption rule applies. */
-const createPath = "/api/invoices";
+const createPath = "/v1/invoices";
 
 /**
  * The rule that separates this service from payment-service, in one sentence.
@@ -198,56 +144,42 @@ const newKeyAdvice =
 
 /** A 500 on a create is a configuration problem far more often than a transient one. */
 const credentialAdvice =
-  "On a create this usually means the provider credential could not be resolved or decrypted rather than a transient fault, and backoff will not clear it: ask an operator to run the admin credential test for this providerConfigId. The key is consumed either way, so retry under a NEW key once it passes.";
+  "On a create this usually means the provider credential could not be resolved or decrypted rather than a transient fault, and backoff will not clear it: ask an operator to run the admin credential test for this provider_config_id. The key is consumed either way, so retry under a NEW key once it passes.";
 
 /** A 502 outside a create reached the provider and was refused; nothing here changed. */
 const providerRefusedAdvice =
-  "The provider was reached and refused. The message carries their own text — read it before retrying, because nothing on this side changed.";
+  "The provider was reached and refused. `providerError` carries their own text — read it before retrying, because nothing on this side changed.";
 
 /**
- * Read the service's error envelope.
+ * Read the service's problem document.
  *
  * @remarks
- * Bound into every request this package makes, so a caller never sees an untranslated status. Typed
- * as returning the narrow error rather than as core's `ErrorParser`, which it still satisfies: a
- * caller reading `details.fieldErrors` should not have to cast at the one place the shape is known.
+ * Bound into every request this package makes, so a caller never sees an untranslated status.
+ * Typed as returning the narrow error rather than as core's `ErrorParser`, which it still
+ * satisfies.
  */
 export const parseInvoiceError = (context: ErrorContext): InvoiceApiError => {
-  const envelope = (
-    context.body as { error?: { code?: unknown; message?: unknown; details?: unknown } } | null
-  )?.error;
+  const init = readProblem(serviceName, context);
+  const providerError = providerErrorOf(context.body);
 
-  const code = codeFor(context.status, envelope?.code);
-  const message =
-    typeof envelope?.message === "string" && envelope.message !== ""
-      ? envelope.message
-      : `${serviceName} answered ${context.status}`;
-
-  // Passed through exactly as it arrived: `details` is where the actionable part lives, and
-  // re-shaping it here would be a second contract for a caller to learn.
-  const details = envelope?.details as InvoiceValidationDetails | undefined;
-
-  const init: InvoiceErrorInit = {
-    status: context.status,
-    code,
-    message,
-    requestPath: context.requestPath,
-    retryable: code === "provider_error" || code === "internal_error",
+  const full = {
+    ...init,
     ...advice(context.status, context.requestPath),
-    ...(details === undefined ? {} : { details }),
+    ...(providerError === undefined ? {} : { providerError }),
   };
 
-  return isNotDownloadable(code, context.requestPath)
-    ? new InvoiceNotDownloadableError({ ...init, invoiceStatus: statusFromMessage(message) })
-    : new InvoiceApiError(init);
+  // Decided from the service's own `code`, not from the message. The old parser read the status
+  // out of prose with a regex — the service now names the sub-case machine-readably, so it does
+  // not have to.
+  return init.code === "not_downloadable"
+    ? new InvoiceNotDownloadableError(full)
+    : new InvoiceApiError(full);
 };
 
-/** The code the service sent, or the one its status implies. */
-function codeFor(status: number, raw: unknown): InvoiceErrorCode {
-  if (typeof raw === "string" && documented.has(raw as InvoiceErrorCode)) {
-    return raw as InvoiceErrorCode;
-  }
-  return codeByStatus[status] ?? "internal_error";
+/** The `provider_error` extension, when the service sent one. */
+function providerErrorOf(body: unknown): string | undefined {
+  const value = (body as { provider_error?: unknown } | null)?.provider_error;
+  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 /** The note this SDK attaches, where the obvious retry is the one that cannot work. */
@@ -256,33 +188,4 @@ function advice(status: number, requestPath: string): { advice?: string } {
   if (status === 502) return { advice: creating ? newKeyAdvice : providerRefusedAdvice };
   if (status === 500 && creating) return { advice: credentialAdvice };
   return {};
-}
-
-/**
- * Whether a `400` is the documented not-in-a-downloadable-state failure.
- *
- * @remarks
- * Decided from the **request path**, not from the message: `/pdf` and `/download-link` are the only
- * two endpoints with that state requirement, and they are the only two this package calls where a
- * `bad_request` can mean it. Every other `400 bad_request` is a request to fix.
- */
-function isNotDownloadable(code: InvoiceErrorCode, requestPath: string): boolean {
-  if (code !== "bad_request") return false;
-  return requestPath.endsWith("/pdf") || requestPath.endsWith("/download-link");
-}
-
-/** The statuses the service can name in that message. */
-const statuses: readonly InvoiceStatus[] = ["pending", "created", "failed", "cancelled"];
-
-/**
- * Lift the status out of `"Invoice is not in a downloadable state (status: failed)"`.
- *
- * @returns The status, or `null` when the message does not carry one.
- * @remarks
- * The one place this package reads prose, and it fails **closed**: the value is exposed as a hint on
- * a named error, never branched on here, and `null` is the honest answer when the wording changes.
- */
-function statusFromMessage(message: string): InvoiceStatus | null {
-  const named = /\(status:\s*([a-z]+)\)/.exec(message)?.[1];
-  return statuses.find((status) => status === named) ?? null;
 }

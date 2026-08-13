@@ -12,10 +12,11 @@
  *   {@link CancelledInvoice} declares it — so the documented silent failure, a detail page rendering
  *   nothing forever, is a compile error instead.
  * - **Four things the service forwards rather than checks are checked here.** Dates are branded
- *   {@link IsoDate}, VAT rates and `providerConfigId` are validated locally, and `items` must be
+ *   {@link IsoDate}, VAT rates, minor-unit amounts and `provider_config_id` are validated locally, and `items` must be
  *   non-empty — because each of those otherwise comes back as a `502` with the key already spent.
  *
- * Money here is a **major-unit number**: `grossAmount: 38100` means 38 100 Ft, and it is `null` until
+ * Money here is a **minor-unit decimal string**: `gross_amount_minor: "38100"` means 38 100 Ft — HUF
+ * is zero-decimal in this API — and it is `null` until
  * the invoice is `created`. `@lazslov/payment` uses a decimal string of *minor* units. Neither package
  * converts between them; if a site needs to invoice a payment, that conversion is written in the site,
  * visibly, once.
@@ -43,13 +44,13 @@
  * const { invoice, replayed } = await invoices.createInvoice(
  *   {
  *     provider: "billingo",
- *     providerConfigId: "billingo_acme",
+ *     provider_config_id: "billingo_acme",
  *     partner: {
  *       name: "Teszt Vevő Kft",
  *       taxNumber: "12345678-2-42",
  *       address: { postalCode: "1011", city: "Budapest", address: "Fő utca 1" },
  *     },
- *     items: [{ name: "Tanácsadás", quantity: 1, netUnitPrice: 15000, vatRate: "27" }],
+ *     items: [{ name: "Tanácsadás", quantity: 1, net_unit_price_minor: "15000", vat_rate: "27" }],
  *     dueDate: isoDate("2026-08-02"),
  *     partnerRef: order.id,
  *   },
@@ -68,9 +69,8 @@ export { type IsoDate, isoDate } from "./dates.js";
 export type { DocumentMethods } from "./documents.js";
 export {
   InvoiceApiError,
-  type InvoiceErrorCode,
   InvoiceNotDownloadableError,
-  type InvoiceValidationDetails,
+  type InvoiceProblemCode,
 } from "./errors.js";
 export type { HealthMethods } from "./health.js";
 export type { ListAllInvoicesOptions, ListInvoicesOptions, ReadMethods } from "./reads.js";
@@ -99,4 +99,4 @@ export type {
  * Kept in step with `package.json` by a test, so a release cannot ship a constant that disagrees with
  * the tarball it came from.
  */
-export const VERSION = "0.1.0";
+export const VERSION = "1.0.0";

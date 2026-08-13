@@ -2,28 +2,54 @@
  * The error base every service package throws, and the shape of the parser each one supplies.
  *
  * @remarks
- * Core owns the class; it does not own **normalisation**. content-service and invoice-service
- * branch on `error.code`, payment-service on an RFC 7807 `problem.type`, so each package reads
- * its own envelope and fills these fields in.
+ * Core owns the class *and* the normalisation, which it did not used to. The three services
+ * now answer with one RFC 9457 problem document over one closed type set, so the reader lives
+ * once in `./problem.ts` and each package binds its own service name to it.
  */
 
-/** Everything {@link LamidoApiError} needs. Assembled by a service package's error parser. */
+import type { ProblemFieldError, ProblemType } from "./problem.js";
+
+/** Everything {@link LamidoApiError} needs. Assembled by {@link readProblem}. */
 export interface ApiErrorInit {
   /** Which service answered, e.g. `"content-service"`. */
   readonly service: string;
   /** HTTP status, or `0` when the request was never made. */
   readonly status: number;
-  /** The service's stable machine-readable value, widened per package to its own union. */
-  readonly code: string;
+  /**
+   * The problem slug. **Branch on this**, paired with `status`.
+   *
+   * @remarks
+   * `conflict` covers both `409` and `422`, and `internal` covers both `500` and `502`, so the
+   * slug alone does not identify the failure. `unknown` means no problem document arrived.
+   */
+  readonly type: ProblemType;
+  /**
+   * The `409`/`422` sub-case, e.g. `idempotency_key_reused`.
+   *
+   * @remarks
+   * Absent on most problems — it exists only where two failures share a `(type, status)` pair
+   * and a caller has to tell them apart.
+   */
+  readonly code?: string;
   readonly message: string;
   /** Request path only — never a full URL, never a query string. */
   readonly requestPath: string;
   /**
-   * Whether retrying can succeed, decided from the service's own documented error table
-   * rather than inferred from the status.
+   * Whether retrying the identical request can succeed, from the services' own error tables.
+   *
+   * @remarks
+   * True does not mean "retry now". A `429` wants {@link LamidoApiError.retryAfter} seconds
+   * first, and `@lazslov/invoice` documents statuses where the retry needs a **new**
+   * idempotency key.
    */
   readonly retryable: boolean;
-  /** The service's own `details` or problem extension members, and nothing else. */
+  /** Field-level errors, on a `400`. Every failure at once, not the first. */
+  readonly errors?: readonly ProblemFieldError[];
+  /** Seconds to wait, on a `429`. */
+  readonly retryAfter?: number;
+  /** The response's `X-Request-Id`. Quote it in a support request. */
+  readonly requestId?: string;
+  /** The service's own `details` diagnostics extension, passed through untouched. */
   readonly details?: unknown;
 }
 
@@ -47,7 +73,7 @@ export interface ApiErrorInit {
 export class LamidoApiError extends Error {
   readonly service: string;
   readonly status: number;
-  readonly code: string;
+  readonly type: ProblemType;
   readonly requestPath: string;
   readonly retryable: boolean;
   /**
@@ -57,18 +83,28 @@ export class LamidoApiError extends Error {
    * A class field declaration emits `details = undefined` under ES2022 semantics, which makes
    * `"details" in error` true on every error. Absence is the honest signal that the service
    * sent no detail — and it keeps a logged error object down to what it really carries.
+   *
+   * The same reasoning covers every optional field below.
    */
   declare readonly details?: unknown;
+  declare readonly code?: string;
+  declare readonly errors?: readonly ProblemFieldError[];
+  declare readonly retryAfter?: number;
+  declare readonly requestId?: string;
 
   constructor(init: ApiErrorInit) {
     super(init.message);
     this.name = "LamidoApiError";
     this.service = init.service;
     this.status = init.status;
-    this.code = init.code;
+    this.type = init.type;
     this.requestPath = init.requestPath;
     this.retryable = init.retryable;
     if (init.details !== undefined) this.details = init.details;
+    if (init.code !== undefined) this.code = init.code;
+    if (init.errors !== undefined) this.errors = init.errors;
+    if (init.retryAfter !== undefined) this.retryAfter = init.retryAfter;
+    if (init.requestId !== undefined) this.requestId = init.requestId;
   }
 }
 
@@ -86,6 +122,9 @@ export class NotConfiguredError extends LamidoApiError {
     super({
       service: init.service,
       status: 0,
+      // No request left the process, so no problem document exists to classify it. `unknown` is
+      // the honest slug; `code` carries the one thing that is actually known.
+      type: "unknown",
       code: "not_configured",
       message: init.message,
       requestPath: init.requestPath ?? "",

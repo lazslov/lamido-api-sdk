@@ -20,7 +20,7 @@ export interface RefundMethods {
    * @param key - **Required**, and derived from the operation: `refund-order-12345-partial-1`.
    * @param options - `init` only.
    * @returns The refund, and whether this was a replay.
-   * @throws {@link ./errors.js | PaymentApiError}. A `422` carries `conflictCode` and **is retryable
+   * @throws {@link ./errors.js | PaymentApiError}. A `422` carries `code` and **is retryable
    * later** — all four causes describe the *payment's* state, which changes. A `502` whose
    * `providerOutcome` is `"refund_unknown"` must **not** be retried: the reservation stays held
    * deliberately, and only the service's reconciler may resolve it. Read the refund again in a minute.

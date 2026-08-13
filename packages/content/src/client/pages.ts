@@ -1,5 +1,5 @@
 /**
- * `/api/client/pages/*` — draft values, publish, revert, versions and preview.
+ * `/v1/pages/*` — draft values, publish, revert, versions and preview.
  *
  * @remarks
  * The write surface is deliberately granular. A whole-document save is last-write-wins by
@@ -11,7 +11,7 @@
  */
 
 import type { ResolvedConfig } from "@lazslov/api-core";
-import { call, callList } from "../call.js";
+import { call, callList, callUnpaginated } from "../call.js";
 import { type LocaleOptions, passInit, type RequestOptions } from "../options.js";
 import { type PublishedPage, toPublishedPage } from "../page.js";
 import type {
@@ -116,7 +116,7 @@ export interface PageMethods {
    * that field and the row keeps its published value — to publish an *empty* field, send `""`. There
    * is deliberately no way to make a live value vanish.
    *
-   * An unknown key is a `400` with `details.unknownKeys`, not a silent strip: a stripped
+   * An unknown key is a `400` with `details.unknown_keys`, not a silent strip: a stripped
    * `"hero.titel"` loses the editor's new headline behind a `200 OK`.
    */
   patchValues(
@@ -201,23 +201,22 @@ export interface PageMethods {
  * @internal
  */
 export function bindPageMethods(cfg: ResolvedConfig): PageMethods {
-  const base = (slug: string) => `/api/client/pages/${encodeURIComponent(slug)}`;
+  const base = (slug: string) => `/v1/pages/${encodeURIComponent(slug)}`;
 
   const rendered = (slug: string, options: RenderedPageOptions) =>
     call<PageDocument>(cfg, {
       method: "GET",
-      path: `/api/client/rendered/pages/${encodeURIComponent(slug)}`,
+      path: `/v1/rendered/pages/${encodeURIComponent(slug)}`,
       query: { view: options.view, locale: options.locale },
-      read: { kind: "data" },
+      read: { kind: "raw" },
       ...passInit(options),
     });
 
   return {
     listPages: (options = {}) =>
-      call<ClientPage[]>(cfg, {
+      callUnpaginated<ClientPage>(cfg, {
         method: "GET",
-        path: "/api/client/pages",
-        read: { kind: "data" },
+        path: "/v1/pages",
         ...passInit(options),
       }),
 
@@ -225,7 +224,7 @@ export function bindPageMethods(cfg: ResolvedConfig): PageMethods {
       call<PageStructure>(cfg, {
         method: "GET",
         path: base(slug),
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -238,7 +237,7 @@ export function bindPageMethods(cfg: ResolvedConfig): PageMethods {
         method: "PATCH",
         path: `${base(slug)}/values`,
         body: { values, ...(options.locale ? { locale: options.locale } : {}) },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       });
       return toPublishedPage(document);
@@ -252,7 +251,7 @@ export function bindPageMethods(cfg: ResolvedConfig): PageMethods {
           ...(options.note === undefined ? {} : { note: options.note }),
           ...(options.locale === undefined ? {} : { locale: options.locale }),
         },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -261,7 +260,7 @@ export function bindPageMethods(cfg: ResolvedConfig): PageMethods {
         method: "POST",
         path: `${base(slug)}/revert`,
         body: options.locale === undefined ? {} : { locale: options.locale },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -277,7 +276,7 @@ export function bindPageMethods(cfg: ResolvedConfig): PageMethods {
       call<PageVersion>(cfg, {
         method: "GET",
         path: `${base(slug)}/versions/${version}`,
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -286,7 +285,7 @@ export function bindPageMethods(cfg: ResolvedConfig): PageMethods {
         method: "POST",
         path: `${base(slug)}/versions/${version}/restore`,
         body: options.locale === undefined ? {} : { locale: options.locale },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 

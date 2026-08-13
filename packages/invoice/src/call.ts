@@ -64,5 +64,5 @@ export function passInit(options: RequestOptions): { init?: RequestInit } {
 
 /** One invoice's path, with the id encoded. */
 export function invoicePath(id: string): string {
-  return `/api/invoices/${encodeURIComponent(id)}`;
+  return `/v1/invoices/${encodeURIComponent(id)}`;
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPaymentWebhookHandler } from "../src/next/handler.js";
-import type { PaymentWebhookEvent } from "../src/webhook.js";
+import { isKnownEvent, isRefundEvent, type PaymentWebhookEvent } from "../src/webhook.js";
 import { eventBody, eventRequest, testWebhookSecret } from "./stubs/delivery.js";
 
 /**
@@ -55,7 +55,10 @@ describe("a valid, first-time delivery", () => {
 
     expect(response.status).toBe(200);
     expect(handled).toHaveLength(1);
-    expect(handled[0]?.payment.id).toBe("019e4a91-0000-7000-8000-000000000002");
+    const first = handled[0];
+    expect(first && isKnownEvent(first) && first.data.payment.public_id).toBe(
+      "019e4a91-0000-7000-8000-000000000003",
+    );
     expect([...processed]).toEqual(["019e4a91-0000-7000-8000-000000000001"]);
   });
 
@@ -87,11 +90,21 @@ describe("a valid, first-time delivery", () => {
   it("carries a refund event's extra block through", async () => {
     const body = eventBody({
       event_type: "refund.succeeded",
-      refund: {
-        id: "019e4a91-0000-7000-8000-000000000003",
-        status: "succeeded",
-        amount_minor: "1000",
-        currency: "HUF",
+      data: {
+        payment: {
+          public_id: "019e4a91-0000-7000-8000-000000000003",
+          merchant_payment_ref: "order-12345",
+          status: "partially_refunded",
+          amount_minor: "2500",
+          currency: "HUF",
+          provider: "barion",
+        },
+        refund: {
+          public_id: "019e4a91-0000-7000-8000-000000000004",
+          status: "succeeded",
+          amount_minor: "1000",
+          currency: "HUF",
+        },
       },
     });
     const { handler, handled } = harness();
@@ -99,7 +112,7 @@ describe("a valid, first-time delivery", () => {
 
     const event = handled[0];
     expect(event?.event_type).toBe("refund.succeeded");
-    expect(event && "refund" in event ? event.refund.amount_minor : null).toBe("1000");
+    expect(event && isRefundEvent(event) && event.data.refund.amount_minor).toBe("1000");
   });
 });
 

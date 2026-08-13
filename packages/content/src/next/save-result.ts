@@ -11,38 +11,54 @@
  * translation layer inside a dependency is one nobody can edit.
  */
 
-import { NotConfiguredError } from "@lazslov/api-core";
-import { ContentApiError, type ContentErrorCode } from "../errors.js";
+import { NotConfiguredError, type ProblemType } from "@lazslov/api-core";
+import { ContentApiError } from "../errors.js";
+
+/**
+ * What a write action reports when it fails.
+ *
+ * @remarks
+ * The service's problem slug, plus this SDK's own `not_configured` for a missing base URL or key.
+ */
+export type SaveErrorCode = ProblemType | "not_configured";
 
 /**
  * What a write action returns.
  *
  * @remarks
- * `error` is the service's **stable code**, not prose — switch on it to pick your own sentence. The
- * SDK deliberately does not put a message here that a site would be tempted to render.
+ * `error` is the service's **stable problem slug**, not prose — switch on it to pick your own
+ * sentence. The SDK deliberately does not put a message here that a site would be tempted to
+ * render.
  */
 export type SaveResult =
   | { readonly ok: true }
   | {
       readonly ok: false;
       /**
-       * The service's stable code. Branch on this.
+       * The problem slug. Branch on this.
        *
        * @remarks
        * `not_configured` arrives through the same channel as a real `401`, thanks to core's `status: 0`
        * sentinel — so a site needs one translator, not two. A thrown value that is not a
-       * {@link ContentApiError} at all reports `internal_error`, because from the editor's side an SDK
+       * {@link ContentApiError} at all reports `internal`, because from the editor's side an SDK
        * bug and a server fault are the same event.
+       *
+       * A slug does not always identify the failure on its own: `conflict` covers both a `409`
+       * duplicate and a `422` wrong-state. Catch the error itself where the difference matters.
        */
-      readonly error: ContentErrorCode;
+      readonly error: SaveErrorCode;
       /**
        * Per-field messages, keyed by field.
        *
        * @remarks
-       * Present when the service answered `validation_error` with something field-shaped, so a form can
+       * Present when the service answered `validation` with something field-shaped, so a form can
        * render errors next to inputs instead of one toast. The messages are the service's own English
        * and are meant for a developer reading them during a build; render your own copy where the key
        * matters and treat these as the fallback.
+       *
+       * For the exact location of every failure — including ones inside nested values — read
+       * `error.errors`, the RFC 9457 field-error array, whose `pointer` is a JSON Pointer into the
+       * body. This map is the form-shaped summary of it.
        *
        * A publish `conflict` is not mapped here: its `details.missing` entries are `"<section>.<field>"`
        * paths across a whole page rather than fields of the form that was just submitted, and each one
@@ -87,10 +103,10 @@ export async function asSaveResult(fn: () => Promise<unknown>): Promise<SaveResu
     // before any service-specific parser runs. Its `status: 0` sentinel is the whole reason a site
     // needs one translator rather than two, so it must not collapse into `internal_error`.
     if (error instanceof NotConfiguredError) return { ok: false, error: "not_configured" };
-    if (!(error instanceof ContentApiError)) return { ok: false, error: "internal_error" };
+    if (!(error instanceof ContentApiError)) return { ok: false, error: "internal" };
 
     const fields = fieldsFrom(error);
-    return { ok: false, error: error.code, ...(fields === undefined ? {} : { fields }) };
+    return { ok: false, error: error.type, ...(fields === undefined ? {} : { fields }) };
   }
 }
 
@@ -101,18 +117,18 @@ export async function asSaveResult(fn: () => Promise<unknown>): Promise<SaveResu
  * @remarks
  * Two documented shapes, and both are field-shaped:
  *
- * - `unknownKeys` — value keys the section's schema does not declare. Usually a renamed field or a
+ * - `unknown_keys` — value keys the section's schema does not declare. Usually a renamed field or a
  *   stale form, and the editor's actual work is elsewhere; the message says so.
  * - `invalid[]` — one entry per badly shaped value, already carrying the key and a reason.
  *
- * `invalid` wins on a collision, because it explains *why* and `unknownKeys` only says *which*.
+ * `invalid` wins on a collision, because it explains *why* and `unknown_keys` only says *which*.
  */
 function fieldsFrom(error: ContentApiError): Record<string, string> | undefined {
-  if (error.code !== "validation_error") return undefined;
+  if (error.type !== "validation") return undefined;
 
   const fields: Record<string, string> = {};
 
-  for (const key of error.details?.unknownKeys ?? []) {
+  for (const key of error.details?.unknown_keys ?? []) {
     fields[key] = "This field is not part of the section's schema.";
   }
   for (const entry of error.details?.invalid ?? []) {

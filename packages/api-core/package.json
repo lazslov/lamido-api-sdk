@@ -1,6 +1,6 @@
 {
   "name": "@lazslov/api-core",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Shared transport, errors and signature verification for the @lazslov/* service SDKs.",
   "license": "MIT",
   "repository": {

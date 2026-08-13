@@ -1,42 +1,117 @@
-/** One page of results, as a `limit`/`offset` list endpoint returns it. */
-export interface Page<T> {
+/**
+ * The two paginators, because the services genuinely have two kinds of list.
+ *
+ * @remarks
+ * The difference is whether the table grows with your activity. A keyset cursor walks an
+ * unbounded one — dataset records, assets, invoices, payments, the audit trail — and carries no
+ * `total`, because counting a filtered unbounded table on every page is not cheap. An offset
+ * walks the bounded, staff-curated ones: collection items, page versions, sites.
+ */
+
+/** One page of a cursor list, as every list endpoint on the three services returns it. */
+export interface CursorPage<T> {
   readonly items: T[];
   /**
-   * Total matching rows, when the endpoint reports one.
+   * The next cursor, or `null` on the last page.
    *
    * @remarks
-   * Absent on `GET /api/invoices`, and the unpaginated invoice lists omit `limit` and `offset`
-   * from the body as well — so a paginator cannot assume any pagination key exists.
+   * **Always present, `null` rather than absent.** A pager that reads `undefined` exits, which
+   * is accidentally right until the day the endpoint grows a second page.
    */
+  readonly nextCursor: string | null;
+}
+
+/** One page of an offset list. */
+export interface Page<T> {
+  readonly items: T[];
+  /** Total matching rows, when the endpoint reports one. Never `null`. */
   readonly total?: number;
 }
 
-/** Options for {@link collectAll}. */
+/** Options common to both paginators. */
 export interface CollectAllOptions {
-  /** Default 100, the documented maximum on both `limit`-based services. */
+  /** Page size. Defaults to each paginator's own documented maximum-friendly value. */
   readonly pageSize?: number;
   /** Default 100. A loop breaker, not a result cap — see {@link collectAll}. */
   readonly maxPages?: number;
 }
 
 /**
- * Follow a `limit`/`offset` list to the end.
+ * The message both paginators fail with, so the two read identically in a log.
+ *
+ * @remarks
+ * Deliberately a throw rather than a truncated list: a silently short list is a bug nobody
+ * looks for inside a fetch helper, and it appears the day a list outgrows the cap.
+ */
+function exhausted(name: string, maxPages: number, pageSize: number): Error {
+  return new Error(
+    `${name} stopped after ${maxPages} pages of ${pageSize} without reaching the end. ` +
+      "Raise maxPages deliberately, or narrow the query — a truncated list is not returned.",
+  );
+}
+
+/**
+ * Follow a keyset-cursor list to the end.
  *
  * @param readPage - Reads one page. Supplied by the endpoint function, so the paginator knows
  * nothing about paths or parameters.
- * @param options - Page size and the loop breaker.
+ * @param options - Page size (default 50, the services' own default; the maximum is 200) and
+ * the loop breaker.
  * @returns Every item, in page order.
- * @throws When `maxPages` is reached. Deliberately a throw rather than a truncated list: a
- * silently short list is a bug nobody looks for inside a fetch helper, and it appears the day
- * a list outgrows the cap.
+ * @throws When `maxPages` is reached.
  * @remarks
- * Not exported from `@lazslov/payment`: its merchant tier is unpaginated and its admin tier uses
- * keyset cursors, so neither shape fits this.
+ * The cursor is opaque and is passed back verbatim. This function never constructs, parses or
+ * stores one — the encoding is free to change, and a malformed cursor is a `400` rather than a
+ * quiet restart from page one.
+ *
+ * @example
+ * ```ts
+ * const records = await collectAllCursor(({ limit, cursor }) =>
+ *   content.listRecords("donations", { limit, cursor }),
+ * );
+ * ```
+ */
+export async function collectAllCursor<T>(
+  readPage: (params: { limit: number; cursor?: string }) => Promise<CursorPage<T>>,
+  options: CollectAllOptions = {},
+): Promise<T[]> {
+  const pageSize = options.pageSize ?? 50;
+  const maxPages = options.maxPages ?? 100;
+
+  const collected: T[] = [];
+  let cursor: string | undefined;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await readPage(
+      cursor === undefined ? { limit: pageSize } : { limit: pageSize, cursor },
+    );
+    collected.push(...result.items);
+
+    // The cursor is the only terminator. A short page is *not* one: a filtered keyset page can
+    // come back under `limit` and still have more behind it.
+    if (result.nextCursor === null) return collected;
+    cursor = result.nextCursor;
+  }
+
+  throw exhausted("collectAllCursor", maxPages, pageSize);
+}
+
+/**
+ * Follow a `limit`/`offset` list to the end.
+ *
+ * @param readPage - Reads one page.
+ * @param options - Page size (default 100) and the loop breaker.
+ * @returns Every item, in page order.
+ * @throws When `maxPages` is reached.
+ * @remarks
+ * For the bounded, staff-curated lists only. An out-of-range `limit` is a `400` on these
+ * endpoints rather than a clamp, and the ceiling is 100 — 1000 on a dataset aggregate — so a
+ * caller raising `pageSize` should check the endpoint first.
  *
  * @example
  * ```ts
  * const items = await collectAll(({ limit, offset }) =>
- *   content.getCollection("news", { limit, offset }).then((page) => page ?? { items: [], total: 0 }),
+ *   content.listCollectionItems("news", { limit, offset }),
  * );
  * ```
  */
@@ -60,8 +135,5 @@ export async function collectAll<T>(
     if (total === undefined && items.length < pageSize) return collected;
   }
 
-  throw new Error(
-    `collectAll stopped after ${maxPages} pages of ${pageSize} without reaching the end. ` +
-      "Raise maxPages deliberately, or narrow the query — a truncated list is not returned.",
-  );
+  throw exhausted("collectAll", maxPages, pageSize);
 }

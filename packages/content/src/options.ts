@@ -27,12 +27,38 @@ export interface LocaleOptions extends RequestOptions {
   readonly locale?: string;
 }
 
-/** Paginated reads. */
+/**
+ * Offset-paged reads — the bounded, staff-curated lists.
+ *
+ * @remarks
+ * Collection items, page versions and dataset aggregates. The service pages these by offset
+ * because the list does not grow with your activity, so a stable page number is meaningful.
+ */
 export interface ListOptions extends LocaleOptions {
-  /** 1–100, default 20. Out of range is a `400`, never a clamp. */
+  /** 1–100, default 20 — 1–1000, default 100 on a dataset aggregate. Out of range is a `400`, never a clamp. */
   readonly limit?: number;
   /** ≥ 0, default 0. */
   readonly offset?: number;
+}
+
+/**
+ * Keyset-paged reads — the lists that grow with your activity.
+ *
+ * @remarks
+ * Dataset records and the asset library. There is no `offset`: the rows move under you as new
+ * ones arrive, and an offset would skip or repeat across pages.
+ */
+export interface CursorListOptions extends RequestOptions {
+  /** 1–200, default 50. Out of range is a `400`, never a clamp. */
+  readonly limit?: number;
+  /**
+   * An opaque cursor, taken verbatim from a previous page's `nextCursor`.
+   *
+   * @remarks
+   * Never construct, parse or store one — the encoding is free to change, and a malformed cursor
+   * is a `400` rather than a quiet restart from page one.
+   */
+  readonly cursor?: string;
 }
 
 /**

@@ -1,19 +1,21 @@
 /**
- * RFC 7807 Problem Details, translated once.
+ * RFC 9457 Problem Details, narrowed to what this package's callers branch on.
  *
  * @remarks
- * Nothing here resembles the other two packages' error parsers, because payment-service has no
- * `{ data }` / `{ error }` envelope at all: a success response is the resource itself, and a failure
- * is `application/problem+json`.
+ * The parse is `@lazslov/api-core`'s now: the three services share one problem document over one
+ * closed slug set, so payment-service is no longer the odd one out. It never had a
+ * `{ data }` / `{ error }` envelope, and the other two have now dropped theirs too.
  *
  * The rule the parser exists to enforce is **branch on `type`, never on `title` or `detail`**.
  * `title` summarises the HTTP *status*, not the type, so a 422 whose type is `conflict` reads
  * "Unprocessable Entity"; `detail` is prose for a human reading a log. Both may be reworded. There
  * is exactly one exception, and it is a 502 — see {@link ./provider-outcome.js}.
+ *
+ * What this module keeps that core cannot know: the 502 provider-outcome triage, the in-flight
+ * 409, and the advice attached to each.
  */
 
-import { type ErrorContext, LamidoApiError } from "@lazslov/api-core";
-import type { components } from "./generated/schema.js";
+import { type ErrorContext, LamidoApiError, readProblem } from "@lazslov/api-core";
 import {
   classifyProviderOutcome,
   isProviderOutcomeRetryable,
@@ -25,26 +27,13 @@ import {
 export const serviceName = "payment-service";
 
 /**
- * Every problem type the service sends.
- *
- * @remarks
- * A closed set; adding a member is an API change. Note what is *not* here: there is no `provider`
- * type. A PSP failure is `internal` carried by HTTP **502**, because from a caller's point of view
- * the distinction that matters is "their side, not mine", and the status already says whether
- * retrying can help.
- *
- * `conflict` carries both 409 and 422, which is why `retryable` cannot be derived from the type
- * alone.
- */
-export type PaymentProblemType = components["schemas"]["Problem"]["type"];
-
-/**
  * The `code` extension member on a 422 — the values a caller actually switches on.
  *
  * @remarks
- * Spelled `conflictCode` on the error rather than `code`, which core already uses for the
- * machine-readable value of the failure itself. Two fields called `code` on one error would be a
- * trap in exactly the place where money is involved.
+ * Carried on core's `code`, which now holds exactly this: the machine-branchable sub-case where a
+ * `(type, status)` pair alone cannot identify the failure. It used to be spelled `conflictCode`
+ * here to avoid colliding with core's `code`, which then held the problem type; core holds the
+ * slug in `type` now, so the two have merged and the alias is gone.
  */
 export type PaymentConflictCode =
   /** The payment has not succeeded, or its status moved while the refund was being reserved. */
@@ -61,20 +50,14 @@ export type PaymentConflictCode =
   | "endpoint_disabled";
 
 /** Everything {@link PaymentApiError} carries beyond core's fields. */
-interface PaymentErrorInit {
-  readonly type: PaymentProblemType;
-  readonly status: number;
+type PaymentErrorInit = ConstructorParameters<typeof LamidoApiError>[0] & {
   readonly title: string;
   readonly detail: string;
-  readonly requestPath: string;
-  readonly retryable: boolean;
   readonly advice?: string;
-  readonly conflictCode?: PaymentConflictCode;
   readonly providerOutcome?: ProviderOutcome;
   readonly providerError?: string;
-  readonly retryAfterSeconds?: number;
   readonly supportedEvents?: string[];
-}
+};
 
 /**
  * A failed call to payment-service.
@@ -90,21 +73,12 @@ interface PaymentErrorInit {
  * } catch (error) {
  *   if (!(error instanceof PaymentApiError)) throw error;
  *   if (error.providerOutcome === "unknown") return retryWith(key);  // the SAME key
- *   if (error.retryable) return scheduleRetry(error.retryAfterSeconds);
+ *   if (error.retryable) return scheduleRetry(error.retryAfter);
  *   throw error;
  * }
  * ```
  */
 export class PaymentApiError extends LamidoApiError {
-  /**
-   * The problem type. **This is what to branch on.**
-   *
-   * @remarks
-   * Also available as core's `code`, which carries the same URN so cross-service code can read one
-   * field on any `@lazslov/*` error.
-   */
-  readonly type: PaymentProblemType;
-
   /** The service's summary of the **status**, not of the type. For a log; never for a branch. */
   readonly title: string;
 
@@ -122,8 +96,13 @@ export class PaymentApiError extends LamidoApiError {
    */
   declare readonly advice?: string;
 
-  /** The `code` extension member, on a 422. */
-  declare readonly conflictCode?: PaymentConflictCode;
+  /**
+   * The `code` extension member, on a 422.
+   *
+   * @remarks
+   * Narrowed from core's `string` to the closed set the service documents.
+   */
+  declare readonly code?: PaymentConflictCode;
 
   /** Present only when `status === 502`. See {@link ./provider-outcome.js}. */
   declare readonly providerOutcome?: ProviderOutcome;
@@ -131,63 +110,23 @@ export class PaymentApiError extends LamidoApiError {
   /** A short, non-secret description of what the PSP said. On a 502. */
   declare readonly providerError?: string;
 
-  /**
-   * Seconds to wait, on a 429.
-   *
-   * @remarks
-   * From `refresh`'s per-payment throttle: one call per payment per 5 seconds, and **no provider
-   * call was made**. A failed refresh consumes the window too, which is what stops a retry loop
-   * hammering a PSP that is timing out.
-   */
-  declare readonly retryAfterSeconds?: number;
-
   /** The valid webhook event types, when a 400 rejected an unknown one. */
   declare readonly supportedEvents?: string[];
 
   constructor(init: PaymentErrorInit) {
     super({
-      service: serviceName,
-      status: init.status,
-      // core's `code` is the stable machine value; here that is the problem type.
-      code: init.type,
+      ...init,
       message: init.advice ? `${init.detail} — ${init.advice}` : init.detail,
-      requestPath: init.requestPath,
-      retryable: init.retryable,
     });
     this.name = "PaymentApiError";
-    this.type = init.type;
     this.title = init.title;
     this.detail = init.detail;
     if (init.advice !== undefined) this.advice = init.advice;
-    if (init.conflictCode !== undefined) this.conflictCode = init.conflictCode;
     if (init.providerOutcome !== undefined) this.providerOutcome = init.providerOutcome;
     if (init.providerError !== undefined) this.providerError = init.providerError;
-    if (init.retryAfterSeconds !== undefined) this.retryAfterSeconds = init.retryAfterSeconds;
     if (init.supportedEvents !== undefined) this.supportedEvents = init.supportedEvents;
   }
 }
-
-/** Problem types the service documents. Anything else came from a proxy, not from the service. */
-const documented = new Set<PaymentProblemType>([
-  "urn:payment-service:problem:validation",
-  "urn:payment-service:problem:unauthorized",
-  "urn:payment-service:problem:forbidden",
-  "urn:payment-service:problem:not-found",
-  "urn:payment-service:problem:conflict",
-  "urn:payment-service:problem:rate-limit",
-  "urn:payment-service:problem:internal",
-]);
-
-/** How the service pairs a status with a type, for when no problem body arrived. */
-const typeByStatus: Readonly<Record<number, PaymentProblemType>> = {
-  400: "urn:payment-service:problem:validation",
-  401: "urn:payment-service:problem:unauthorized",
-  403: "urn:payment-service:problem:forbidden",
-  404: "urn:payment-service:problem:not-found",
-  409: "urn:payment-service:problem:conflict",
-  422: "urn:payment-service:problem:conflict",
-  429: "urn:payment-service:problem:rate-limit",
-};
 
 /** Every conflict code the service documents. */
 const conflictCodes = new Set<PaymentConflictCode>([
@@ -225,39 +164,31 @@ const inFlightAdvice =
  * Bound into every request this package makes, so a caller never sees an untranslated status.
  */
 export const parsePaymentError = (context: ErrorContext): PaymentApiError => {
-  const problem = (context.body ?? {}) as Record<string, unknown>;
-
-  const type = typeFor(context.status, problem.type);
+  const problem = (
+    typeof context.body === "object" && context.body !== null ? context.body : {}
+  ) as Record<string, unknown>;
+  const init = readProblem(serviceName, context);
   const status = context.status;
-  const detail =
-    typeof problem.detail === "string" && problem.detail !== ""
-      ? problem.detail
-      : `${serviceName} answered ${status}`;
 
-  const conflictCode =
-    typeof problem.code === "string" && conflictCodes.has(problem.code as PaymentConflictCode)
-      ? (problem.code as PaymentConflictCode)
-      : undefined;
-
+  const detail = init.message;
   const providerOutcome = status === 502 ? classifyProviderOutcome(problem.detail) : undefined;
-  const retryAfterSeconds = readRetryAfter(problem.retry_after, context.headers);
 
   return new PaymentApiError({
-    type,
-    status,
+    ...init,
+    // Narrowed to the documented set: a code the service does not document came from a proxy.
+    ...(init.code !== undefined && conflictCodes.has(init.code as PaymentConflictCode)
+      ? { code: init.code as PaymentConflictCode }
+      : { code: undefined }),
     title: typeof problem.title === "string" ? problem.title : "",
     detail,
-    // The service's `instance` is the request path and nothing else, which is what core records
-    // anyway — so the path comes from the request rather than from a field a proxy could rewrite.
-    requestPath: context.requestPath,
+    // Overrides core's flat verdict: a 502 here depends on what happened at the PSP, and a 409
+    // is retryable only while an attempt's lease is still in flight.
     retryable: isRetryable(status, providerOutcome, detail),
     ...advice(status, providerOutcome, detail),
-    ...(conflictCode === undefined ? {} : { conflictCode }),
     ...(providerOutcome === undefined ? {} : { providerOutcome }),
     ...(typeof problem.provider_error === "string"
       ? { providerError: problem.provider_error }
       : {}),
-    ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
     ...(Array.isArray(problem.supported_events)
       ? {
           supportedEvents: problem.supported_events.filter(
@@ -267,14 +198,6 @@ export const parsePaymentError = (context: ErrorContext): PaymentApiError => {
       : {}),
   });
 };
-
-/** The type the service sent, or the one its status implies. */
-function typeFor(status: number, raw: unknown): PaymentProblemType {
-  if (typeof raw === "string" && documented.has(raw as PaymentProblemType)) {
-    return raw as PaymentProblemType;
-  }
-  return typeByStatus[status] ?? "urn:payment-service:problem:internal";
-}
 
 /**
  * Whether retrying the identical request can succeed.
@@ -323,11 +246,4 @@ function advice(
  */
 function isInFlight(detail: string): boolean {
   return detail.toLowerCase().includes("in flight");
-}
-
-/** `retry_after` is a problem member on the refresh throttle; `Retry-After` is the HTTP header. */
-function readRetryAfter(member: unknown, headers: Headers): number | undefined {
-  if (typeof member === "number" && Number.isFinite(member)) return member;
-  const header = Number(headers.get("retry-after"));
-  return Number.isFinite(header) && header > 0 ? header : undefined;
 }

@@ -1,40 +1,45 @@
 [
   {
     "file": "admin-api.md",
-    "line": 147,
-    "context": "`GET /api/admin/me`",
+    "line": 183,
+    "context": "`GET /v1/admin/me`",
     "json": {
-      "data": {
-        "id": "b21f0a3e-…",
-        "label": "admin-site-prod",
-        "scopes": [
-          "*"
-        ],
-        "allowedIps": [],
-        "active": true,
-        "lastUsedAt": "2026-07-25T08:59:11.004Z",
-        "createdAt": "2026-06-02T10:22:41.771Z"
-      }
+      "id": "b21f0a3e-4c11-4b8a-9f01-2d33ee9a7c40",
+      "label": "admin-site-prod",
+      "scopes": [
+        "*"
+      ],
+      "allowed_ips": [],
+      "active": true,
+      "last_used_at": "2026-08-02T08:59:11.004Z",
+      "created_at": "2026-06-02T10:22:41.771Z"
     }
   },
   {
     "file": "admin-api.md",
-    "line": 166,
-    "context": "`GET /api/admin/health`",
+    "line": 203,
+    "context": "`GET /v1/admin/health`",
     "json": {
-      "data": {
-        "status": "attention",
-        "encryptionKeyConfigured": true,
-        "database": "ok",
-        "stuckInvoices": 2,
-        "failingCredentials": 1
-      }
+      "status": "attention",
+      "encryption_key_configured": true,
+      "download_link_secret_configured": true,
+      "database": "ok",
+      "stuck_invoices": 2,
+      "failing_credentials": 1,
+      "untested_credentials": 3,
+      "disabled_webhook_endpoints": 0,
+      "dead_lettered_deliveries": 0,
+      "dead_lettered_deliveries_cross_service": 0,
+      "overdue_webhook_deliveries": 0,
+      "clients_without_external_ref": 1,
+      "refused_inbound_events": 0,
+      "unroutable_inbound_events": 2
     }
   },
   {
     "file": "admin-api.md",
-    "line": 208,
-    "context": "`GET /api/admin/providers`",
+    "line": 285,
+    "context": "`GET /v1/admin/providers`",
     "json": {
       "data": [
         {
@@ -82,249 +87,256 @@
           ],
           "testDescription": "Calls GET /partners to verify the API key, then checks that the configured blockId and bankAccountId actually exist on the account. Issues nothing."
         }
-      ]
+      ],
+      "next_cursor": null
     }
   },
   {
     "file": "admin-api.md",
-    "line": 268,
-    "context": "`POST /api/admin/admin-keys`",
+    "line": 358,
+    "context": "`POST /v1/admin/admin-keys`",
     "json": {
       "label": "reporting",
       "scopes": [
         "clients:read",
         "stats:read"
       ],
-      "allowedIps": []
+      "allowed_ips": []
     }
   },
   {
     "file": "admin-api.md",
-    "line": 280,
-    "context": "`POST /api/admin/admin-keys`",
+    "line": 370,
+    "context": "`POST /v1/admin/admin-keys`",
     "json": {
-      "data": {
-        "id": "e0a4…",
-        "label": "reporting",
-        "scopes": [
-          "clients:read",
-          "stats:read"
-        ],
-        "allowedIps": [],
-        "active": true,
-        "lastUsedAt": null,
-        "createdAt": "2026-07-25T…",
-        "apiKey": "iad_YOUR_KEY…"
-      }
+      "id": "e0a4b7c1-9d22-4e10-8f31-77bb0c1d2e33",
+      "label": "reporting",
+      "scopes": [
+        "clients:read",
+        "stats:read"
+      ],
+      "allowed_ips": [],
+      "active": true,
+      "last_used_at": null,
+      "created_at": "2026-08-02T09:02:11.004Z",
+      "api_key": "iad_YOUR_KEY"
     }
   },
   {
     "file": "admin-api.md",
-    "line": 327,
-    "context": "`GET /api/admin/clients`",
+    "line": 421,
+    "context": "`GET /v1/admin/clients`",
     "json": {
       "data": [
         {
-          "id": "2c9f…",
+          "public_id": "019839b0-1c2d-7e3f-8a41-556677889900",
           "name": "Acme Kft",
           "notes": "onboarded by hand",
-          "externalRef": "BARSOFT-42",
-          "allowedProviderConfigs": [
+          "external_ref": "BARSOFT-42",
+          "allowed_provider_configs": [
             "billingo_acme"
           ],
           "active": true,
-          "createdAt": "2026-06-02T…",
-          "updatedAt": "2026-07-20T…",
-          "invoiceCount": 137,
-          "credentialCount": 1,
-          "lastInvoiceAt": "2026-07-24T16:02:11.008Z"
+          "created_at": "2026-06-02T10:00:00.000Z",
+          "updated_at": "2026-07-20T11:22:33.000Z",
+          "invoice_count": 137,
+          "credential_count": 1,
+          "last_invoice_at": "2026-07-24T16:02:11.008Z"
         }
       ],
-      "total": 12,
-      "limit": 20,
-      "offset": 0
+      "next_cursor": null,
+      "total": 12
     }
   },
   {
     "file": "admin-api.md",
-    "line": 353,
-    "context": "`POST /api/admin/clients`",
+    "line": 449,
+    "context": "`POST /v1/admin/clients`",
     "json": {
       "name": "Acme Kft",
-      "externalRef": "BARSOFT-42",
+      "external_ref": "BARSOFT-42",
       "notes": "onboarded by hand"
     }
   },
   {
     "file": "admin-api.md",
-    "line": 445,
+    "line": 461,
+    "context": "`POST /v1/admin/clients`",
+    "json": {
+      "public_id": "019839b0-1c2d-7e3f-8a41-556677889900",
+      "name": "Acme Kft",
+      "notes": "onboarded by hand",
+      "external_ref": "BARSOFT-42",
+      "allowed_provider_configs": [],
+      "active": true,
+      "created_at": "2026-08-02T09:05:00.000Z",
+      "updated_at": "2026-08-02T09:05:00.000Z",
+      "api_key": "isk_YOUR_KEY"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 557,
     "context": "The Credential object",
     "json": {
-      "id": "77aa…",
+      "id": "77aa11bb-22cc-33dd-44ee-55ff66aa77bb",
       "provider": "billingo",
-      "configId": "billingo_acme",
+      "config_id": "billingo_acme",
       "label": "Acme main block",
       "config": {
         "blockId": 1234,
         "bankAccountId": 5678
       },
-      "secretLast4": "9f2a",
-      "secretFingerprint": "1c4e8b02",
+      "secret_last4": "9f2a",
+      "secret_fingerprint": "1c4e8b02",
       "allowed": true,
-      "lastTestedAt": "2026-07-25T08:30:00.000Z",
-      "lastTestStatus": "ok",
-      "lastTestError": null,
+      "last_tested_at": "2026-08-02T08:30:00.000Z",
+      "last_test_status": "ok",
+      "last_test_error": null,
       "active": true,
-      "createdAt": "2026-06-02T…",
-      "updatedAt": "2026-07-25T…"
+      "created_at": "2026-06-02T10:04:00.000Z",
+      "updated_at": "2026-08-02T08:30:00.000Z"
     }
   },
   {
     "file": "admin-api.md",
-    "line": 501,
-    "context": "`GET /api/admin/integrations`",
+    "line": 614,
+    "context": "`GET /v1/admin/integrations`",
     "json": {
       "data": [
         {
-          "id": "77aa…",
-          "clientId": "2c9f…",
-          "clientName": "Acme Kft",
+          "id": "77aa11bb-22cc-33dd-44ee-55ff66aa77bb",
           "provider": "billingo",
-          "configId": "billingo_acme",
+          "config_id": "billingo_acme",
           "label": "Acme main block",
           "config": {
             "blockId": 1234,
             "bankAccountId": 5678
           },
-          "secretLast4": "9f2a",
-          "secretFingerprint": "1c4e8b02",
+          "secret_last4": "9f2a",
+          "secret_fingerprint": "1c4e8b02",
           "allowed": true,
-          "lastTestedAt": "2026-07-18T04:00:11.000Z",
-          "lastTestStatus": "failed",
-          "lastTestError": "Billingo responded with HTTP 401",
+          "last_tested_at": "2026-07-18T04:00:11.000Z",
+          "last_test_status": "failed",
+          "last_test_error": "Billingo responded with HTTP 401",
           "active": true,
-          "createdAt": "2026-06-02T…",
-          "updatedAt": "2026-07-18T…"
+          "created_at": "2026-06-02T10:04:00.000Z",
+          "updated_at": "2026-07-18T04:00:11.000Z",
+          "client_public_id": "019839b0-1c2d-7e3f-8a41-556677889900",
+          "client_name": "Acme Kft"
         }
       ],
-      "total": 1,
-      "limit": 20,
-      "offset": 0
+      "next_cursor": null,
+      "total": 1
     }
   },
   {
     "file": "admin-api.md",
-    "line": 588,
-    "context": "`PUT /api/admin/clients/:id/integrations/:configId`",
+    "line": 711,
+    "context": "`PUT /v1/admin/clients/{public_id}/integrations/{config_id}`",
     "json": {
       "provider": "szamlazz",
-      "secret": "the-agent-key",
+      "secret": "REPLACE_WITH_AGENT_KEY",
       "label": "Acme agent"
     }
   },
   {
     "file": "admin-api.md",
-    "line": 644,
-    "context": "`POST /api/admin/clients/:id/integrations/:configId/test`",
+    "line": 770,
+    "context": "`POST /v1/admin/clients/{public_id}/integrations/{config_id}/test`",
     "json": {
-      "data": {
-        "ok": false,
-        "message": "API key is valid, but blockId 9999 does not exist on this account (available: 1234)",
-        "details": {
-          "availableBlockIds": [
-            1234
-          ],
-          "availableBankAccountIds": [
-            5678
-          ]
-        },
-        "credential": {
-          "lastTestStatus": "failed",
-          "lastTestError": "API key is valid, but blockId …"
-        }
+      "ok": false,
+      "message": "API key is valid, but blockId 9999 does not exist on this account (available: 1234)",
+      "details": {
+        "availableBlockIds": [
+          1234
+        ],
+        "availableBankAccountIds": [
+          5678
+        ]
+      },
+      "credential": {
+        "last_test_status": "failed",
+        "last_test_error": "API key is valid, but blockId …"
       }
     }
   },
   {
     "file": "admin-api.md",
-    "line": 763,
-    "context": "`GET /api/admin/invoices/:id/download-link`",
+    "line": 909,
+    "context": "`GET /v1/admin/invoices/{public_id}/download-link`",
     "json": {
-      "data": {
-        "url": "https://invoice.example.com/api/public/invoices/…/pdf?token=…",
-        "expiresAt": "2026-08-01T…"
-      }
+      "url": "https://invoice.example.com/v1/public/invoices/019839c2-…/pdf?token=1786917843.Qm9ndXNTaWc",
+      "expires_at": "2026-08-09T09:14:03.000Z"
     }
   },
   {
     "file": "admin-api.md",
-    "line": 780,
-    "context": "`POST /api/admin/invoices/:id/cancel`",
+    "line": 929,
+    "context": "`POST /v1/admin/invoices/{public_id}/cancel`",
     "json": {
-      "reason": "customer cancelled the order"
+      "reason": "customer canceled the order"
     }
   },
   {
     "file": "admin-api.md",
-    "line": 824,
-    "context": "`POST /api/admin/invoices/:id/reconcile`",
+    "line": 992,
+    "context": "`POST /v1/admin/invoices/{public_id}/reconcile`",
     "json": {
       "action": "attach",
       "reason": "found it in the Billingo UI",
-      "providerInvoiceId": "99123",
-      "invoiceNumber": "2026/0042",
-      "grossAmount": 38100,
+      "provider_invoice_id": "99123",
+      "invoice_number": "2026/0042",
+      "gross_amount_minor": "38100",
       "currency": "HUF"
     }
   },
   {
     "file": "admin-api.md",
-    "line": 846,
-    "context": "`GET /api/admin/stats/overview`",
+    "line": 1042,
+    "context": "`GET /v1/admin/stats/overview`",
     "json": {
-      "data": {
-        "range": {
-          "from": "2026-07-01T00:00:00.000Z",
-          "to": null
+      "range": {
+        "from": "2026-07-01T00:00:00.000Z",
+        "until": null
+      },
+      "clients": {
+        "total": 12,
+        "active": 11
+      },
+      "invoices": {
+        "total": 842,
+        "by_status": {
+          "created": 800,
+          "failed": 30,
+          "canceled": 10,
+          "pending": 2
         },
-        "clients": {
-          "total": 12,
-          "active": 11
+        "by_provider": {
+          "billingo": 600,
+          "szamlazz": 242
         },
-        "invoices": {
-          "total": 842,
-          "byStatus": {
-            "created": 800,
-            "failed": 30,
-            "cancelled": 10,
-            "pending": 2
-          },
-          "byProvider": {
-            "billingo": 600,
-            "szamlazz": 242
-          },
-          "failureRate": 0.0356,
-          "last24h": 37
+        "failure_rate": 0.0356,
+        "last_24h": 37
+      },
+      "gross": [
+        {
+          "currency": "HUF",
+          "invoice_count": 790,
+          "gross_amount_minor": "41220500"
         },
-        "gross": [
-          {
-            "currency": "HUF",
-            "invoiceCount": 790,
-            "grossAmount": 41220500
-          },
-          {
-            "currency": "EUR",
-            "invoiceCount": 10,
-            "grossAmount": 3120.5
-          }
-        ]
-      }
+        {
+          "currency": "EUR",
+          "invoice_count": 10,
+          "gross_amount_minor": "312050"
+        }
+      ]
     }
   },
   {
     "file": "admin-api.md",
-    "line": 882,
-    "context": "`GET /api/admin/stats/timeseries`",
+    "line": 1080,
+    "context": "`GET /v1/admin/stats/timeseries`",
     "json": {
       "data": [
         {
@@ -343,121 +355,124 @@
           "count": 31
         }
       ],
+      "next_cursor": null,
       "interval": "day",
       "range": {
         "from": "2026-07-01T00:00:00.000Z",
-        "to": "2026-07-31T00:00:00.000Z"
+        "until": "2026-08-01T00:00:00.000Z"
       }
     }
   },
   {
     "file": "admin-api.md",
-    "line": 901,
-    "context": "`GET /api/admin/stats/clients`",
+    "line": 1103,
+    "context": "`GET /v1/admin/stats/clients`",
     "json": {
       "data": [
         {
-          "clientId": "2c9f…",
-          "clientName": "Acme Kft",
+          "client_public_id": "019839b0-1c2d-7e3f-8a41-556677889900",
+          "client_name": "Acme Kft",
           "active": true,
           "invoices": {
             "total": 137,
             "created": 130,
             "failed": 5,
             "pending": 0,
-            "cancelled": 2
+            "canceled": 2
           },
-          "grossAmount": 4122050,
-          "lastInvoiceAt": "2026-07-24T16:02:11.008Z"
+          "gross_amount_minor": "4122050",
+          "last_invoice_at": "2026-07-24T16:02:11.008Z"
         }
       ],
+      "next_cursor": null,
       "range": {
         "from": null,
-        "to": null
+        "until": null
       }
     }
   },
   {
     "file": "admin-api.md",
-    "line": 943,
-    "context": "`GET /api/admin/audit`",
+    "line": 1151,
+    "context": "`GET /v1/admin/audit`",
     "json": {
       "data": [
         {
-          "id": "aa11…",
-          "actorType": "admin_key",
-          "actorId": "b21f…",
-          "actorLabel": "admin-site-prod",
+          "id": "aa11bb22-cc33-dd44-ee55-ff6677889900",
+          "actor_type": "admin_key",
+          "actor_id": "b21f0a3e-4c11-4b8a-9f01-2d33ee9a7c40",
+          "actor_label": "admin-site-prod",
           "action": "credential.update",
-          "targetType": "credential",
-          "targetId": "77aa…",
+          "target_type": "credential",
+          "target_id": "77aa11bb-22cc-33dd-44ee-55ff66aa77bb",
           "metadata": {
-            "clientId": "2c9f…",
-            "configId": "billingo_acme",
+            "client_public_id": "019839b0-1c2d-7e3f-8a41-556677889900",
+            "config_id": "billingo_acme",
             "provider": "billingo",
-            "secretRotated": true,
-            "configKeys": [
+            "secret_rotated": true,
+            "config_keys": [
               "blockId",
               "bankAccountId"
             ]
           },
           "ip": "203.0.113.7",
-          "createdAt": "2026-07-25T08:30:00.101Z"
+          "request_id": "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
+          "created_at": "2026-08-02T08:30:00.101Z"
         },
         {
-          "id": "aa12…",
-          "actorType": "client_key",
-          "actorId": "2c9f…",
-          "actorLabel": "Acme Kft",
+          "id": "aa12bb22-cc33-dd44-ee55-ff6677889901",
+          "actor_type": "client_key",
+          "actor_id": "3f0e1d2c-4b5a-6978-8695-a4b3c2d1e0f9",
+          "actor_label": "Acme Kft",
           "action": "invoice.cancel",
-          "targetType": "invoice",
-          "targetId": "6f1c2c8e-…",
+          "target_type": "invoice",
+          "target_id": "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
           "metadata": {
-            "clientId": "2c9f…",
-            "invoiceNumber": "2026/0042",
-            "stornoNumber": "2026/0043"
+            "client_public_id": "019839b0-1c2d-7e3f-8a41-556677889900",
+            "invoice_number": "2026/0042",
+            "storno_number": "2026/0043"
           },
           "ip": "203.0.113.9",
-          "createdAt": "2026-07-25T08:12:44.882Z"
+          "request_id": "019839c2-8a1b-7c22-9d33-4e5f60718293",
+          "created_at": "2026-08-02T08:12:44.882Z"
         }
       ],
-      "total": 1204,
-      "limit": 20,
-      "offset": 0
+      "next_cursor": null,
+      "total": 1204
     }
   },
   {
     "file": "client-api.md",
-    "line": 74,
+    "line": 94,
     "context": "The Invoice object",
     "json": {
-      "id": "6f1c2c8e-4b6d-4f2a-9c33-0b1f2a4d55aa",
+      "public_id": "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
       "provider": "billingo",
-      "providerConfigId": "billingo_acme",
+      "provider_config_id": "billingo_acme",
       "status": "created",
-      "invoiceNumber": "2026/0042",
-      "providerInvoiceId": "99123",
-      "grossAmount": 38100,
+      "invoice_number": "2026/0042",
+      "provider_invoice_id": "99123",
+      "gross_amount_minor": "38100",
       "currency": "HUF",
-      "partnerRef": "order-2026-0001",
-      "errorMessage": null,
-      "createdAt": "2026-07-25T09:14:03.221Z",
-      "updatedAt": "2026-07-25T09:14:05.882Z"
+      "partner_ref": "order-2026-0001",
+      "error_message": null,
+      "created_at": "2026-08-02T09:14:03.221Z",
+      "updated_at": "2026-08-02T09:14:05.882Z"
     }
   },
   {
     "file": "client-api.md",
-    "line": 146,
+    "line": 186,
     "context": "Request body",
     "json": {
       "provider": "billingo",
-      "providerConfigId": "billingo_acme",
+      "provider_config_id": "billingo_acme",
       "partner": {
         "name": "Teszt Vevő Kft",
-        "taxNumber": "12345678-2-42",
+        "tax_number": "12345678-2-42",
         "email": "vevo@example.hu",
         "address": {
-          "postalCode": "1011",
+          "postal_code": "1011",
           "city": "Budapest",
           "address": "Fő utca 1",
           "country": "Magyarország"
@@ -468,37 +483,37 @@
           "name": "Tanácsadás",
           "quantity": 2,
           "unit": "óra",
-          "netUnitPrice": 15000,
-          "vatRate": "27",
+          "net_unit_price_minor": "15000",
+          "vat_rate": "27",
           "comment": "2026 júliusi keret"
         }
       ],
       "seller": {
-        "bankName": "OTP Bank",
-        "bankAccount": "11111111-22222222-33333333"
+        "bank_name": "OTP Bank",
+        "bank_account": "11111111-22222222-33333333"
       },
-      "paymentMethod": "átutalás",
+      "payment_method": "átutalás",
       "currency": "HUF",
       "language": "hu",
-      "issueDate": "2026-07-25",
-      "fulfillmentDate": "2026-07-25",
-      "dueDate": "2026-08-02",
-      "eInvoice": true,
+      "issue_date": "2026-08-02",
+      "fulfillment_date": "2026-08-02",
+      "due_date": "2026-08-10",
+      "e_invoice": true,
       "comment": "Köszönjük a megrendelést!",
-      "partnerRef": "order-2026-0001"
+      "partner_ref": "order-2026-0001"
     }
   },
   {
     "file": "client-api.md",
-    "line": 186,
+    "line": 226,
     "context": "Request body",
     "json": {
       "provider": "szamlazz",
-      "providerConfigId": "szamlazz_acme",
+      "provider_config_id": "szamlazz_acme",
       "partner": {
         "name": "Teszt Vevő Kft",
         "address": {
-          "postalCode": "1011",
+          "postal_code": "1011",
           "city": "Budapest",
           "address": "Fő utca 1"
         }
@@ -507,69 +522,81 @@
         {
           "name": "Tanácsadás",
           "quantity": 1,
-          "netUnitPrice": 15000,
-          "vatRate": "27"
+          "net_unit_price_minor": "15000",
+          "vat_rate": "27"
         }
       ]
     }
   },
   {
     "file": "client-api.md",
-    "line": 398,
-    "context": "5. `GET /api/invoices/:id/download-link` — mint a public link",
+    "line": 539,
+    "context": "5. `GET /v1/invoices/{public_id}/download-link` — mint a public link",
     "json": {
-      "data": {
-        "url": "https://invoice.example.com/api/public/invoices/6f1c2c8e-…/pdf?token=1785312843.Qm9ndXNTaWc",
-        "expiresAt": "2026-08-01T09:14:03.000Z"
-      }
+      "url": "https://invoice.example.com/v1/public/invoices/019839c2-…/pdf?token=1786917843.Qm9ndXNTaWc",
+      "expires_at": "2026-08-09T09:14:03.000Z"
     }
   },
   {
     "file": "client-api.md",
-    "line": 498,
-    "context": "`GET /api/health`",
+    "line": 673,
+    "context": "`GET /healthz`",
     "json": {
-      "status": "ok"
+      "status": "ok",
+      "db": "ok"
     }
   },
   {
     "file": "conventions.md",
-    "line": 82,
-    "context": "4. Response envelope",
+    "line": 165,
+    "context": "5. Success responses",
     "json": {
-      "data": {
-        "id": "…"
-      }
+      "public_id": "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
+      "status": "created"
     }
   },
   {
     "file": "conventions.md",
-    "line": 145,
-    "context": "5. Error codes",
+    "line": 215,
+    "context": "6. Errors — RFC 9457 Problem Details",
     "json": {
-      "details": {
-        "formErrors": [],
-        "fieldErrors": {
-          "items": [
-            "Array must contain at least 1 element(s)"
-          ]
+      "type": "urn:invoice-service:problem:validation",
+      "title": "Bad Request",
+      "status": 400,
+      "detail": "json must have required property 'items'",
+      "instance": "/v1/invoices",
+      "request_id": "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
+      "errors": [
+        {
+          "pointer": "/items",
+          "code": "required",
+          "detail": "Required"
         }
-      }
+      ]
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 414,
+    "context": "9. Money",
+    "json": {
+      "gross_amount_minor": "38100",
+      "currency": "HUF"
     }
   },
   {
     "file": "examples.http",
-    "line": 36,
-    "context": "POST {{base}}/api/invoices",
+    "line": 47,
+    "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "billingo",
-      "providerConfigId": "billingo_acme",
+      "provider_config_id": "billingo_acme",
       "partner": {
         "name": "Teszt Vevő Kft",
-        "taxNumber": "12345678-2-42",
+        "tax_number": "12345678-2-42",
         "email": "vevo@example.hu",
         "address": {
-          "postalCode": "1011",
+          "postal_code": "1011",
           "city": "Budapest",
           "address": "Fő utca 1"
         }
@@ -579,29 +606,29 @@
           "name": "Tanácsadás",
           "quantity": 2,
           "unit": "óra",
-          "netUnitPrice": 15000,
-          "vatRate": "27"
+          "net_unit_price_minor": "15000",
+          "vat_rate": "27"
         }
       ],
-      "paymentMethod": "átutalás",
+      "payment_method": "átutalás",
       "currency": "HUF",
       "language": "hu",
-      "eInvoice": true,
-      "partnerRef": "order-2026-0001"
+      "e_invoice": true,
+      "partner_ref": "order-2026-0001"
     }
   },
   {
     "file": "examples.http",
-    "line": 61,
-    "context": "POST {{base}}/api/invoices",
+    "line": 73,
+    "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
-      "providerConfigId": "szamlazz_acme",
+      "provider_config_id": "szamlazz_acme",
       "partner": {
         "name": "Teszt Vevő Kft",
-        "taxNumber": "12345678-2-42",
+        "tax_number": "12345678-2-42",
         "address": {
-          "postalCode": "1011",
+          "postal_code": "1011",
           "city": "Budapest",
           "address": "Fő utca 1"
         }
@@ -611,23 +638,27 @@
           "name": "Tanácsadás",
           "quantity": 2,
           "unit": "óra",
-          "netUnitPrice": 15000,
-          "vatRate": "27"
+          "net_unit_price_minor": "15000",
+          "vat_rate": "27"
         }
-      ]
+      ],
+      "seller": {
+        "bank_name": "OTP Bank",
+        "bank_account": "11111111-22222222-33333333"
+      }
     }
   },
   {
     "file": "examples.http",
-    "line": 80,
-    "context": "POST {{base}}/api/invoices",
+    "line": 111,
+    "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
-      "providerConfigId": "szamlazz_acme",
+      "provider_config_id": "szamlazz_acme",
       "partner": {
         "name": "Teszt Vevő Kft",
         "address": {
-          "postalCode": "1011",
+          "postal_code": "1011",
           "city": "Budapest",
           "address": "Fő utca 1"
         }
@@ -636,26 +667,154 @@
         {
           "name": "Tanácsadás",
           "quantity": 1,
-          "netUnitPrice": 15000,
-          "vatRate": "27"
+          "net_unit_price_minor": "15000",
+          "vat_rate": "27"
         }
       ]
     }
   },
   {
     "file": "examples.http",
-    "line": 160,
-    "context": "POST {{base}}/api/admin/clients",
+    "line": 126,
+    "context": "POST {{base}}/v1/invoices",
+    "json": {
+      "provider": "szamlazz",
+      "provider_config_id": "szamlazz_acme",
+      "partner": {
+        "name": "Teszt Vevő Kft",
+        "taxnumber": "12345678-2-42",
+        "address": {
+          "postal_code": "1011",
+          "city": "Budapest",
+          "address": "Fő utca 1"
+        }
+      },
+      "items": [
+        {
+          "name": "Tanácsadás",
+          "quantity": 1,
+          "net_unit_price_minor": "15000",
+          "vat_rate": "27",
+          "vatrate": "27"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 144,
+    "context": "POST {{base}}/v1/invoices",
+    "json": {
+      "provider": "szamlazz",
+      "provider_config_id": "szamlazz_acme",
+      "partner": {
+        "name": "Teszt Vevő Kft",
+        "address": {
+          "postal_code": "1011",
+          "city": "Budapest",
+          "address": "Fő utca 1"
+        }
+      },
+      "items": [
+        {
+          "name": "Tanácsadás",
+          "quantity": 1,
+          "net_unit_price_minor": 15000,
+          "vat_rate": "27"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 158,
+    "context": "POST {{base}}/v1/invoices",
+    "json": {
+      "provider": "szamlazz",
+      "provider_config_id": "szamlazz_acme",
+      "issue_date": "2026-02-30",
+      "partner": {
+        "name": "Teszt Vevő Kft",
+        "address": {
+          "postal_code": "1011",
+          "city": "Budapest",
+          "address": "Fő utca 1"
+        }
+      },
+      "items": [
+        {
+          "name": "Tanácsadás",
+          "quantity": 1,
+          "net_unit_price_minor": "15000",
+          "vat_rate": "27"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 173,
+    "context": "POST {{base}}/v1/invoices",
+    "json": {
+      "provider": "szamlazz",
+      "provider_config_id": "szamlazz_acme",
+      "partner": {
+        "name": "Másik Vevő Kft",
+        "address": {
+          "postal_code": "1011",
+          "city": "Budapest",
+          "address": "Fő utca 1"
+        }
+      },
+      "items": [
+        {
+          "name": "Valami más",
+          "quantity": 1,
+          "net_unit_price_minor": "99000",
+          "vat_rate": "27"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 188,
+    "context": "POST {{base}}/v1/invoices",
+    "json": {
+      "provider": "szamlazz",
+      "provider_config_id": "szamlazz_acme",
+      "partner": {
+        "name": "Teszt Vevő Kft",
+        "address": {
+          "postal_code": "1011",
+          "city": "Budapest",
+          "address": "Fő utca 1"
+        }
+      },
+      "items": [
+        {
+          "name": "Tanácsadás",
+          "quantity": 1,
+          "net_unit_price_minor": "15000",
+          "vat_rate": "27"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 307,
+    "context": "POST {{base}}/v1/admin/clients",
     "json": {
       "name": "Acme Kft",
-      "externalRef": "BARSOFT-42",
+      "external_ref": "BARSOFT-42",
       "notes": "onboarded by hand"
     }
   },
   {
     "file": "examples.http",
-    "line": 167,
-    "context": "PUT {{base}}/api/admin/clients/{{clientId}}/integrations/billingo_acme",
+    "line": 314,
+    "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
     "json": {
       "provider": "billingo",
       "secret": "REPLACE_WITH_BILLINGO_API_KEY",
@@ -668,8 +827,8 @@
   },
   {
     "file": "examples.http",
-    "line": 179,
-    "context": "PUT {{base}}/api/admin/clients/{{clientId}}/integrations/szamlazz_acme",
+    "line": 326,
+    "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/szamlazz_acme",
     "json": {
       "provider": "szamlazz",
       "secret": "REPLACE_WITH_AGENT_KEY",
@@ -678,16 +837,52 @@
   },
   {
     "file": "examples.http",
-    "line": 211,
-    "context": "PATCH {{base}}/api/admin/clients/{{clientId}}",
+    "line": 337,
+    "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
+    "json": {
+      "provider": "billingo",
+      "config": {
+        "blockId": 1234,
+        "bankAccountId": 5678
+      },
+      "label": "Renamed"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 344,
+    "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
+    "json": {
+      "provider": "billingo",
+      "secret": "REPLACE_WITH_BILLINGO_API_KEY",
+      "config": {}
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 351,
+    "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/szamlazz_acme",
+    "json": {
+      "provider": "billingo",
+      "secret": "REPLACE_WITH_BILLINGO_API_KEY",
+      "config": {
+        "blockId": 1234,
+        "bankAccountId": 5678
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 381,
+    "context": "PATCH {{base}}/v1/admin/clients/{{clientPublicId}}",
     "json": {
       "notes": "called about VAT rates"
     }
   },
   {
     "file": "examples.http",
-    "line": 269,
-    "context": "POST {{base}}/api/admin/invoices/{{invoiceId}}/reconcile",
+    "line": 444,
+    "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
     "json": {
       "action": "mark_failed",
       "reason": "not present in the Billingo UI"
@@ -695,21 +890,30 @@
   },
   {
     "file": "examples.http",
-    "line": 276,
-    "context": "POST {{base}}/api/admin/invoices/{{invoiceId}}/reconcile",
+    "line": 452,
+    "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
     "json": {
       "action": "attach",
       "reason": "found it in the Billingo UI",
-      "providerInvoiceId": "99123",
-      "invoiceNumber": "2026/0042",
-      "grossAmount": 38100,
+      "provider_invoice_id": "99123",
+      "invoice_number": "2026/0042",
+      "gross_amount_minor": "38100",
       "currency": "HUF"
     }
   },
   {
     "file": "examples.http",
-    "line": 332,
-    "context": "POST {{base}}/api/admin/admin-keys",
+    "line": 461,
+    "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
+    "json": {
+      "action": "release",
+      "reason": "client will retry with the same key"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 519,
+    "context": "POST {{base}}/v1/admin/admin-keys",
     "json": {
       "label": "reporting",
       "scopes": [
@@ -720,17 +924,150 @@
   },
   {
     "file": "examples.http",
-    "line": 339,
-    "context": "PATCH {{base}}/api/admin/admin-keys/{{adminKeyId}}",
+    "line": 526,
+    "context": "PATCH {{base}}/v1/admin/admin-keys/{{adminKeyId}}",
     "json": {
-      "allowedIps": [
+      "allowed_ips": [
         "203.0.113.7/32"
       ]
     }
   },
   {
+    "file": "examples.http",
+    "line": 557,
+    "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
+    "json": {
+      "url": "https://acme.example.com/api/invoice-webhook",
+      "description": "Acme production"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 565,
+    "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
+    "json": {
+      "url": "https://acme.example.com/api/ledger-feed",
+      "description": "Bookkeeping feed",
+      "subscribed_events": [
+        "invoice.created",
+        "invoice.canceled"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 577,
+    "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
+    "json": {
+      "url": "https://acme.example.com/api/nowhere",
+      "subscribed_events": []
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 602,
+    "context": "PATCH {{base}}/v1/admin/webhook-endpoints/{{endpointId}}",
+    "json": {
+      "url": "https://acme.example.com/api/invoice-webhook-v2"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 615,
+    "context": "POST {{base}}/v1/admin/webhook-endpoints/{{endpointId}}/disable",
+    "json": {
+      "reason": "Receiver migrating to a new host"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 732,
+    "context": "POST {{base}}/v1/hooks/payment-service",
+    "json": {
+      "event_id": "019e5b02-0000-7000-8000-000000000001",
+      "event_type": "payment.succeeded",
+      "contract_version": 1,
+      "occurred_at": "2026-01-21T12:53:20.000Z",
+      "service": "payment-service",
+      "account_id": "7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46",
+      "tenant": {
+        "kind": "merchant",
+        "public_id": "019e5b02-0000-7000-8000-0000000000aa"
+      },
+      "correlation_id": "019e5b02-0000-7000-8000-000000000001",
+      "causation_id": null,
+      "hop": 0,
+      "data": {
+        "payment": {
+          "public_id": "019e5b02-0000-7000-8000-0000000000bb",
+          "status": "succeeded",
+          "merchant_payment_ref": "order-4711",
+          "amount_minor": "12700",
+          "currency": "HUF",
+          "provider": "barion"
+        },
+        "invoice_details": {
+          "partner": {
+            "name": "Példa Vásárló Kft",
+            "tax_number": "12345678-2-42",
+            "address": {
+              "postal_code": "1051",
+              "city": "Budapest",
+              "address": "Példa utca 1."
+            }
+          },
+          "items": [
+            {
+              "name": "Widget",
+              "quantity": 1,
+              "net_unit_price_minor": "10000",
+              "vat_rate": "27"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 774,
+    "context": "POST {{base}}/v1/hooks/payment-servcie",
+    "json": {}
+  },
+  {
+    "file": "webhooks.md",
+    "line": 73,
+    "context": "2. The envelope",
+    "json": {
+      "event_id": "019e5b02-0000-7000-8000-000000000001",
+      "event_type": "invoice.created",
+      "contract_version": 1,
+      "occurred_at": "2026-01-21T12:53:20.000Z",
+      "service": "invoice-service",
+      "account_id": "7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46",
+      "tenant": {
+        "kind": "client",
+        "public_id": "019e5b02-0000-7000-8000-000000000002"
+      },
+      "correlation_id": "019e5b02-0000-7000-8000-000000000001",
+      "causation_id": null,
+      "hop": 0,
+      "data": {
+        "invoice": {
+          "public_id": "019e5b02-0000-7000-8000-000000000003",
+          "status": "created",
+          "provider": "szamlazz",
+          "invoice_number": "E-TESZT-2026-42",
+          "gross_amount_minor": "12700",
+          "currency": "HUF",
+          "partner_ref": "order-12345"
+        }
+      }
+    }
+  },
+  {
     "file": "workflows.md",
-    "line": 173,
+    "line": 275,
     "context": "Edit a label or config **without** touching the secret",
     "json": {
       "provider": "billingo",

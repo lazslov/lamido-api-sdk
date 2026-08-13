@@ -3,8 +3,14 @@
  *
  * Implements the observability house rules (`standards/observability-house-rules.md`,
  * OB-1…OB-15): one canonical log envelope on stdout, an additive batched sink, alerts
- * raised at the point of decision and posted to Telegram, and the request middleware
- * that binds `request_id` and emits the `http.request` summary line.
+ * raised at the point of decision and posted to Telegram, the request middleware that
+ * binds `request_id` and emits the `http.request` summary line, the `correlation_id`
+ * binding that joins a causal chain across services, and the closed boolean flag
+ * vocabulary alert rules key on.
+ *
+ * OB-16…OB-20 are deliberately absent: they govern the vendor projection — Grafana rule
+ * files, probe topology — and the process around adopting a rule. Neither is an npm
+ * library's to implement.
  *
  * DELIBERATELY A SINGLE FILE WITH ZERO IMPORTS. OB-7 lets a service vendor this SDK as
  * one file when it cannot take the npm dependency, held byte-identical by a pin test.
@@ -18,8 +24,67 @@ export type Level = "debug" | "info" | "warn" | "error";
 
 const order: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
-/** Structured fields attached to a log line. */
-export type LogMeta = Record<string, unknown>;
+/**
+ * The closed, estate-wide boolean flag vocabulary (OB-5).
+ *
+ * @remarks
+ * A condition an alert rule keys on is a **top-level boolean flag**, and it comes from this set.
+ * A service uses the flags that apply and must not invent parallel ones — a rule that keys on
+ * `anomaly` cannot also be taught to key on one service's `isAnomalous`.
+ *
+ * Adding a flag is a change to the table in `standards/observability-house-rules.md`, with a
+ * changelog row, exactly like adding an event type to the webhook catalogue.
+ *
+ * | Flag | Meaning |
+ * |---|---|
+ * | `alert` | An operator must see this; every OB-12 alert also logs one such line |
+ * | `anomaly` | Money mismatch, illegal transition, dead-letter, unknown refund outcome |
+ * | `security` | A request or callback crossed a tenant boundary it should not have |
+ * | `unmapped` | An upstream vocabulary word with no mapping, e.g. a PSP status |
+ * | `external_refund` | State changed at the provider, outside the estate |
+ * | `recovered` | An idempotency-recovery path ran; a previous attempt died mid-flight |
+ * | `fail_open` | A throttle or guard allowed traffic because its counter store was unreachable |
+ */
+export type TelemetryFlag =
+  | "alert"
+  | "anomaly"
+  | "security"
+  | "unmapped"
+  | "external_refund"
+  | "recovered"
+  | "fail_open";
+
+/**
+ * Structured fields attached to a log line.
+ *
+ * @remarks
+ * Open, because a line carries whatever its call site knows. Two groups of member are named
+ * rather than left to `unknown`, so a typo in either is a compile error:
+ *
+ * - the seven {@link TelemetryFlag} booleans (OB-5), which alert rules key on;
+ * - `correlation_id` (OB-4), which is what joins one causal chain across services.
+ */
+export interface LogMeta extends Record<string, unknown> {
+  /**
+   * The id shared by every line in one causal chain (OB-4).
+   *
+   * @remarks
+   * Copied unchanged from an inbound event into everything emitted while handling it, and equal
+   * to `event_id` on a natively-produced one. **One value identifies a whole chain**, which is
+   * what turns "a payment succeeded, an invoice was issued, an email was sent" into one query.
+   *
+   * Prefer {@link Telemetry.correlated} to setting this per line: a chain is only traceable if
+   * *every* line carries it, and a binding cannot be forgotten halfway through a handler.
+   */
+  correlation_id?: string;
+  alert?: boolean;
+  anomaly?: boolean;
+  security?: boolean;
+  unmapped?: boolean;
+  external_refund?: boolean;
+  recovered?: boolean;
+  fail_open?: boolean;
+}
 
 /** A logger, optionally carrying bindings that every line it writes inherits. */
 export type Logger = {
@@ -176,6 +241,29 @@ export interface Telemetry {
   createLogger(bindings?: LogMeta): Logger;
   /** The unbound service logger, for module scope and background work. */
   logger: Logger;
+  /**
+   * Bind a `correlation_id` onto a logger, so every line it writes carries it (OB-4).
+   *
+   * @param correlationId - The id from the inbound event's envelope, copied unchanged.
+   * @param from - The logger to extend. Defaults to the request logger's usual parent, the
+   * service logger; pass `c.get("log")` on a request path so `request_id` survives too.
+   * @returns A child logger carrying the id.
+   * @remarks
+   * The counterpart to what {@link Telemetry.requestMiddleware} does for `request_id`, and
+   * separate from it because a correlation id arrives in the **event envelope body**, not in a
+   * header — a webhook receiver has it only after parsing, which no middleware can do for it.
+   *
+   * Use it at the top of any path that holds one: emitting an event, receiving one on
+   * `/v1/hooks/{source_service}`, working a delivery. Binding beats passing the id to each call,
+   * because a chain is only traceable if no line in it was forgotten.
+   *
+   * @example
+   * ```ts
+   * const log = telemetry.correlated(event.correlation_id, c.get("log"));
+   * log.info("Invoice issued", { event: "invoice.issued", public_id });
+   * ```
+   */
+  correlated(correlationId: string, from?: Logger): Logger;
   /**
    * Raise an operator alert at the point of decision (OB-12…OB-14). Logs a line with
    * `alert: true` first (the sink-side backstop), then posts to Telegram. Never throws;
@@ -459,5 +547,19 @@ export function createTelemetry(config: TelemetryConfig): Telemetry {
     };
   }
 
-  return { createLogger, logger: createLogger(), alert, flush, requestMiddleware };
+  const serviceLogger = createLogger();
+
+  /** OB-4: one binding, so no line in the chain can be written without the id. */
+  function correlated(correlationId: string, from: Logger = serviceLogger): Logger {
+    return from.child({ correlation_id: correlationId });
+  }
+
+  return {
+    createLogger,
+    logger: serviceLogger,
+    correlated,
+    alert,
+    flush,
+    requestMiddleware,
+  };
 }

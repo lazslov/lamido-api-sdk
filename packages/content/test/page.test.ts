@@ -33,9 +33,9 @@ describe("a page's section lookup", () => {
   });
 
   it("keeps the page's own metadata, nullability included", () => {
-    const unpublished = toPublishedPage(pageDocument([], { version: null, publishedAt: null }));
+    const unpublished = toPublishedPage(pageDocument([], { version: null, published_at: null }));
     expect(unpublished.version).toBeNull();
-    expect(unpublished.publishedAt).toBeNull();
+    expect(unpublished.published_at).toBeNull();
   });
 
   it("keeps sections in the order the service served them", () => {

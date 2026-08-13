@@ -18,7 +18,7 @@
  *
  * @remarks
  * **One coarse tag per site is the right default,** not a tag per page. A page publish can also
- * change `GET /api/content/site` — the reserved `settings` section lives on a page — and nothing in
+ * change `GET /v1/public/site` — the reserved `settings` section lives on a page — and nothing in
  * the delivery payload says whether it did. A finer tag would leave the site's own chrome stale
  * after the one publish most likely to change it.
  */

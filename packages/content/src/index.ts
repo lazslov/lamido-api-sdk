@@ -4,9 +4,9 @@
  * @remarks
  * Two tiers, two constructors, because there are two credentials with different blast radii:
  *
- * - {@link createWebsiteClient} reads **published** content through `/api/content/*` with a `cpk_`
+ * - {@link createWebsiteClient} reads **published** content through `/v1/public/*` with a `cpk_`
  *   publishable key (browser-safe) or a `csk_` secret key (not).
- * - {@link createContentClient} reads drafts and writes through `/api/client/*` with a `csk_` key,
+ * - {@link createContentClient} reads drafts and writes through `/v1/*` with a `csk_` key,
  *   server-side only.
  *
  * The admin tier is deliberately absent: structure is defined by Lamido staff, not by an editor, and
@@ -57,12 +57,13 @@ export type {
   PublishOptions,
   RenderedPageOptions,
 } from "./client/pages.js";
-export {
-  ContentApiError,
-  type ContentErrorCode,
-  type ContentErrorDetails,
-} from "./errors.js";
-export type { ListOptions, LocaleOptions, RequestOptions } from "./options.js";
+export { ContentApiError, type ContentErrorDetails } from "./errors.js";
+export type {
+  CursorListOptions,
+  ListOptions,
+  LocaleOptions,
+  RequestOptions,
+} from "./options.js";
 export type { PageSection, PublishedPage } from "./page.js";
 export type {
   AggregateGroup,
@@ -71,6 +72,7 @@ export type {
   CollectionItem,
   CollectionSummary,
   ContentAsset,
+  ContentCursorList,
   ContentDocument,
   ContentHealth,
   ContentImage,
@@ -97,13 +99,19 @@ export type {
   UploadToken,
   VersionSummary,
 } from "./types.js";
+export { assetId, recordId } from "./types.js";
 export {
-  type RevalidationEvent,
-  type RevalidationInput,
-  type RevalidationVerdict,
+  type ContentEvent,
+  type ContentEventTenant,
+  type ContentWebhookInput,
+  type ContentWebhookVerdict,
+  deliveryIdHeader,
+  eventIdHeader,
+  type KnownContentEventType,
   signatureHeader,
+  subjectOf,
   timestampHeader,
-  verifyRevalidationWebhook,
+  verifyContentWebhook,
 } from "./webhook.js";
 export {
   createWebsiteClient,
@@ -118,4 +126,4 @@ export type { WebsiteClient } from "./website/reads.js";
  * Kept in step with `package.json` by a test, so a release cannot ship a constant that disagrees
  * with the tarball it came from.
  */
-export const VERSION = "0.1.0";
+export const VERSION = "1.0.0";

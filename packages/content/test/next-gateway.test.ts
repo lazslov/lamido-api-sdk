@@ -29,7 +29,7 @@ function lastInit(stub: ReturnType<typeof fetchStub>): {
 
 /** A stub answering a well-formed page document, which every read here is happy with. */
 function pageStub(): ReturnType<typeof fetchStub> {
-  return fetchStub([jsonResponse({ data: pageDocument([{ key: "hero", fields: {} }]) })]);
+  return fetchStub([jsonResponse(pageDocument([{ key: "hero", fields: {} }]))]);
 }
 
 /** A gateway reading through `stub`. */
@@ -52,7 +52,7 @@ describe("mode A — published, tagged", () => {
   });
 
   it("carries the tag on every read of the tier, not just the first", async () => {
-    const stub = fetchStub();
+    const stub = pageStub();
     const { published } = gateway(stub);
     await published.getSite();
     await published.listPages();
@@ -72,7 +72,7 @@ describe("mode A — published, tagged", () => {
 describe("mode B — live, a short window", () => {
   it("sets a revalidate window and never no-store", async () => {
     // The whole reason this mode exists: `no-store` was reached for here, for an honest reason.
-    const stub = fetchStub();
+    const stub = pageStub();
     await gateway(stub).live.getDatasetAggregate("donations");
 
     expect(lastInit(stub).next).toEqual({ revalidate: LIVE_REVALIDATE_SECONDS });
@@ -84,7 +84,7 @@ describe("mode B — live, a short window", () => {
   });
 
   it("takes a different window", async () => {
-    const stub = fetchStub();
+    const stub = pageStub();
     await gateway(stub, { liveRevalidateSeconds: 60 }).live.getDatasetAggregate("donations");
     expect(lastInit(stub).next).toEqual({ revalidate: 60 });
   });
@@ -92,7 +92,7 @@ describe("mode B — live, a short window", () => {
   it("sets no tag, because no publish invalidates this data", async () => {
     // The records are written by the site's own backend, not by an editor — there is no webhook to
     // wait for, so a tag would be a mechanism nothing ever triggers.
-    const stub = fetchStub();
+    const stub = pageStub();
     await gateway(stub).live.getDatasetAggregate("donations");
     expect(lastInit(stub).next?.tags).toBeUndefined();
   });
@@ -100,7 +100,7 @@ describe("mode B — live, a short window", () => {
 
 describe("mode C — the write tier, uncached", () => {
   it("sets no-store, which is correct here and only here", async () => {
-    const stub = fetchStub();
+    const stub = pageStub();
     await gateway(stub).client.getMe();
 
     expect(lastInit(stub).cache).toBe("no-store");
@@ -118,17 +118,12 @@ describe("the gateway's shape", () => {
   it("offers exactly three modes plus the tag", () => {
     // No fourth, uncached reader. Mode C is the write tier, so `no-store` is not reachable from
     // anything a page renders through.
-    expect(Object.keys(gateway(fetchStub())).sort()).toEqual([
-      "client",
-      "live",
-      "published",
-      "tag",
-    ]);
+    expect(Object.keys(gateway(pageStub())).sort()).toEqual(["client", "live", "published", "tag"]);
   });
 
   it("reports the tag it set, so the handler can be given the same value", () => {
-    expect(gateway(fetchStub()).tag).toBe(CONTENT_TAG);
-    expect(gateway(fetchStub(), { tag: "acme-content" }).tag).toBe("acme-content");
+    expect(gateway(pageStub()).tag).toBe(CONTENT_TAG);
+    expect(gateway(pageStub(), { tag: "acme-content" }).tag).toBe("acme-content");
   });
 
   it("lets a per-call init win over the mode, which is what an escape hatch is for", async () => {

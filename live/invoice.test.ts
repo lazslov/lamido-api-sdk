@@ -21,7 +21,7 @@ import {
  * **Nothing here issues a real invoice.** A successful create has side effects at szamlazz.hu or
  * Billingo and is reported to NAV — there is no undo but a storno, which is itself a real document. So
  * the create cases stop at the failures that happen **before** the provider is called: a bad
- * `providerConfigId` prefix is one, and it is exactly the case that proves the SDK's local validation
+ * `provider_config_id` prefix is one, and it is exactly the case that proves the SDK's local validation
  * matches the service rather than being a stricter invention.
  *
  * The one case that can create a row is behind `LIVE_ALLOW_WRITES` **and** needs a provider sandbox
@@ -41,37 +41,38 @@ describe.skipIf(!invoiceTarget.ready)("invoice-service live", () => {
     expect(await client().getHealth()).toEqual({ status: "ok" });
   });
 
-  it("returns NO total on the invoice list", async () => {
-    // The assertion that keeps the paginator honest. If this ever starts returning a total, branch 3 of
-    // core's collectAll is dead code and `InvoiceList` should gain the field.
+  it("returns NO total on the invoice list, and pages by cursor", async () => {
+    // The assertion that keeps the paginator honest. If this ever starts returning a total,
+    // `InvoiceList` should gain the field — and if `next_cursor` ever goes missing, the pager
+    // silently stops after one page.
     const page = await client().listInvoices({ limit: 1 });
 
-    expect(page.limit).toBe(1);
-    expect(page.offset).toBe(0);
-    expect(Object.keys(page).sort()).toEqual(["items", "limit", "offset"]);
+    expect(Object.keys(page).sort()).toEqual(["items", "nextCursor"]);
     expect("total" in page).toBe(false);
+    // Always present, `null` rather than absent, even on a list with nothing behind it.
+    expect(page.nextCursor === null || typeof page.nextCursor === "string").toBe(true);
   });
 
   it("rejects an out-of-range limit rather than clamping it", async () => {
     const error = await failure<InvoiceApiError>(() => client().listInvoices({ limit: 500 }));
 
     expect(error.status).toBe(400);
-    expect(error.code).toBe("validation_error");
+    expect(error.type).toBe("validation");
   });
 
-  it("rejects a providerConfigId whose prefix does not match the provider", async () => {
+  it("rejects a provider_config_id whose prefix does not match the provider", async () => {
     // The SDK refuses this locally, before any request — so the point of the live case is the
     // *converse*: that the service still refuses it too. Asserted by sending a body the SDK accepts,
     // with a config id whose characters are legal and whose prefix is the wrong provider's.
     const body: CreateInvoiceInput = {
       provider: "billingo",
-      providerConfigId: "szamlazz_sdk_live_probe",
+      provider_config_id: "szamlazz_sdk_live_probe",
       partner: {
         name: "SDK Live Probe",
-        address: { postalCode: "1011", city: "Budapest", address: "Fő utca 1" },
+        address: { postal_code: "1011", city: "Budapest", address: "Fő utca 1" },
       },
-      items: [{ name: "Probe", quantity: 1, netUnitPrice: 1, vatRate: "27" }],
-      issueDate: isoDate(new Date()),
+      items: [{ name: "Probe", quantity: 1, net_unit_price_minor: "1", vat_rate: "27" }],
+      issue_date: isoDate(new Date()),
     };
 
     const error = await failure<InvoiceApiError>(() =>
@@ -81,7 +82,7 @@ describe.skipIf(!invoiceTarget.ready)("invoice-service live", () => {
     // Raised before the row is inserted, which is also why this key is not consumed and the case can
     // run again tomorrow.
     expect(error.status).toBe(400);
-    expect(error.code).toBe("bad_request");
+    expect(error.type).toBe("validation");
   });
 
   it("answers 404 for an invoice this key cannot see, and does not map it to null", async () => {
@@ -92,7 +93,7 @@ describe.skipIf(!invoiceTarget.ready)("invoice-service live", () => {
     );
 
     expect(error.status).toBe(404);
-    expect(error.code).toBe("not_found");
+    expect(error.type).toBe("not-found");
   });
 
   it.skipIf(!allowWrites || !invoiceProviderConfigId)(
@@ -107,25 +108,25 @@ describe.skipIf(!invoiceTarget.ready)("invoice-service live", () => {
 
       const body: CreateInvoiceInput = {
         provider: configId.startsWith("billingo_") ? "billingo" : "szamlazz",
-        providerConfigId: configId,
+        provider_config_id: configId,
         partner: {
           name: "SDK Live Probe",
-          address: { postalCode: "1011", city: "Budapest", address: "Fő utca 1" },
+          address: { postal_code: "1011", city: "Budapest", address: "Fő utca 1" },
         },
-        items: [{ name: "Probe", quantity: 1, netUnitPrice: 1, vatRate: "27" }],
-        partnerRef: "sdk-live-probe",
+        items: [{ name: "Probe", quantity: 1, net_unit_price_minor: "1", vat_rate: "27" }],
+        partner_ref: "sdk-live-probe",
       };
 
       // The first attempt may fail at the provider; the replay is what is under test.
       const first = await client()
         .createInvoice(body, key)
-        .then((result) => result.invoice.id)
+        .then((result) => result.invoice.public_id)
         .catch(() => null);
 
       const replay = await client().createInvoice(body, key);
 
       expect(replay.replayed).toBe(true);
-      if (first !== null) expect(replay.invoice.id).toBe(first);
+      if (first !== null) expect(replay.invoice.public_id).toBe(first);
     },
   );
 });

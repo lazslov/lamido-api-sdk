@@ -125,7 +125,7 @@ describe("refreshPayment", () => {
     ]);
     await expect(paymentClient(stub).refreshPayment("019e4a91")).rejects.toMatchObject({
       status: 429,
-      retryAfterSeconds: 5,
+      retryAfter: 5,
       retryable: true,
     });
   });
@@ -165,7 +165,7 @@ describe("refunds", () => {
         { amount_minor: minorUnits("1000"), currency: "HUF" },
         refundKey,
       ),
-    ).rejects.toMatchObject({ conflictCode: "refund_exceeds_remaining", retryable: true });
+    ).rejects.toMatchObject({ code: "refund_exceeds_remaining", retryable: true });
   });
 
   it("refuses to retry a refund whose outcome is unknown", async () => {

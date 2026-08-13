@@ -27,19 +27,28 @@ export function sign(rawBody: string, timestamp: string, secret = testWebhookSec
   return `sha256=${createHmac("sha256", secret).update(`${timestamp}.${rawBody}`, "utf8").digest("hex")}`;
 }
 
-/** A `payment.succeeded` body, as the service freezes it at emission. */
+/** A `payment.succeeded` body, in the estate's standard event envelope. */
 export function eventBody(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     event_id: "019e4a91-0000-7000-8000-000000000001",
     event_type: "payment.succeeded",
-    created_at: "2026-01-21T12:53:20.000Z",
-    payment: {
-      id: "019e4a91-0000-7000-8000-000000000002",
-      merchant_payment_ref: "order-12345",
-      status: "succeeded",
-      amount_minor: "2500",
-      currency: "HUF",
-      provider: "barion",
+    contract_version: 1,
+    occurred_at: "2026-01-21T12:53:20.000Z",
+    service: "payment-service",
+    account_id: "7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46",
+    tenant: { kind: "merchant", public_id: "019e4a91-0000-7000-8000-000000000002" },
+    correlation_id: "019e4a91-0000-7000-8000-000000000001",
+    causation_id: null,
+    hop: 0,
+    data: {
+      payment: {
+        public_id: "019e4a91-0000-7000-8000-000000000003",
+        merchant_payment_ref: "order-12345",
+        status: "succeeded",
+        amount_minor: "2500",
+        currency: "HUF",
+        provider: "barion",
+      },
     },
     ...overrides,
   });

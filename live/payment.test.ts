@@ -111,7 +111,7 @@ describe.skipIf(!paymentTarget.ready)("payment-service live", () => {
     const error = await failure<PaymentApiError>(() => client().refreshPayment(payment.public_id));
 
     expect(error.status).toBe(429);
-    expect(error.retryAfterSeconds).toBeTypeOf("number");
+    expect(error.retryAfter).toBeTypeOf("number");
   });
 });
 

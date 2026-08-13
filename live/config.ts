@@ -79,7 +79,7 @@ export const invoiceTarget = target("invoice-service", "INVOICE_SERVICE_BASE_URL
 });
 
 /**
- * The `providerConfigId` the invoice cases may name.
+ * The `provider_config_id` the invoice cases may name.
  *
  * @remarks
  * Needed by the prefix-mismatch case, which asserts a `400` **without** issuing anything. There is no

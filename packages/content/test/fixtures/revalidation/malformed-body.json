@@ -1,6 +1,6 @@
 {
   "name": "malformed-body",
-  "describes": "a valid signature over a body that is not a delivery",
+  "describes": "a valid signature over a body that is not an event envelope",
   "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
   "rawBody": "{\"hello\":\"world\"}",
   "timestamp": "1785168000",

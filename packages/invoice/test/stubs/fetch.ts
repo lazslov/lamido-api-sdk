@@ -35,7 +35,7 @@ export interface FetchStub {
  * @param responses - One response per call, in order. The last one repeats once exhausted, so a
  * single-response stub serves any number of calls.
  */
-export function fetchStub(responses: Response[] = [jsonResponse({ data: invoice() })]): FetchStub {
+export function fetchStub(responses: Response[] = [jsonResponse(invoice())]): FetchStub {
   const calls: RecordedCall[] = [];
   let index = 0;
 
@@ -44,7 +44,7 @@ export function fetchStub(responses: Response[] = [jsonResponse({ data: invoice(
       calls.push({ url: String(url), init });
       const response = responses[Math.min(index, responses.length - 1)];
       index += 1;
-      return (response ?? jsonResponse({ data: invoice() })).clone();
+      return (response ?? jsonResponse(invoice())).clone();
     }) as unknown as typeof fetch,
     calls,
     lastUrl() {
@@ -63,7 +63,7 @@ export function fetchStub(responses: Response[] = [jsonResponse({ data: invoice(
   };
 }
 
-/** A JSON response, the shape every endpoint but `/api/health` and the PDF answers with. */
+/** A JSON response. A single resource is the resource, unwrapped. */
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -71,16 +71,31 @@ export function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-/** The service's error envelope, at a status. */
+/**
+ * An RFC 9457 problem document, at a status.
+ *
+ * @param status - The HTTP status.
+ * @param slug - The problem slug, e.g. `"conflict"`. Wrapped into the service's own URN.
+ * @param detail - The human sentence.
+ * @param extra - Extension members: `code`, `errors`, `provider_error`, `retry_after`.
+ */
 export function errorResponse(
   status: number,
-  code: string,
-  message = `stub ${code}`,
-  details?: unknown,
+  slug: string,
+  detail = `stub ${slug}`,
+  extra: Record<string, unknown> = {},
 ): Response {
-  return jsonResponse(
-    { error: { code, message, ...(details === undefined ? {} : { details }) } },
-    status,
+  return new Response(
+    JSON.stringify({
+      type: `urn:invoice-service:problem:${slug}`,
+      title: `stub ${status}`,
+      status,
+      detail,
+      instance: "/v1/invoices",
+      request_id: "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
+      ...extra,
+    }),
+    { status, headers: { "content-type": "application/problem+json" } },
   );
 }
 
@@ -120,21 +135,27 @@ export function invoiceClient(stub: FetchStub, overrides: ServiceConfig = {}): I
   });
 }
 
-/** An invoice, with whatever a case needs overridden. */
+/**
+ * An invoice, with whatever a case needs overridden.
+ *
+ * @remarks
+ * `gross_amount_minor` is a decimal string of minor units, and HUF is zero-decimal in this API —
+ * so `"38100"` is 38 100 Ft, the same number the old major-unit field carried.
+ */
 export function invoice(overrides: Partial<Invoice> = {}): Invoice {
   return {
-    id: "6f1c2c8e-4b6d-4f2a-9c33-0b1f2a4d55aa",
+    public_id: "0199e4a9-13f2-7c14-9d5e-2a6b8c0d1f33",
     provider: "billingo",
-    providerConfigId: "billingo_acme",
+    provider_config_id: "billingo_acme",
     status: "created" satisfies InvoiceStatus,
-    invoiceNumber: "2026/0042",
-    providerInvoiceId: "99123",
-    grossAmount: 38100,
+    invoice_number: "2026/0042",
+    provider_invoice_id: "99123",
+    gross_amount_minor: "38100",
     currency: "HUF",
-    partnerRef: "order-2026-0001",
-    errorMessage: null,
-    createdAt: "2026-07-25T09:14:03.221Z",
-    updatedAt: "2026-07-25T09:14:05.882Z",
+    partner_ref: "order-2026-0001",
+    error_message: null,
+    created_at: "2026-07-25T09:14:03.221Z",
+    updated_at: "2026-07-25T09:14:05.882Z",
     ...overrides,
   };
 }
@@ -143,11 +164,17 @@ export function invoice(overrides: Partial<Invoice> = {}): Invoice {
 export function createBody() {
   return {
     provider: "billingo",
-    providerConfigId: "billingo_acme",
+    provider_config_id: "billingo_acme",
     partner: {
       name: "Teszt Vevő Kft",
-      address: { postalCode: "1011", city: "Budapest", address: "Fő utca 1" },
+      address: { postal_code: "1011", city: "Budapest", address: "Fő utca 1" },
     },
-    items: [{ name: "Tanácsadás", quantity: 1, netUnitPrice: 15000, vatRate: "27" }],
+    // Minor units as a decimal string: 15 000 Ft, because HUF is zero-decimal here.
+    items: [{ name: "Tanácsadás", quantity: 1, net_unit_price_minor: "15000", vat_rate: "27" }],
   } as const;
+}
+
+/** A list response, in the envelope every list on the service answers with. */
+export function listResponse(items: unknown[], nextCursor: string | null = null): Response {
+  return jsonResponse({ data: items, next_cursor: nextCursor });
 }

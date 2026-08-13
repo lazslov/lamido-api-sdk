@@ -70,24 +70,36 @@ test("verifyPaymentWebhook agrees with every pinned fixture on this runtime", as
   }
 });
 
-test("a webhook event parses without renaming payment.id", () => {
+test("a webhook event parses into the estate envelope", () => {
   const rawBody = JSON.stringify({
     event_id: "019e4a91-0000-7000-8000-000000000001",
     event_type: "payment.succeeded",
-    created_at: "2026-01-21T12:53:20.000Z",
-    payment: {
-      id: "019e4a91-0000-7000-8000-000000000002",
-      merchant_payment_ref: "order-12345",
-      status: "succeeded",
-      amount_minor: "1000",
-      currency: "HUF",
-      provider: "barion",
+    contract_version: 1,
+    occurred_at: "2026-01-21T12:53:20.000Z",
+    service: "payment-service",
+    account_id: null,
+    tenant: { kind: "merchant", public_id: "019e4a91-0000-7000-8000-000000000002" },
+    correlation_id: "019e4a91-0000-7000-8000-000000000001",
+    causation_id: null,
+    hop: 0,
+    data: {
+      payment: {
+        public_id: "019e4a91-0000-7000-8000-000000000003",
+        merchant_payment_ref: "order-12345",
+        status: "succeeded",
+        amount_minor: "1000",
+        currency: "HUF",
+        provider: "barion",
+      },
     },
   });
 
   const event = parsePaymentWebhookEvent(rawBody);
-  assert.equal(event.payment.id, "019e4a91-0000-7000-8000-000000000002");
-  assert.equal(event.payment.public_id, undefined);
+  // The resource block lives under `data`, keyed by resource name, and identifies itself with
+  // `public_id` — the same spelling the REST responses use.
+  assert.equal(event.data.payment.public_id, "019e4a91-0000-7000-8000-000000000003");
+  assert.equal(event.correlation_id, event.event_id);
+  assert.equal(event.hop, 0);
 });
 
 test("a create carries its idempotency key to fetch", async () => {

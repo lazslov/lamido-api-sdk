@@ -2,9 +2,9 @@
   "name": "stale-timestamp",
   "describes": "a correctly signed delivery replayed 301 seconds later, one second past tolerance",
   "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
-  "rawBody": "{\"event_id\":\"019e4a91-0000-7000-8000-000000000001\",\"event_type\":\"payment.succeeded\",\"created_at\":\"2026-01-21T12:53:20.000Z\",\"payment\":{\"id\":\"019e4a91-0000-7000-8000-000000000002\",\"merchant_payment_ref\":\"order-12345\",\"status\":\"succeeded\",\"amount_minor\":\"1000\",\"currency\":\"HUF\",\"provider\":\"barion\"}}",
+  "rawBody": "{\"event_id\":\"019e4a91-0000-7000-8000-000000000001\",\"event_type\":\"payment.succeeded\",\"contract_version\":1,\"occurred_at\":\"2026-01-21T12:53:20.000Z\",\"service\":\"payment-service\",\"account_id\":\"7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46\",\"tenant\":{\"kind\":\"merchant\",\"public_id\":\"019e4a91-0000-7000-8000-000000000002\"},\"correlation_id\":\"019e4a91-0000-7000-8000-000000000001\",\"causation_id\":null,\"hop\":0,\"data\":{\"payment\":{\"public_id\":\"019e4a91-0000-7000-8000-000000000003\",\"merchant_payment_ref\":\"order-12345\",\"status\":\"succeeded\",\"amount_minor\":\"1000\",\"currency\":\"HUF\",\"provider\":\"barion\"}}}",
   "timestamp": "1785167699",
-  "signature": "sha256=6d8c03bc1215149977ee5d8b70b266fccac2947539ea673b5850035d70decab4",
+  "signature": "sha256=c5fdd1b28b0979993987773294922c34299b9aeda9d127a407d2b0282e3542a6",
   "nowSeconds": 1785168000,
   "expect": {
     "ok": false,
