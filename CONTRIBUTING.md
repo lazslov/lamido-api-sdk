@@ -1,6 +1,6 @@
 # Contributing
 
-Four packages, one repository, published independently. This file covers versioning, releasing
+Five packages, one repository, published independently. This file covers versioning, releasing
 and the drift protocol. The rules about *how the code is written* are in [CLAUDE.md](CLAUDE.md);
 the decisions behind what exists are in [docs/ai-context.md](docs/ai-context.md).
 
@@ -91,7 +91,7 @@ believe in?"* from `node_modules`, without this repository.
 pnpm release:version         # applies the changesets: bumps versions, writes changelogs
 # add the provenance line to each changed CHANGELOG.md
 pnpm verify
-pnpm release:dry-run         # four tarballs, core first
+pnpm release:dry-run         # five tarballs, core first
 git commit && git push       # through a pull request, as always
 git tag v0.2.0 && git push --tags
 ```
@@ -107,9 +107,10 @@ and mirrors are fast, so a release that needs a gate skipped is a release that s
 publish step, and that `LIVE_REQUIRE_CONFIGURED` is set so a missing secret fails the release
 instead of silently skipping every case and reporting the same green as a full pass.
 
-The **first** release is the exception: all four packages already declare `0.1.0` and already have a
-`0.1.0` changelog entry, so there is no changeset to apply and `pnpm release:version` has nothing to
-do. Tagging `v0.1.0` is the whole step. Every release after that follows the flow above.
+The **first** release needs no changeset of its own: the four `@lazslov/*` SDK packages already
+declare `1.0.0` and `@lazslov/telemetry` declares `0.2.0`, each with a changelog entry carrying its
+provenance line, so `pnpm release:version` has nothing left to apply. Tagging `v1.0.0` is the whole
+step. Every release after that follows the flow above.
 
 ### Before the first publish
 
@@ -121,13 +122,18 @@ None of this can be done from the repository, and all of it must be true before 
       only *private* packages need a paid plan, and none of these are private. That is the whole
       of the account setup.
 - [ ] **2FA on the npm account**, with a granular automation token as the CI path.
-- [ ] **A granular access token** with publish permission on the four `@lazslov/*` packages,
+- [ ] **A granular access token** with publish permission on the five `@lazslov/*` packages,
       stored as the `NPM_TOKEN` secret of the `release` GitHub environment. Never in a committed
       `.npmrc` — [.npmrc](.npmrc) exists to hold the registry URL and nothing else.
 - [ ] **The `release` environment exists** and has a required reviewer. Publishing is the one
       irreversible action this repository can take; a human approving it is proportionate.
 - [ ] **The live-suite secrets are in that environment** — base URL and key for all three
       services. Base URLs are secrets here too: no deployment host belongs in this repository.
+
+      Fill in [`.env.live.example`](.env.live.example) once, then
+      `./scripts/push-release-secrets.sh` sets every one of them from it. Values go to
+      `gh secret set` on stdin, so none reaches the process table or the shell history, and the
+      script prints names only. Re-running it is how a single value is rotated.
 - [ ] **Sandbox tenants are provisioned.** [docs/live-testing.md](docs/live-testing.md) is the
       checklist, including which calls are safe to point at a live tenant and which are not.
 

@@ -60,7 +60,7 @@ const allowedHosts = new Set([
   "json.schemastore.org",
   "spdx.org",
   "opensource.org",
-  // The Telegram Bot API host — @lamido/telemetry's alert channel (OB-14). A vendor
+  // The Telegram Bot API host — @lazslov/telemetry's alert channel (OB-14). A vendor
   // reference fixed by Telegram, not a deployment of ours.
   "api.telegram.org",
 ]);

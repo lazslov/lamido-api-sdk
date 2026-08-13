@@ -1,9 +1,16 @@
-# @lamido/telemetry
+# @lazslov/telemetry
 
 ## 0.2.0
 
 Verified against knowledge base `16cd419`: content-service `ecf20fd`, invoice-service `3aa099f`,
 payment-service `4e3a0a5`.
+
+**Renamed from `@lamido/telemetry` before its first publish.** The repository had already settled
+on the `@lazslov` user scope for every package — `@lamido` on npm resolves to an account that may
+not be ours, and a user scope needs no organisation, no membership and no paid plan. This package
+was added afterwards and did not follow it. `Lamido` stays where it names the **project**: the
+repository, `LAMIDO_KB_PATH`, and the services. Nothing depended on the old name, and nothing was
+published under it.
 
 ### Minor Changes
 
