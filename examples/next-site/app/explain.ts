@@ -16,7 +16,7 @@ export function explain(result: SaveResult): string {
   if (result.ok) return "Saved.";
 
   switch (result.error) {
-    case "validation_error":
+    case "validation":
       // The per-field messages the SDK mapped out of `details`, so a form can render them next to
       // inputs instead of showing one toast.
       return (
@@ -25,7 +25,13 @@ export function explain(result: SaveResult): string {
           .join("; ") || "That value was rejected."
       );
     case "conflict":
+      // Both a 409 duplicate and a 422 wrong-state arrive here — the slug does not separate
+      // them. One sentence covers both for an editor; catch the error itself where it matters.
       return "Something else changed this page. Reload and try again.";
+    case "payload-too-large":
+      return "That is too much data for one record.";
+    case "rate-limit":
+      return "Too many changes at once. Wait a moment and try again.";
     case "unauthorized":
     case "forbidden":
       return "The service rejected our key. That is an operator problem, not yours.";

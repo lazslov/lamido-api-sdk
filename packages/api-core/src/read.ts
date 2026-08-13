@@ -8,11 +8,16 @@
  * without its `cutoff` cannot say what it filtered on.
  */
 export type ReadKind =
-  /** Unwrap `data`, for envelopes that carry nothing else. */
-  | "data"
-  /** Return `{ data, …siblings }` whole, for envelopes whose siblings are meaningful. */
+  /**
+   * Return `{ data, next_cursor, …siblings }` whole. The only way to read a list.
+   *
+   * @remarks
+   * There is deliberately no kind that unwraps `data` for you. conventions §3 makes it a rule:
+   * "never write `unwrap(body.data)`" — the helper silently discards `next_cursor`, and a pager
+   * without it stops after one page while looking like it finished.
+   */
   | "envelope"
-  /** The parsed body untouched — payment-service has no envelope, and `/api/health`. */
+  /** The parsed body untouched. A single resource is now the resource, unwrapped. */
   | "raw"
   /** `ArrayBuffer` plus content type — invoice-service answers `application/pdf`. */
   | "bytes"
@@ -82,10 +87,6 @@ export async function readBody(response: Response, kind: ReadKind): Promise<unkn
         bytes: await response.arrayBuffer(),
         contentType: response.headers.get("content-type"),
       } satisfies BytesBody;
-    case "data": {
-      const body = await parseJsonSafe(response);
-      return (body as { data?: unknown } | null)?.data;
-    }
     case "envelope":
     case "raw":
       return await parseJsonSafe(response);

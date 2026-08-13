@@ -12,7 +12,7 @@
  */
 
 export interface paths {
-    "/api/health": {
+    "/healthz": {
         parameters: {
             query?: never;
             header?: never;
@@ -20,10 +20,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Liveness + database ping
-         * @description NOT wrapped in `data`.
+         * Liveness probe
+         * @description **Always returns HTTP 200 while the process is alive**, whatever the database is
+         *     doing. It answers exactly one question — should the platform restart or drain this
+         *     instance? — and while requests are still being served the answer is no.
+         *
+         *     A monitor that only checks `response.ok` will therefore never notice a database
+         *     outage. **Parse the body and alert on `status !== "ok"`.**
          */
-        get: operations["getHealth"];
+        get: operations["getHealthz"];
         put?: never;
         post?: never;
         delete?: never;
@@ -32,14 +37,21 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/public/invoices/{id}/pdf": {
+    "/v1/public/invoices/{public_id}/pdf": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** PDF for a signed download link */
+        /**
+         * Download an invoice PDF with a signed token
+         * @description Serves the PDF for a link minted by `GET /v1/invoices/{public_id}/download-link` or
+         *     its admin equivalent. No API key: the token authorises access to this one invoice.
+         *
+         *     **No browser tripwire here** — a browser is the entire point of this surface.
+         *     The PDF is re-fetched from the provider on every request; nothing is stored.
+         */
         get: operations["getPublicInvoicePdf"];
         put?: never;
         post?: never;
@@ -49,7 +61,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/invoices": {
+    "/v1/invoices": {
         parameters: {
             query?: never;
             header?: never;
@@ -57,17 +69,38 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the caller's invoices (newest first)
-         * @description No `total` is returned on this tier.
+         * List this client's invoices
+         * @description Newest first, ordered by `(created_at desc, public_id desc)`.
+         *     **`total` is omitted** on this tier — the key is absent, not `null`.
          */
         get: operations["listInvoices"];
         put?: never;
         /**
-         * Create an invoice (idempotent)
-         * @description 201 = a new invoice was issued. 200 = idempotent replay; the stored invoice is
-         *     returned unchanged in ANY status and the provider was NOT called.
-         *     Once the row is inserted the Idempotency-Key is consumed even if the provider
-         *     fails — retry a failed invoice with a NEW key.
+         * Issue an invoice (idempotent)
+         * @description Issues a **real invoice** at szamlazz.hu or Billingo, which also handles NAV
+         *     reporting.
+         *
+         *     `Idempotency-Key` is required. A row is reserved `pending` before the provider is
+         *     called. Guards run in a fixed order, and it decides which failures consume the key:
+         *
+         *     1. browser tripwire → 403
+         *     2. authentication → 401 / 429 (failed-auth throttle)
+         *     3. body validation → 400 with `errors[]`
+         *     4. `Idempotency-Key` present → 400 `idempotency_key_required`
+         *     5. config allow-listed → 403
+         *     6. config-id prefix matches provider → 400 `provider_config_mismatch`
+         *     7. provider throttle, `invoice_create` bucket, 60/client/minute → 429
+         *     8. **reserve the key** — from here on the key IS consumed
+         *     9. resolve the credential → 400 (no `code`) or 500
+         *     10. call the provider → 502
+         *
+         *     Step 7 sits above step 8 deliberately: a 429 must not cost the caller their
+         *     idempotency key, so the throttle rejects before anything is written. The trade-off
+         *     is that an idempotent replay — resolved at step 8 without contacting a provider — is
+         *     counted at step 7 anyway.
+         *
+         *     A replay answers `200` with `Idempotent-Replay: true` and does not call the
+         *     provider. Same key + a different body is a `409`.
          */
         post: operations["createInvoice"];
         delete?: never;
@@ -76,14 +109,19 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/invoices/{id}": {
+    "/v1/invoices/{public_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get one invoice (own tenant only) */
+        /**
+         * Get one invoice
+         * @description The polling endpoint — the service never calls you back. Scoped to the owning
+         *     client in the query itself, so another client's invoice is a `404` rather than a
+         *     `403`; non-existence and no-access are deliberately indistinguishable.
+         */
         get: operations["getInvoice"];
         put?: never;
         post?: never;
@@ -93,14 +131,19 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/invoices/{id}/pdf": {
+    "/v1/invoices/{public_id}/pdf": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Download the PDF (re-fetched from the provider every call) */
+        /**
+         * Download this invoice's PDF
+         * @description Re-fetched from the provider on every call; nothing is cached or stored. A
+         *     canceled invoice is **not** downloadable here, even though the document still
+         *     exists at the provider.
+         */
         get: operations["getInvoicePdf"];
         put?: never;
         post?: never;
@@ -110,7 +153,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/invoices/{id}/download-link": {
+    "/v1/invoices/{public_id}/download-link": {
         parameters: {
             query?: never;
             header?: never;
@@ -118,10 +161,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Mint a public 7-day PDF URL
-         * @description The link needs no API key. An individual link cannot be revoked before it expires; the operator's only lever is changing DOWNLOAD_LINK_SECRET, which kills every outstanding link at once.
+         * Mint a 7-day public download link
+         * @description For sending a PDF to the end customer without exposing your API key. The token is
+         *     a stateless HMAC bound to this one invoice. Calling again mints a new token; old
+         *     ones stay valid until they expire. **There is no per-link revoke.**
          */
-        get: operations["getInvoiceDownloadLink"];
+        get: operations["createInvoiceDownloadLink"];
         put?: never;
         post?: never;
         delete?: never;
@@ -130,7 +175,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/invoices/{id}/cancel": {
+    "/v1/invoices/{public_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -140,13 +185,15 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel (storno) — real financial effect at the provider
-         * @description No request body. The state check runs before any provider call, so 400 means
-         *     nothing was contacted; 502 means the provider was reached and refused.
+         * Cancel (storno) this invoice
+         * @description Issues a **real storno document at the provider**, reported to NAV. Cannot be
+         *     undone. No request body is required or read.
          *
-         *     Audited: a success writes an audit_log entry with action=invoice.cancel and
-         *     actorType=client_key (metadata {clientId, invoiceNumber, stornoNumber}, no reason —
-         *     this endpoint takes no body). Visible via GET /api/admin/audit.
+         *     The response is the Invoice object plus `storno_number`, which appears **here and
+         *     nowhere else** — there is no column for it. Persist it on receipt, or recover it
+         *     later from `GET /v1/admin/audit?action=invoice.cancel&target_id=…`.
+         *
+         *     Audited as `actor_type: client_key`, with no `reason` (this endpoint takes no body).
          */
         post: operations["cancelInvoice"];
         delete?: never;
@@ -155,24 +202,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Introspect the calling admin key (no scope required) */
-        get: operations["adminMe"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/health": {
+    "/v1/admin/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -180,10 +210,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Operational health (no scope required)
-         * @description NOTE the 503 carries the same envelope as the 200, not an error envelope. A client that checks response.ok before parsing will discard the only payload that explains why — read the body regardless of status here, or treat the 503 itself as the signal.
+         * Describe the calling admin key
+         * @description No scope required — a key must always be able to discover what it may do.
          */
-        get: operations["adminHealth"];
+        get: operations["getAdminMe"];
         put?: never;
         post?: never;
         delete?: never;
@@ -192,14 +222,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/providers": {
+    "/v1/admin/health": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Provider catalog — the credential-form rendering contract */
+        /**
+         * Operational health for the dashboard strip
+         * @description **Always HTTP 200, even when degraded.** Alert on the body, not the status code.
+         *     No scope required. Every count has a drill-down listing that returns exactly the
+         *     rows it counts.
+         */
+        get: operations["getAdminHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Provider catalog — the credential-form contract
+         * @description Read this instead of hardcoding provider knowledge in the admin UI.
+         *
+         *     **This is the one payload on the service that is camelCase.** `configIdPrefix`,
+         *     `configFields`, `envFallback`, `testDescription` and the config keys
+         *     `blockId` / `bankAccountId` were deliberately not renamed, because those are the
+         *     literal keys stored in `provider_credentials.config` and sent to Billingo.
+         *
+         *     Scope: `credentials:read`.
+         */
         get: operations["listProviders"];
         put?: never;
         post?: never;
@@ -209,17 +271,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/admin-keys": {
+    "/v1/admin/admin-keys": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List all admin keys (scope admin:manage, unpaginated, newest first) */
+        /**
+         * List every admin key
+         * @description Active and revoked, newest first. **Unpaginated** — the query string is not read at
+         *     all, so `?limit=` is silently ignored rather than rejected. No `total`.
+         *     Scope: `admin:manage`.
+         */
         get: operations["listAdminKeys"];
         put?: never;
-        /** Mint an admin key (scope admin:manage) — apiKey shown once */
+        /**
+         * Mint an admin key
+         * @description The plaintext `api_key` is returned **once** and never stored, logged or written to
+         *     the audit trail. Scope: `admin:manage`.
+         */
         post: operations["createAdminKey"];
         delete?: never;
         options?: never;
@@ -227,35 +298,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/admin-keys/{id}": {
+    "/v1/admin/admin-keys/{id}": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /**
+                 * @description The admin key's internal uuid. **Not validated** — a non-uuid reaches Postgres and
+                 *     surfaces as a `500`.
+                 */
+                id: components["parameters"]["AdminKeyId"];
+            };
             cookie?: never;
         };
         get?: never;
         put?: never;
         post?: never;
-        /** Soft-revoke an admin key (scope admin:manage) */
+        /**
+         * Revoke an admin key (soft)
+         * @description Sets `active: false`; the row stays so the audit trail keeps its label.
+         *     Scope: `admin:manage`.
+         */
         delete: operations["revokeAdminKey"];
         options?: never;
         head?: never;
-        /** Update label / scopes / allowedIps / active (scope admin:manage) */
+        /**
+         * Update an admin key
+         * @description At least one field, else `400`. This is how an IP allowlist is switched on later
+         *     without a redeploy. Never re-issues a key. Scope: `admin:manage`.
+         */
         patch: operations["updateAdminKey"];
         trace?: never;
     };
-    "/api/admin/clients": {
+    "/v1/admin/clients": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List clients with rollup counts (scope clients:read, newest first) */
+        /**
+         * List clients with rollup counts
+         * @description Newest first. `total` reflects the filters but ignores the cursor.
+         *     `credential_count` counts **active** credentials only; `invoice_count` and
+         *     `last_invoice_at` cover all time. Scope: `clients:read`.
+         */
         get: operations["listClients"];
         put?: never;
-        /** Create a client (scope clients:write) — apiKey shown once */
+        /**
+         * Create a client
+         * @description Returns the client plus a one-time `api_key` (`isk_…`). A new client starts with
+         *     `allowed_provider_configs: []` and cannot issue anything until an integration is
+         *     attached. Scope: `clients:write`.
+         */
         post: operations["createClient"];
         delete?: never;
         options?: never;
@@ -263,26 +358,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/clients/{id}": {
+    "/v1/admin/clients/{public_id}": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+            };
             cookie?: never;
         };
-        /** Client detail with masked integrations (scope clients:read) */
+        /**
+         * Client detail, with every integration
+         * @description Everything a detail page needs in one request: the client, its rollups, and all its
+         *     integrations (masked, including inactive ones), sorted by `config_id`.
+         *     Scope: `clients:read`.
+         */
         get: operations["getClient"];
         put?: never;
         post?: never;
-        /** Deactivate (default) or hard-delete a client (scope clients:write) */
+        /**
+         * Deactivate (or hard-delete) a client
+         * @description Soft by default. `?hard=true` deletes the credential rows and then the client, and
+         *     is refused with `409` if the client has any invoice. Scope: `clients:write`.
+         */
         delete: operations["deleteClient"];
         options?: never;
         head?: never;
-        /** Update a client (scope clients:write) */
+        /**
+         * Update a client
+         * @description At least one field, else `400`. `allowed_provider_configs` is an escape hatch that
+         *     replaces the array wholesale — prefer the integration endpoints, which maintain it.
+         *     Scope: `clients:write`.
+         */
         patch: operations["updateClient"];
         trace?: never;
     };
-    "/api/admin/clients/{id}/rotate-key": {
+    "/v1/admin/clients/{public_id}/rotate-key": {
         parameters: {
             query?: never;
             header?: never;
@@ -292,8 +404,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Rotate the client's isk_ key (scope clients:write)
-         * @description The old key stops working immediately — there is no overlap window.
+         * Rotate a client's API key
+         * @description No body. **The old key stops working immediately** — there is no overlap window.
+         *     Scope: `clients:write`.
          */
         post: operations["rotateClientKey"];
         delete?: never;
@@ -302,7 +415,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/integrations": {
+    "/v1/admin/integrations": {
         parameters: {
             query?: never;
             header?: never;
@@ -310,13 +423,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Credentials across all clients, masked (scope credentials:read)
-         * @description Cross-client credential listing — the drill-down for `failingCredentials` in
-         *     GET /api/admin/health. `?active=true&lastTestStatus=failed` returns exactly the
-         *     rows that count counts. Ordered by client name, then configId.
+         * Cross-client credential listing
+         * @description The only credential read not scoped to one client in the path — this is how you
+         *     answer *which* credential is failing rather than how many.
          *
-         *     `lastTestStatus=untested` is a FILTER-ONLY value meaning `lastTestStatus: null`
-         *     (never tested); it is not a stored status and never appears in a response.
+         *     Ordered by client `name`, then `config_id`, then credential `id`; the cursor is
+         *     that same three-part tuple, because client names are not unique and a keyset cursor
+         *     over a non-total order can skip rows at a tie.
+         *
+         *     Scope: `credentials:read`.
          */
         get: operations["listAllIntegrations"];
         put?: never;
@@ -327,7 +442,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/clients/{id}/integrations": {
+    "/v1/admin/clients/{public_id}/integrations": {
         parameters: {
             query?: never;
             header?: never;
@@ -335,11 +450,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * All credentials of a client, masked (scope credentials:read)
-         * @description Unpaginated, sorted by configId, includes inactive rows. Rows carry no
-         *     clientId/clientName — use GET /api/admin/integrations?clientId= for those.
+         * All of one client's credentials
+         * @description Active and inactive, sorted by `config_id`. **Unpaginated** and the query string is
+         *     not read at all, so `?limit=` is silently ignored. No `total`.
+         *     Scope: `credentials:read`.
          */
-        get: operations["listIntegrations"];
+        get: operations["listClientIntegrations"];
         put?: never;
         post?: never;
         delete?: never;
@@ -348,32 +464,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/clients/{id}/integrations/{configId}": {
+    "/v1/admin/clients/{public_id}/integrations/{config_id}": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+                /**
+                 * @description Must match `^[a-z0-9_]+$`, ≤64 chars, and start with the provider's prefix. The id
+                 *     is upper-cased to build env-var fallback names, so it must stay filename-safe.
+                 */
+                config_id: components["parameters"]["ConfigIdPath"];
+            };
             cookie?: never;
         };
-        /** One credential, masked (scope credentials:read) */
-        get: operations["getIntegration"];
         /**
-         * Create or update a provider credential (scope credentials:write)
-         * @description Side effects: the configId is added to the client's allowedProviderConfigs, and
-         *     supplying `secret` clears lastTestedAt / lastTestStatus / lastTestError.
-         *     A PUT without an explicit `active` reactivates a soft-deleted integration.
-         *     NEVER log this request body — it carries a plaintext provider secret.
+         * One credential
+         * @description Scope: `credentials:read`.
          */
-        put: operations["upsertIntegration"];
+        get: operations["getClientIntegration"];
+        /**
+         * Create or rotate a provider credential
+         * @description The only way to write a provider secret through the API. Two side effects that both
+         *     matter:
+         *
+         *     - `config_id` is added to the client's `allowed_provider_configs` — without it the
+         *       credential exists but invoicing still `403`s.
+         *     - Supplying `secret` clears `last_tested_at` / `last_test_status` /
+         *       `last_test_error`, so the credential starts counting towards
+         *       `untested_credentials`. Re-run the test.
+         *
+         *     **Never log this request body** — it carries a plaintext provider secret. The audit
+         *     entry records only the config id, provider, whether the secret rotated, and the
+         *     config key names.
+         *
+         *     Scope: `credentials:write`.
+         */
+        put: operations["upsertClientIntegration"];
         post?: never;
-        /** Soft-delete a credential and un-allow-list its configId (scope credentials:write) */
-        delete: operations["deleteIntegration"];
+        /**
+         * Deactivate a credential and un-allow-list it
+         * @description Soft delete — the ciphertext is retained so a mistake is recoverable by re-`PUT`ting
+         *     (the secret may be omitted). Removing the config id from
+         *     `allowed_provider_configs` is what actually stops invoicing.
+         *     Scope: `credentials:write`.
+         */
+        delete: operations["deleteClientIntegration"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/clients/{id}/integrations/{configId}/test": {
+    "/v1/admin/clients/{public_id}/integrations/{config_id}/test": {
         parameters: {
             query?: never;
             header?: never;
@@ -383,26 +526,36 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Live, read-only credential check (scope credentials:write)
-         * @description Issues nothing at the provider. `ok: false` is a RESULT, not an error — the HTTP
-         *     status is still 200. The verdict is persisted to lastTest* on the credential.
+         * Verify a credential against the provider
+         * @description **Read-only at the provider: it issues, modifies and cancels nothing.** No request
+         *     body.
+         *
+         *     **`ok: false` is a result, not an error** — the HTTP status is `200` either way.
+         *     Never branch on the status code here. The verdict is persisted to the credential's
+         *     `last_test_*` fields and feeds the health counts.
+         *
+         *     Scope: `credentials:write`.
          */
-        post: operations["testIntegration"];
+        post: operations["testClientIntegration"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/invoices": {
+    "/v1/admin/invoices": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Cross-tenant invoice list (scope invoices:read, newest first) */
-        get: operations["adminListInvoices"];
+        /**
+         * Cross-client invoice list
+         * @description Newest first, with `total`. There is **no search by customer name** — partner data
+         *     is never stored. Scope: `invoices:read`.
+         */
+        get: operations["listAllInvoices"];
         put?: never;
         post?: never;
         delete?: never;
@@ -411,14 +564,21 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/invoices/stuck": {
+    "/v1/admin/invoices/stuck": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Invoices stuck in `pending` (scope invoices:read, oldest first) */
+        /**
+         * Invoices left pending by a crash
+         * @description **Oldest first** — this is a work queue, and the oldest stuck row has been wrong for
+         *     longest. The cursor therefore walks forwards, unlike every other list here.
+         *
+         *     `older_than_minutes` and `cutoff` come back as siblings of `data`, so a response
+         *     says what "stuck" meant for it. Scope: `invoices:read`.
+         */
         get: operations["listStuckInvoices"];
         put?: never;
         post?: never;
@@ -428,78 +588,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/invoices/{id}": {
+    "/v1/admin/invoices/{public_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Any invoice, any tenant (scope invoices:read) */
-        get: operations["adminGetInvoice"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/invoices/{id}/pdf": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** PDF for any invoice (scope invoices:read) */
-        get: operations["adminGetInvoicePdf"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/invoices/{id}/download-link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Mint a public 7-day PDF URL for any invoice (scope invoices:read) */
-        get: operations["adminGetDownloadLink"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/invoices/{id}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
         /**
-         * Storno on the client's behalf (scope invoices:write)
-         * @description Real financial effect at the provider. `reason` is required and audited.
+         * Get any invoice, any client
+         * @description Admin reads are not tenant-scoped. Scope: `invoices:read`.
          */
-        post: operations["adminCancelInvoice"];
+        get: operations["getAnyInvoice"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/invoices/{id}/reconcile": {
+    "/v1/admin/invoices/{public_id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download any invoice's PDF
+         * @description Re-fetched from the provider every time. Scope: `invoices:read`.
+         */
+        get: operations["getAnyInvoicePdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/invoices/{public_id}/download-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mint a 7-day link for any invoice
+         * @description For sending a support copy to an end customer. Scope: `invoices:read`.
+         */
+        get: operations["createAnyInvoiceDownloadLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/invoices/{public_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -509,11 +658,38 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resolve a stuck `pending` invoice (scope invoices:write)
-         * @description Requires status === "pending". `release` DELETES the row, freeing
-         *     (clientId, idempotencyKey) so the client can retry with the same key — it is the
-         *     only destructive action in the API. The deleted row is snapshotted into the audit
-         *     trail first.
+         * Storno an invoice on the client's behalf
+         * @description **Real financial effect at the provider, reported to NAV.** `reason` is required and
+         *     written to the audit log.
+         *
+         *     `storno_number` appears in this response and nowhere else. Scope: `invoices:write`.
+         */
+        post: operations["cancelAnyInvoice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/invoices/{public_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve a stuck pending invoice
+         * @description Requires `status === "pending"`. There is no automatic resolution: a pending row has
+         *     no `provider_invoice_id` and szamlazz cannot be searched by an external key, so an
+         *     operator checks the provider's UI and reports what they found.
+         *
+         *     **Every variant is strict** — an unknown key anywhere in the body is a `400`. This
+         *     is the only endpoint that deletes rows.
+         *
+         *     Scope: `invoices:write`.
          */
         post: operations["reconcileInvoice"];
         delete?: never;
@@ -522,24 +698,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/stats/overview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Dashboard headline numbers (scope stats:read) */
-        get: operations["statsOverview"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/stats/timeseries": {
+    "/v1/admin/stats/overview": {
         parameters: {
             query?: never;
             header?: never;
@@ -547,10 +706,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Invoice counts bucketed by time and status (scope stats:read)
-         * @description Sparse — a bucket/status pair with no rows is absent, not zero.
+         * Dashboard aggregate
+         * @description `by_status` / `by_provider` omit keys with zero rows. `last_24h` and the client
+         *     counts ignore `from`/`until`. `gross` covers **only `created`** invoices and is
+         *     grouped by currency, never summed across it. Scope: `stats:read`.
          */
-        get: operations["statsTimeseries"];
+        get: operations["getStatsOverview"];
         put?: never;
         post?: never;
         delete?: never;
@@ -559,7 +720,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/stats/clients": {
+    "/v1/admin/stats/timeseries": {
         parameters: {
             query?: never;
             header?: never;
@@ -567,10 +728,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Per-client rollup — the metering base (scope stats:read)
-         * @description Every client appears, including those with no invoices in range.
+         * Invoice volume by bucket and status
+         * @description **Sparse** — a bucket/status pair with no rows is absent, not zero. Fill the gaps
+         *     client-side before charting. `interval` and `range` are siblings of `data`.
+         *     Scope: `stats:read`.
          */
-        get: operations["statsClients"];
+        get: operations["getStatsTimeseries"];
         put?: never;
         post?: never;
         delete?: never;
@@ -579,15 +742,406 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/audit": {
+    "/v1/admin/stats/clients": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Append-only audit trail, both tiers (scope audit:read, newest first) */
-        get: operations["listAudit"];
+        /**
+         * Per-client rollup
+         * @description Sorted by client name. **Every client appears**, including ones with no invoices in
+         *     range (all zeroes) and inactive ones.
+         *
+         *     `gross_amount_minor` here sums **every currency indiscriminately**, which is
+         *     meaningless for a multi-currency tenant — use `stats/overview.gross` in that case.
+         *
+         *     Scope: `stats:read`.
+         */
+        get: operations["getStatsClients"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the append-only audit trail
+         * @description Newest first, with `total`. Both credential tiers write here — `actor_type` tells
+         *     them apart, and a client-tier `invoice.cancel` carries no `reason`.
+         *
+         *     `request_id` joins an entry to the log lines of the request that caused it.
+         *
+         *     Reads are not audited; only mutations are. CLI actions are not audited at all.
+         *
+         *     Scope: `audit:read`.
+         */
+        get: operations["listAuditEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hooks/payment-service": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive a house event from payment-service
+         * @description **Not a route you call.** The estate's inbound house-event surface: payment-service
+         *     posts a signed `payment.succeeded` here and this service issues an invoice for it.
+         *
+         *     Carries **no bearer key** — the sending service's `X-Signature` is the credential —
+         *     and is mounted ahead of both authenticators and exempt from the browser tripwire, as
+         *     `/v1/providers/*` is elsewhere in the estate. A typo under `/v1/hooks/` is a 404.
+         *
+         *     **The only non-2xx is a failed signature.** Every other outcome is a decision, and a
+         *     decision is something the sender must stop retrying: a 4xx would put the event back
+         *     on a ladder that replays for ~3.5 days and change nothing. Read `status` in the body.
+         *
+         *     The side effect is idempotent on the event: the `Idempotency-Key` used to issue the
+         *     invoice is `evt_<event_id>:invoice.issue`, so a redelivery cannot produce a second
+         *     legal document.
+         */
+        post: operations["receivePaymentServiceEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/event-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The closed event catalogue, as data
+         * @description The same array that validates a subscription and drives the emitter, so a trigger
+         *     picker built on this route cannot go stale. `webhook.ping` is deliberately absent.
+         *
+         *     `sensitive_blocks` is `[]` on every entry here and will stay that way: this service
+         *     stores no personal data, so there is nothing for an `include_*` flag to switch on.
+         */
+        get: operations["listEventTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every endpoint, across clients
+         * @description `enabled=false` is the drill-down behind the `disabled_webhook_endpoints` health count and shares its predicate.
+         */
+        get: operations["listWebhookEndpoints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/clients/{public_id}/webhook-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * One client's endpoints
+         * @description 200 with an empty array when there are none — never a 404.
+         */
+        get: operations["listClientWebhookEndpoints"];
+        put?: never;
+        /**
+         * Add a destination, and mint its signing secret
+         * @description The secret is returned **once**, here. There is no route that reveals it afterwards —
+         *     only `secret_last4` and `secret_fingerprint`.
+         */
+        post: operations["createWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{public_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        /** One endpoint */
+        get: operations["getWebhookEndpoint"];
+        put?: never;
+        post?: never;
+        /** Remove an endpoint and its deliveries */
+        delete: operations["deleteWebhookEndpoint"];
+        options?: never;
+        head?: never;
+        /**
+         * Change an endpoint's configuration
+         * @description Must change at least one field. `description: null` clears it; absent leaves it alone.
+         *
+         *     **Does not re-enable and does not clear `consecutive_failures`** — bundling "the
+         *     destination is good now" into every field change is how fixing a typo in a URL
+         *     silently re-arms an endpoint that has been dead for a week. `contract_version` is
+         *     absent on purpose: moving a live endpoint between envelope versions changes the bytes
+         *     its receiver verifies, which is a new endpoint rather than an edit.
+         */
+        patch: operations["patchWebhookEndpoint"];
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{public_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a new signing secret
+         * @description **The old secret stops working immediately — there is no grace period.** Only this
+         *     endpoint is affected; the client's others keep verifying. Also re-enables and clears
+         *     the failure counter, because an operator rotating is about to hand the receiver a
+         *     working secret.
+         */
+        post: operations["rotateWebhookEndpointSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{public_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-enable an endpoint and clear its failure counter */
+        post: operations["enableWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{public_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop delivering to an endpoint */
+        post: operations["disableWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{public_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deliver a signed webhook.ping, synchronously
+         * @description Proves a destination before a client relies on it — which matters more here than
+         *     elsewhere, because the alternative way to prove it is to issue a legal document
+         *     reported to NAV.
+         *
+         *     **Always 200, whatever the receiver said. Read `ok`, not the HTTP status.** Writes no
+         *     event row and no delivery row: a probe is not a fact about an invoice, and a failed
+         *     probe is an operator mid-configuration rather than a receiver that has gone away.
+         */
+        post: operations["testWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The outbox
+         * @description `correlation_id` is **the cross-service trace**: one value returns everything a single
+         *     payment caused on this side of the chain, and the same value queries payment-service
+         *     and email-service. It is indexed precisely so it is usable during an incident.
+         */
+        get: operations["listWebhookEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The delivery queue and its history
+         * @description `status` defaults to **`all`**, unlike a client-facing list: an operator arrives here
+         *     from a health tile, and defaulting to `pending` would show a different set than the one
+         *     they clicked.
+         */
+        get: operations["listWebhookDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-deliveries/{id}/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a delivery and start a fresh ladder
+         * @description **Does not mint a new `event_id`**, so a receiver deduping on `X-Event-Id` correctly
+         *     recognises a redelivery as the same event. Resets the existing row rather than
+         *     inserting a second one — `unique(event_id, endpoint_id)` makes the alternative
+         *     impossible at the table level.
+         */
+        post: operations["redeliverWebhookDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/inbound-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What another service told us, and what we did about it
+         * @description The drill-down behind `refused_inbound_events` and `unroutable_inbound_events`.
+         *
+         *     **Not one of WH-9's fourteen identical routes** — it is required by WH-26 and exists
+         *     only in a service with an inbound surface, which today means only this one.
+         *
+         *     `outcome` defaults to **`all`**: an operator arrives here from a count, and a
+         *     filtering default would show a different set than the number they clicked. An
+         *     unrecognised `reason_code` is a `400` rather than an empty page, because a filter
+         *     that silently matches nothing reads exactly like "nothing is wrong".
+         */
+        get: operations["listInboundEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A static landing page for a human who typed the domain
+         * @description HTML, no auth, no browser tripwire, `Cache-Control: public, max-age=3600`. Exists so
+         *     the root of an API host does not answer a problem document to a browser, which reads
+         *     as an outage. Scoped to `/` exactly; every other unknown path still returns the
+         *     problem document, and a non-`GET` here is a `404`.
+         *
+         *     **Not a health check** — the body is a compile-time constant served without touching
+         *     the database, so it stays `200` through a total outage. Use `/healthz`, and read its
+         *     body.
+         */
+        get: operations["getLandingPage"];
         put?: never;
         post?: never;
         delete?: never;
@@ -600,249 +1154,540 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        ErrorEnvelope: {
-            error: {
-                code: components["schemas"]["ErrorCode"];
-                /** @description Human-readable. Never branch on this. */
-                message: string;
-                /**
-                 * @description Shape depends on `code`. For `validation_error` it is Zod's flatten():
-                 *     { formErrors: string[], fieldErrors: Record<string, string[]> } —
-                 *     fieldErrors keys are TOP-LEVEL only.
-                 */
-                details?: unknown;
-            };
-        };
-        /** @enum {string} */
-        ErrorCode: "validation_error" | "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "provider_error" | "internal_error";
         /** @enum {string} */
         Provider: "szamlazz" | "billingo";
-        /** @enum {string} */
-        InvoiceStatus: "pending" | "created" | "failed" | "cancelled";
         /**
-         * @description admin_key = an operator on /api/admin/* (actorId is an admin_keys.id). client_key = the integrating application on /api/invoices/* (actorId is a clients.id); today only POST /api/invoices/{id}/cancel writes one. system = reserved, nothing emits it.
+         * @description `pending` normally exists only for the second a provider call takes. `failed` is
+         *     terminal for its idempotency key until the 7-day TTL expires. `canceled` is
+         *     terminal. There is no "paid" state.
+         *
+         *     Exactly three transitions are legal: pending -> created, pending -> failed,
+         *     created -> canceled. A row is only born `pending`, so nothing moves into it;
+         *     `failed` and `canceled` are both terminal, and a `failed` invoice can NEVER become
+         *     `created` (admin reconcile `attach` requires `pending`). Every status change goes
+         *     through one function that locks the row and validates the edge.
          * @enum {string}
          */
-        AuditActorType: "admin_key" | "client_key" | "system";
-        /** @enum {string} */
-        AuditTargetType: "client" | "credential" | "invoice" | "admin_key";
-        /** @enum {string} */
-        AdminScope: "clients:read" | "clients:write" | "credentials:read" | "credentials:write" | "invoices:read" | "invoices:write" | "stats:read" | "audit:read" | "admin:manage" | "*";
+        InvoiceStatus: "pending" | "created" | "failed" | "canceled";
         /**
-         * @description Must start with the provider prefix (`szamlazz_` / `billingo_`) and be present in
-         *     the client's allowedProviderConfigs for invoicing to succeed.
-         * @example billingo_acme
-         * @example szamlazz_acme
+         * @description **HUF is zero-decimal in this API** — a deliberate estate-wide deviation from ISO
+         *     4217, so `"1000"` HUF is 1000 Ft. EUR and USD have two minor digits.
+         * @enum {string}
+         */
+        Currency: "HUF" | "EUR" | "USD";
+        /**
+         * @description A monetary amount as a decimal string of canonical minor units: digits only, no
+         *     sign, no decimal point, no exponent, no leading zero. **Never a JSON number** —
+         *     JSON numbers lose precision above 2^53, which a yearly HUF total reaches.
+         *
+         *     `"0"` and negatives are rejected on input. Output fields may still be `"0"` when a
+         *     provider omitted the total.
+         */
+        AmountMinor: string;
+        /**
+         * @description Names one credential of one provider for one client (`billingo_acme`). Must start
+         *     with `szamlazz_` or `billingo_`. Lower-case only — the id is upper-cased to build
+         *     env-var fallback names, so it must stay filename-safe. The **field** was renamed in
+         *     the snake_case cutover; the **values** were not.
          */
         ConfigId: string;
+        /**
+         * @description Query-string boolean. Only these two literals; `1`/`yes` are a `400`.
+         * @enum {string}
+         */
+        BoolFlag: "true" | "false";
+        /**
+         * @description Opaque cursor for the next page, or `null` when there is none. **Always present**,
+         *     including on unpaginated lists, so one pager terminates correctly everywhere.
+         */
+        NextCursor: string | null;
+        /** @description The window as echoed back, so a chart can label its own axis. */
         Range: {
             /** Format: date-time */
-            from?: string | null;
+            from: string | null;
             /** Format: date-time */
-            to?: string | null;
+            until: string | null;
+        };
+        ProblemFieldError: {
+            /**
+             * @description RFC 6901 JSON Pointer into the request body (`/items/0/net_unit_price_minor`),
+             *     or `#/query/<name>` / `#/param/<name>` for anything outside it.
+             */
+            pointer: string;
+            /**
+             * @description Branchable sub-case from the house set: `required`, `invalid_type`,
+             *     `invalid_format`, `invalid_enum`, `unknown_field`, `invalid_union`, `too_small`,
+             *     `too_big`, `invalid`. An unmapped validator code passes through as itself rather
+             *     than collapsing, so a new one is visible instead of indistinguishable.
+             */
+            code: string;
+            /** @description A sentence about this one field. */
+            detail: string;
+        };
+        /**
+         * @description RFC 9457 Problem Details, served as `application/problem+json`. The type set is
+         *     closed and shared verbatim with payment-service and content-service.
+         *
+         *     Note `conflict` covers both 409 and 422, and `internal` covers both 500 and 502 —
+         *     the type set does not grow a member for a new status code.
+         */
+        Problem: {
+            /** @enum {string} */
+            type: "urn:invoice-service:problem:validation" | "urn:invoice-service:problem:unauthorized" | "urn:invoice-service:problem:forbidden" | "urn:invoice-service:problem:not-found" | "urn:invoice-service:problem:conflict" | "urn:invoice-service:problem:rate-limit" | "urn:invoice-service:problem:internal";
+            /**
+             * @description Summarises the **status code**, not the type — so a 422 whose type is `conflict`
+             *     reads "Unprocessable Entity". Never branch on it.
+             * @enum {string}
+             */
+            title: "Bad Request" | "Unauthorized" | "Forbidden" | "Not Found" | "Conflict" | "Unprocessable Entity" | "Too Many Requests" | "Internal Server Error" | "Bad Gateway";
+            status: number;
+            /** @description A human sentence. May change; never branch on it. */
+            detail: string;
+            /**
+             * @description The request **path** — never a full URL and never with the query string, because
+             *     the public download surface carries a signed token there.
+             */
+            instance: string;
+            /** @description Matches the `X-Request-Id` response header. Quote it in a support ticket. */
+            request_id?: string;
+            /** @description Present on a schema validation failure. Every failure is reported at once. */
+            errors?: components["schemas"]["ProblemFieldError"][];
+            /**
+             * @description The semantic sub-case, where a check no schema can express failed.
+             * @enum {string}
+             */
+            code?: "idempotency_key_required" | "idempotency_key_reused" | "idempotency_key_in_flight" | "provider_config_mismatch" | "client_has_invoices" | "self_deactivation" | "self_revocation" | "not_downloadable" | "not_cancellable" | "not_reconcilable" | "invoice_state_changed" | "missing_path_param";
+            /**
+             * @description Seconds, on a 429 only. Currently always 60. Mirrored by the `Retry-After`
+             *     response header, which is derived from this member, so the two always agree.
+             */
+            retry_after?: number;
+            /**
+             * @description On a 502: a short, deliberately truncated, non-secret slice of what szamlazz or
+             *     Billingo said. Truncation is a security measure — Billingo echoes the request in
+             *     some error bodies, and that request carries an API key.
+             */
+            provider_error?: string;
+        } & {
+            [key: string]: unknown;
         };
         Invoice: {
-            /** Format: uuid */
-            id: string;
+            /**
+             * Format: uuid
+             * @description UUIDv7. The only identity a consumer has — the internal primary key never
+             *     appears. **Stable for the life of the row.** Reusing an idempotency key after
+             *     its 7-day TTL creates a NEW invoice with its own public_id and leaves this one
+             *     untouched.
+             */
+            public_id: string;
             provider: components["schemas"]["Provider"];
-            providerConfigId: string;
+            provider_config_id: components["schemas"]["ConfigId"];
             status: components["schemas"]["InvoiceStatus"];
-            invoiceNumber?: string | null;
-            /** @description Billingo: numeric document id as a string. szamlazz: the invoice number. */
-            providerInvoiceId?: string | null;
-            /** @description Major units (38100 = 38 100 Ft). Null unless status is `created`. */
-            grossAmount?: number | null;
-            currency?: string | null;
-            /** @description The only buyer-side value stored. Must stay non-identifying. */
-            partnerRef?: string | null;
-            errorMessage?: string | null;
+            /** @description `2026/0042`, `E-KHF-2026-1`. `null` until `created`. */
+            invoice_number: string | null;
+            /**
+             * @description Billingo: the numeric document id as a string. szamlazz: the invoice number
+             *     again — szamlazz has no separate id. `null` until `created`.
+             */
+            provider_invoice_id: string | null;
+            /**
+             * @description Canonical minor units as a decimal string. `null` unless `created`. May be
+             *     `"0"` when Billingo omitted `gross_total` — that means "the provider did not
+             *     tell us", not a free invoice.
+             */
+            gross_amount_minor: string | null;
+            currency: components["schemas"]["Currency"] | null;
+            /** @description The caller's own non-identifying reference. The only buyer-side value stored. */
+            partner_ref: string | null;
+            /** @description Populated when `status` is `failed`; carries the provider's error text. */
+            error_message: string | null;
             /** Format: date-time */
-            createdAt: string;
+            created_at: string;
             /** Format: date-time */
-            updatedAt: string;
+            updated_at: string;
+        };
+        CanceledInvoice: components["schemas"]["Invoice"] & {
+            /**
+             * @description **Returned here and nowhere else** — there is no column for it. Absent if
+             *     the provider did not return one; the cancel still succeeded. Persist it, or
+             *     recover it from `audit_log.metadata.storno_number`.
+             */
+            storno_number?: string;
         };
         AdminInvoice: components["schemas"]["Invoice"] & {
-            /** Format: uuid */
-            clientId: string;
-            /** @description Null if the client row was hard-deleted. */
-            clientName?: string | null;
-            idempotencyKey: string;
+            /**
+             * Format: uuid
+             * @description `null` only if the client row was hard-deleted.
+             */
+            client_public_id: string | null;
+            client_name: string | null;
+            /**
+             * @description The caller's `Idempotency-Key`, or `null` once the key has been released.
+             *     A `null` here means the client reused this key after its 7-day TTL: this
+             *     row was retired (keeping its public_id, number and status) and the new
+             *     operation went to a new row. It does NOT mean the invoice is incomplete.
+             */
+            idempotency_key: string | null;
         };
+        CanceledAdminInvoice: components["schemas"]["AdminInvoice"] & {
+            storno_number?: string;
+        };
+        /**
+         * @description Unknown keys at the **top level** are silently stripped — these are settings, and a
+         *     client library sending a field this deployment does not understand should keep
+         *     working. Unknown keys inside `partner`, `partner.address`, `items[]` and `seller`
+         *     are a **400**, because there a stripped value was the point of the request.
+         */
         CreateInvoiceRequest: {
             provider: components["schemas"]["Provider"];
-            /** @description Must start with `<provider>_` and be allow-listed for the client. */
-            providerConfigId: string;
+            /** @description Must start with `<provider>_` and be in the client's allow-list. */
+            provider_config_id: components["schemas"]["ConfigId"];
             partner: components["schemas"]["Partner"];
             items: components["schemas"]["InvoiceItem"][];
-            /** @description szamlazz only — Billingo ignores it and uses its configured bankAccountId. */
-            seller?: {
-                bankName?: string;
-                bankAccount?: string;
-            };
+            seller?: components["schemas"]["Seller"];
             /**
-             * @description szamlazz receives it verbatim. Billingo maps (case-insensitively):
-             *     átutalás|transfer|wire_transfer → wire_transfer; készpénz|cash → cash;
-             *     bankkártya|card|bankcard → bankcard; anything else passes through.
+             * @description szamlazz receives this verbatim. Billingo needs its own enum, so `átutalás` /
+             *     `transfer` / `wire_transfer` → `wire_transfer`, `készpénz` / `cash` → `cash`,
+             *     `bankkártya` / `card` / `bankcard` → `bankcard` (case-insensitive). Anything
+             *     else is passed through and will probably 502.
              * @default átutalás
              */
-            paymentMethod: string;
+            payment_method: string;
             /** @default HUF */
-            currency: string;
-            /** @default hu */
+            currency: components["schemas"]["Currency"];
+            /**
+             * @description Free text, e.g. `hu`, `en`, `de`.
+             * @default hu
+             */
             language: string;
-            /** @description YYYY-MM-DD. NOT format-validated. Defaults to today (UTC). */
-            issueDate?: string;
-            /** @description YYYY-MM-DD. NOT format-validated. Defaults to issueDate. */
-            fulfillmentDate?: string;
-            /** @description YYYY-MM-DD. NOT format-validated. Defaults to today + 8 days. */
-            dueDate?: string;
+            /**
+             * Format: date
+             * @description `YYYY-MM-DD`, validated as a **real calendar date** — `2026-02-30` is a 400, not
+             *     a 502 from the provider. Defaults to today (UTC).
+             */
+            issue_date?: string;
+            /**
+             * Format: date
+             * @description Defaults to `issue_date`.
+             */
+            fulfillment_date?: string;
+            /**
+             * Format: date
+             * @description Defaults to **today + 8 days** — relative to today, not to `issue_date`.
+             */
+            due_date?: string;
             /** @default true */
-            eInvoice: boolean;
+            e_invoice: boolean;
             comment?: string;
-            /** @description Non-identifying reference (an order id). The only buyer-side value stored. */
-            partnerRef?: string;
+            /**
+             * @description The only buyer-side value persisted. Use an order id — **never** a name, tax
+             *     number or email; it is stored, searchable by any admin, and copied into the
+             *     audit trail on `reconcile release`.
+             */
+            partner_ref?: string;
+        } & {
+            [key: string]: unknown;
         };
+        /** @description **Strict** — an unknown key is a 400, one `errors[]` entry per key. */
         Partner: {
             name: string;
-            /** @description e.g. 12345678-2-42. Send it for company buyers — Billingo dedupes partners on name + taxcode. */
-            taxNumber?: string;
+            /**
+             * @description Hungarian format `12345678-2-42`. Not required by this service, but **always
+             *     send it for a company buyer**: without it two Billingo buyers with the same name
+             *     collapse onto one partner record.
+             */
+            tax_number?: string;
             /** Format: email */
             email?: string;
-            address: {
-                postalCode: string;
-                city: string;
-                address: string;
-                /**
-                 * @description Accepted and then IGNORED — both adapters assume Hungary.
-                 * @default Magyarország
-                 */
-                country: string;
-            };
+            address: components["schemas"]["Address"];
         };
+        /** @description **Strict.** */
+        Address: {
+            postal_code: string;
+            city: string;
+            /** @description Street and number, one line. */
+            address: string;
+            /**
+             * @description **Accepted and then ignored.** Both adapters hardcode Hungary — Billingo sends
+             *     `country_code: "HU"`, szamlazz sends no country at all. Foreign addresses are
+             *     not supported through this API.
+             * @default Magyarország
+             */
+            country: string;
+        };
+        /**
+         * @description **Strict, and this is the single most valuable strictness on the service.** A typo'd
+         *     optional field like `vat_rate` used to be silently dropped, falling back to a
+         *     default and issuing a legal document with the wrong VAT — returned as `201 Created`.
+         */
         InvoiceItem: {
             name: string;
+            /** @description A JSON number — it is a count, not money. Fractions allowed. */
             quantity: number;
-            /** @default db */
-            unit: string;
-            /** @description Net price per unit. Negative allowed for discount lines. */
-            netUnitPrice: number;
             /**
-             * @description A percentage as a STRING ("27", "5", "0") or a code ("AAM", "TAM", "EU").
-             *     Billingo receives "27%" for numeric rates; codes pass through. For szamlazz a
-             *     non-numeric code makes the computed line VAT 0.
-             * @example 27
-             * @example 5
-             * @example AAM
+             * @description Free text — `db`, `óra`, `hó`.
+             * @default db
              */
-            vatRate: string;
+            unit: string;
+            /** @description **Net**, per unit, in minor units. Zero and negatives are rejected. */
+            net_unit_price_minor: components["schemas"]["AmountMinor"];
+            /**
+             * @description A percentage as a string (`"27"`, `"5"`, `"0"`) **or** a code (`"AAM"`, `"TAM"`,
+             *     `"EU"`). For szamlazz a non-numeric code computes line VAT as 0; for Billingo a
+             *     numeric value becomes `"27%"`. `"27%"` sent by you is forwarded verbatim and
+             *     rejected as a 502.
+             */
+            vat_rate: string;
             comment?: string;
+        };
+        /** @description **Strict.** szamlazz only — Billingo ignores it and uses its configured bank account. */
+        Seller: {
+            bank_name?: string;
+            bank_account?: string;
         };
         DownloadLink: {
             /**
              * Format: uri
-             * @description Public, no API key required. 7-day TTL. No per-link revoke — only a change of the service's link-signing key invalidates it (all links at once).
+             * @description A public, tokenized URL built from the request's own origin. The token is a
+             *     stateless HMAC bound to this one invoice. **No per-link revoke exists** — treat
+             *     it as a bearer capability.
              */
             url: string;
-            /** Format: date-time */
-            expiresAt: string;
+            /**
+             * Format: date-time
+             * @description Exactly 7 days out. Not configurable.
+             */
+            expires_at: string;
+        };
+        ReleasedAck: {
+            /** Format: uuid */
+            public_id: string;
+            /** @enum {boolean} */
+            released: true;
+            /** @description Now free — the client may retry with this exact key. */
+            idempotency_key: string;
+        };
+        ReconcileRequest: components["schemas"]["ReconcileMarkFailed"] | components["schemas"]["ReconcileAttach"] | components["schemas"]["ReconcileRelease"];
+        /** @description Use when **no** invoice was created at the provider. The safe default. */
+        ReconcileMarkFailed: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "mark_failed";
+            reason: string;
+        };
+        /** @description Use when the invoice **was** created. Links it so PDF and cancel work. */
+        ReconcileAttach: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "attach";
+            reason: string;
+            provider_invoice_id: string;
+            invoice_number: string;
+            gross_amount_minor?: components["schemas"]["AmountMinor"];
+            /**
+             * @description **Not the three-value enum here** — any 1–10 character string is accepted and
+             *     written straight to the column. Type it correctly by hand.
+             */
+            currency?: string;
+        };
+        /**
+         * @description **The only destructive action in the API.** Deletes the row, freeing
+         *     `(client_id, idempotency_key)` so the client can retry with the same key. The full
+         *     row is snapshotted into the audit trail first. Prefer `mark_failed` if in doubt.
+         */
+        ReconcileRelease: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "release";
+            reason: string;
         };
         Client: {
             /** Format: uuid */
-            id: string;
+            public_id: string;
             name: string;
-            notes?: string | null;
-            externalRef?: string | null;
-            allowedProviderConfigs: components["schemas"]["ConfigId"][];
+            notes: string | null;
+            /** @description This client's id in the calling system. Indexed and searchable. */
+            external_ref: string | null;
+            /**
+             * @description The gate checked on every invoice creation. Maintained automatically by the
+             *     integration endpoints — hand-editing it desynchronises it from the credentials.
+             */
+            allowed_provider_configs: components["schemas"]["ConfigId"][];
+            /** @description `false` → every call with this client's key returns 401. */
             active: boolean;
             /** Format: date-time */
-            createdAt: string;
+            created_at: string;
             /** Format: date-time */
-            updatedAt: string;
+            updated_at: string;
         };
         ClientWithCounts: components["schemas"]["Client"] & {
-            /** @description All time */
-            invoiceCount?: number;
-            /** @description Active credentials only. */
-            credentialCount?: number;
+            /** @description All time — ignores any filter on the request. */
+            invoice_count: number;
+            /** @description **Active** credentials only. */
+            credential_count: number;
             /** Format: date-time */
-            lastInvoiceAt?: string | null;
+            last_invoice_at: string | null;
         };
         ClientDetail: components["schemas"]["ClientWithCounts"] & {
-            /** @description All credentials, active and inactive, sorted by configId. */
+            /** @description Every credential, active and inactive, sorted by `config_id`. */
             integrations: components["schemas"]["Credential"][];
         };
-        /** @description Masked provider credential. There is NO `secret` field, ever. */
-        Credential: {
+        ClientWithSecret: components["schemas"]["Client"] & {
+            /**
+             * @description The client's plaintext `isk_…` key. **Returned once**, on create and on
+             *     rotate-key, and never again — only its SHA-256 hash is stored. Hand it over
+             *     out of band.
+             */
+            api_key: string;
+        };
+        CreateClientRequest: {
+            name: string;
+            external_ref?: string;
+            notes?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description At least one field, else a 400 ("No fields to update"). */
+        UpdateClientRequest: {
+            name?: string;
+            /** @description `null` clears it. */
+            external_ref?: string | null;
+            /** @description `null` clears it. */
+            notes?: string | null;
+            active?: boolean;
+            /**
+             * @description **Escape hatch only** — replaces the array wholesale. Setting it directly can
+             *     leave a credential that exists but is not allowed (invoicing 403s) or a config
+             *     id allowed with no credential (invoicing 500s).
+             */
+            allowed_provider_configs?: components["schemas"]["ConfigId"][];
+        } & {
+            [key: string]: unknown;
+        };
+        DeletedAck: {
             /** Format: uuid */
+            public_id: string;
+            /** @enum {boolean} */
+            deleted: true;
+        };
+        /**
+         * @description **There is no `secret` field and never will be.** Reads expose only two
+         *     non-reversible hints.
+         */
+        Credential: {
+            /**
+             * Format: uuid
+             * @description The credential row's internal uuid. Credentials have no external identity, so
+             *     this is what the audit trail addresses them by.
+             */
             id: string;
             provider: components["schemas"]["Provider"];
-            configId: components["schemas"]["ConfigId"];
-            label?: string | null;
-            /** @description Billingo: {blockId, bankAccountId}. szamlazz: {}. */
+            config_id: components["schemas"]["ConfigId"];
+            label: string | null;
+            /**
+             * @description Non-secret provider config, **camelCase keys** (`blockId`, `bankAccountId`)
+             *     because those are the literal stored keys sent to Billingo. `{}` for szamlazz.
+             */
             config: {
                 [key: string]: number;
             };
-            /** @description Last 4 plaintext characters. Display hint only. */
-            secretLast4?: string | null;
-            /** @description First 8 hex chars of SHA-256(secret). Compare across rotations. */
-            secretFingerprint?: string | null;
-            /** @description Whether configId is in the client's allowedProviderConfigs. False → invoicing 403s. */
+            /** @description Last 4 characters of the plaintext. Display hint only. */
+            secret_last4: string | null;
+            /**
+             * @description First 8 hex chars of SHA-256 of the secret. Compare across rotations to prove a
+             *     new key landed. Non-reversible.
+             */
+            secret_fingerprint: string | null;
+            /**
+             * @description Whether `config_id` is in the client's `allowed_provider_configs`.
+             *     **`false` means invoicing with this config returns 403**, even though the
+             *     credential exists.
+             */
             allowed: boolean;
             /** Format: date-time */
-            lastTestedAt?: string | null;
-            /** @enum {string|null} */
-            lastTestStatus?: "ok" | "failed" | null;
-            lastTestError?: string | null;
+            last_tested_at: string | null;
+            /**
+             * @description `null` = never tested. Reset to `null` whenever the secret is rotated.
+             * @enum {string|null}
+             */
+            last_test_status: "ok" | "failed" | null;
+            /** @description Failure reason, truncated to 500 characters. */
+            last_test_error: string | null;
+            /** @description `false` = soft-deleted; the ciphertext is retained. */
             active: boolean;
             /** Format: date-time */
-            createdAt: string;
+            created_at: string;
             /** Format: date-time */
-            updatedAt: string;
+            updated_at: string;
         };
         CredentialWithClient: components["schemas"]["Credential"] & {
             /** Format: uuid */
-            clientId: string;
-            /** @description Null only if the owning client row is gone, which a foreign key prevents — treat it as always present. */
-            clientName?: string | null;
+            client_public_id: string | null;
+            client_name: string | null;
         };
+        /** @description Unknown keys are stripped — this is configuration, not payload. */
+        UpsertIntegrationRequest: {
+            /** @description Must match the `config_id` prefix. */
+            provider: components["schemas"]["Provider"];
+            /**
+             * @description **Required on create, optional on update.** Omit it to edit the label or config
+             *     without re-typing the provider key; supply it to rotate. Supplying it clears the
+             *     last-test result.
+             */
+            secret?: string;
+            /**
+             * @description Provider-specific and replaced **wholesale**, not merged. Billingo requires
+             *     numeric `blockId` and `bankAccountId`; szamlazz requires nothing. String values
+             *     are coerced to numbers.
+             * @default {}
+             */
+            config: {
+                [key: string]: number;
+            };
+            label?: string;
+            /**
+             * @description **Omit on update and the integration is reactivated** (`active: true`) — the
+             *     intended "re-enable this" gesture.
+             */
+            active?: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * @description **HTTP is 200 whether the test passed or failed.** Branch on `ok`, never on the
+         *     status code. An unreachable provider also yields `ok: false` — check `message`.
+         */
         CredentialTestResult: {
-            /** @description A RESULT, not an error. The HTTP status is 200 either way. */
             ok: boolean;
+            /** @description Omitted when the provider supplied none — not `null`. */
             message?: string;
             /**
-             * @description Billingo: { availableBlockIds: number[], availableBankAccountIds: number[] }.
-             *     szamlazz: { code, probeError }.
+             * @description Provider-specific, hence camelCase keys. Billingo:
+             *     `availableBlockIds`, `availableBankAccountIds`. szamlazz: `code`, `probeError`.
+             *     Omitted when there is nothing to report.
              */
             details?: {
                 [key: string]: unknown;
             };
+            /** @description The credential with its `last_test_*` fields already updated. */
             credential: components["schemas"]["Credential"];
         };
-        AdminKey: {
-            /** Format: uuid */
-            id: string;
-            /** @description The audit identity of everything this key does. */
-            label: string;
-            scopes: components["schemas"]["AdminScope"][];
-            /** @description CIDR allowlist. EMPTY MEANS UNRESTRICTED (the default). */
-            allowedIps: string[];
-            active: boolean;
-            /**
-             * Format: date-time
-             * @description Refreshed at most once every 5 minutes — coarse, not precise.
-             */
-            lastUsedAt?: string | null;
-            /** Format: date-time */
-            createdAt: string;
-        };
+        /**
+         * @description The credential-form contract. **The only camelCase payload on this service** — see
+         *     the operation description for why.
+         */
         ProviderDescriptor: {
             name: components["schemas"]["Provider"];
             label: string;
-            /**
-             * @example billingo_
-             * @example szamlazz_
-             */
+            /** @description A config id for this provider must start with this. */
             configIdPrefix: string;
+            /** @description How to label and explain the single write-only secret field. */
             secret: {
                 label: string;
                 help: string;
@@ -850,173 +1695,760 @@ export interface components {
             configFields: {
                 key: string;
                 label: string;
-                /** @constant */
+                /** @enum {string} */
                 type: "number";
                 required: boolean;
                 help?: string;
             }[];
-            /** @description `<CONFIGID>` = the upper-cased config id. */
+            /**
+             * @description Env var names used when no DB credential row exists. `<CONFIGID>` is the
+             *     upper-cased config id: `billingo_acme` → `BILLINGO_ACME_API_KEY`.
+             */
             envFallback: string[];
+            /** @description What `POST …/test` actually checks for this provider. */
             testDescription: string;
         };
+        /** @enum {string} */
+        AdminScope: "clients:read" | "clients:write" | "credentials:read" | "credentials:write" | "invoices:read" | "invoices:write" | "stats:read" | "audit:read" | "admin:manage" | "*";
+        AdminKey: {
+            /**
+             * Format: uuid
+             * @description Internal uuid — an admin key has no external identity.
+             */
+            id: string;
+            /** @description The audit identity. Recorded on every entry this key writes. */
+            label: string;
+            scopes: components["schemas"]["AdminScope"][];
+            /**
+             * @description CIDR allowlist. **Empty means unrestricted** — the default, because Vercel
+             *     egress IPs rotate. If a key has an allowlist and the caller's IP cannot be
+             *     determined, the request is denied.
+             */
+            allowed_ips: string[];
+            active: boolean;
+            /**
+             * Format: date-time
+             * @description Refreshed at most once every 5 minutes, so it is coarse.
+             */
+            last_used_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AdminKeyWithSecret: components["schemas"]["AdminKey"] & {
+            /**
+             * @description The plaintext `iad_…` key. **Returned once** and never stored, logged, or
+             *     written to the audit trail.
+             */
+            api_key: string;
+        };
+        CreateAdminKeyRequest: {
+            label: string;
+            /**
+             * @default [
+             *       "*"
+             *     ]
+             */
+            scopes: components["schemas"]["AdminScope"][];
+            /** @default [] */
+            allowed_ips: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description At least one field, else a 400 ("No fields to update"). */
+        UpdateAdminKeyRequest: {
+            label?: string;
+            scopes?: components["schemas"]["AdminScope"][];
+            allowed_ips?: string[];
+            active?: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        Healthz: {
+            /** @enum {string} */
+            status: "ok" | "degraded";
+            /** @enum {string} */
+            db?: "ok" | "unreachable";
+            /**
+             * @description A driver error code (`ETIMEDOUT`), never a message — the driver's message
+             *     contains the connection string, password included.
+             */
+            code?: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description **Always returned with HTTP 200.** Every count is absent in the degraded body. */
         AdminHealth: {
             /**
-             * @description `attention` = stuck invoices or failing credentials. `degraded` = DB down (HTTP 503).
+             * @description `attention` when any **actionable** count is above zero. Two are deliberately
+             *     excluded: `unroutable_inbound_events` and `clients_without_external_ref`, both of
+             *     which describe a correct configuration. A strip that says `attention` every day
+             *     for something nobody should act on is a strip nobody reads.
              * @enum {string}
              */
             status: "ok" | "attention" | "degraded";
+            encryption_key_configured: boolean;
+            /**
+             * @description The service refuses to boot without it, so this reads `true` on any running
+             *     instance.
+             */
+            download_link_secret_configured: boolean;
             /** @enum {string} */
             database?: "ok" | "unreachable";
-            /** @description False → credential reads and download-link minting will fail. */
-            encryptionKeyConfigured: boolean;
-            /** @description Invoices pending for more than 15 minutes. Absent when degraded. Drill down with GET /api/admin/invoices/stuck. */
-            stuckInvoices?: number;
-            /** @description Active credentials whose last test FAILED — never-tested ones are not counted. Absent when degraded. Drill down with GET /api/admin/integrations?active=true&lastTestStatus=failed. */
-            failingCredentials?: number;
+            /** @description Pending for more than 15 minutes. Drill down: `GET /v1/admin/invoices/stuck`. */
+            stuck_invoices?: number;
+            /**
+             * @description Active credentials whose last test **failed**. Counts only `failed` — see
+             *     `untested_credentials`. Drill down:
+             *     `GET /v1/admin/integrations?active=true&last_test_status=failed`.
+             */
+            failing_credentials?: number;
+            /**
+             * @description Active credentials with `last_test_status: null` — never tested, or tested
+             *     before the last secret rotation. Counted separately because a failing credential
+             *     needs fixing while an untested one needs testing. Drill down:
+             *     `GET /v1/admin/integrations?active=true&last_test_status=untested`.
+             */
+            untested_credentials?: number;
+            /**
+             * @description Switched off by an operator or by twenty consecutive dead-letters. Drill down:
+             *     `GET /v1/admin/webhook-endpoints?enabled=false`.
+             */
+            disabled_webhook_endpoints?: number;
+            /**
+             * @description Exhausted the ladder. A client was not told about a document. Drill down:
+             *     `GET /v1/admin/webhook-deliveries?status=dead_lettered`.
+             */
+            dead_lettered_deliveries?: number;
+            /**
+             * @description **The loudest number this service has.** An event bound for a sibling service
+             *     that never arrived: the invoice exists, its client believes it was sent, and the
+             *     receiver never heard. Drill down:
+             *     `GET /v1/admin/webhook-deliveries?status=dead_lettered&cross_service=true`.
+             */
+            dead_lettered_deliveries_cross_service?: number;
+            /**
+             * @description Due and not yet attempted. On a service with **no cron** this is what says the
+             *     queue has stopped moving; the remedy is `pnpm db:webhooks-drain`. Drill down:
+             *     `GET /v1/admin/webhook-deliveries?status=pending`.
+             */
+            overdue_webhook_deliveries?: number;
+            /**
+             * @description Clients not paired with an account. They cannot participate cross-service at all
+             *     — their events carry `account_id: null` and a receiver refuses rather than
+             *     guesses. **Does not move `status`**: it is the ordinary state of a
+             *     half-provisioned account.
+             */
+            clients_without_external_ref?: number;
+            /**
+             * @description **A payment succeeded and no invoice was issued.** An inbound event this service
+             *     could have acted on and deliberately did not — unpaired account, hop cap, chain
+             *     replay, or an unresolvable provider config. Every reason ends the same way for
+             *     the customer, so this is the whole outcome rather than a subset. **Moves
+             *     `status`.** Drill down: `GET /v1/admin/inbound-events?outcome=refused`.
+             */
+            refused_inbound_events?: number;
+            /**
+             * @description An inbound event whose `account_id` maps to no client here. Usually correct — a
+             *     customer with payments and no invoicing — so it does **not** move `status`.
+             *
+             *     Narrower than `outcome=ignored`, deliberately: an `ignored` row is also written
+             *     for every event type this service has no action for, which is most of them and
+             *     permanent. Drill down:
+             *     `GET /v1/admin/inbound-events?outcome=ignored&reason_code=unknown_account`.
+             */
+            unroutable_inbound_events?: number;
+        } & {
+            [key: string]: unknown;
         };
         StatsOverview: {
             range: components["schemas"]["Range"];
-            /** @description All-time counts — ignores from/to. */
+            /** @description All-time; **ignores `from`/`until`**. */
             clients: {
-                total?: number;
-                active?: number;
+                total: number;
+                active: number;
             };
             invoices: {
-                total?: number;
-                /** @description Keys with zero rows are OMITTED. */
-                byStatus?: {
+                total: number;
+                /** @description **Omits keys with zero rows** — do not assume all four statuses. */
+                by_status: {
                     [key: string]: number;
                 };
-                /** @description Keys with zero rows are OMITTED. */
-                byProvider?: {
+                /** @description Omits keys with zero rows. */
+                by_provider: {
                     [key: string]: number;
                 };
-                /** @description failed / total, 4 decimals. 0 when there are no invoices. */
-                failureRate?: number;
-                /** @description Rolling 24 hours — ignores from/to. */
-                last24h?: number;
+                /** @description `failed / total`, 4 decimals. `0` when there are no invoices. */
+                failure_rate: number;
+                /** @description Rolling 24 hours; **ignores `from`/`until`**. */
+                last_24h: number;
             };
-            /** @description Only `created` invoices contribute. */
+            /**
+             * @description **Only `created` invoices**, grouped by currency and never summed across it. A
+             *     `null` currency can appear as its own group for rows whose provider call never
+             *     completed.
+             */
             gross: {
-                currency?: string | null;
-                invoiceCount?: number;
-                grossAmount?: number;
+                currency: string | null;
+                invoice_count: number;
+                /**
+                 * @description A decimal string forwarded straight from Postgres' `sum()` over a bigint
+                 *     column. Passing it through `Number()` is how a yearly HUF total loses
+                 *     precision past 2^53.
+                 */
+                gross_amount_minor: string;
             }[];
         };
         ClientStats: {
             /** Format: uuid */
-            clientId: string;
-            clientName: string;
+            client_public_id: string;
+            client_name: string;
             active: boolean;
             invoices: {
-                total?: number;
-                created?: number;
-                failed?: number;
-                pending?: number;
-                cancelled?: number;
+                total: number;
+                created: number;
+                failed: number;
+                pending: number;
+                canceled: number;
             };
-            /** @description Sum over `created` invoices, all currencies combined indiscriminately. */
-            grossAmount: number;
+            /**
+             * @description `created` invoices only, but **summed across every currency
+             *     indiscriminately** — meaningless for a multi-currency tenant. Use
+             *     `stats/overview.gross` in that case. `"0"` when there is nothing to sum.
+             */
+            gross_amount_minor: string;
             /** Format: date-time */
-            lastInvoiceAt?: string | null;
+            last_invoice_at: string | null;
         };
+        /**
+         * @description `client_key` marks a mutation made through the client tier — today only
+         *     `invoice.cancel`. `system` is reserved; nothing emits it.
+         * @enum {string}
+         */
+        AuditActorType: "admin_key" | "client_key" | "system";
+        /** @enum {string} */
+        AuditTargetType: "client" | "credential" | "invoice" | "admin_key";
         AuditEntry: {
             /** Format: uuid */
             id: string;
-            actorType: components["schemas"]["AuditActorType"];
-            /** Format: uuid */
-            actorId?: string | null;
-            /** @description Denormalised — survives key deletion. The admin key's label, or the client's name when actorType is client_key. */
-            actorLabel: string;
+            actor_type: components["schemas"]["AuditActorType"];
             /**
-             * @example client.create
-             * @example credential.update
-             * @example invoice.reconcile.release
+             * Format: uuid
+             * @description An `admin_keys.id` or a `clients.id` (the **internal** id), per `actor_type`.
+             *     Deliberately without a foreign key so history outlives the row it points at.
+             */
+            actor_id: string | null;
+            /** @description Denormalised, so the trail stays readable after a key is deleted. */
+            actor_label: string;
+            /**
+             * @description `client.create` · `client.update` · `client.rotate_key` · `client.deactivate` ·
+             *     `client.delete` · `credential.create` · `credential.update` · `credential.test` ·
+             *     `credential.deactivate` · `invoice.cancel` · `invoice.reconcile.mark_failed` ·
+             *     `invoice.reconcile.attach` · `invoice.reconcile.release` · `admin_key.create` ·
+             *     `admin_key.update` · `admin_key.revoke`
              */
             action: string;
-            targetType: components["schemas"]["AuditTargetType"];
-            targetId?: string | null;
-            /** @description Allowlisted summary per action — never a raw request body. */
+            target_type: components["schemas"]["AuditTargetType"];
+            target_id: string | null;
+            /**
+             * @description An **allow-listed summary per action** — never a raw request body, so a
+             *     plaintext provider secret can never land here. Shapes are tabulated in
+             *     admin-api.md. Note a client-tier `invoice.cancel` has no `reason`.
+             */
             metadata: {
                 [key: string]: unknown;
             };
-            ip?: string | null;
+            ip: string | null;
+            /**
+             * @description The `X-Request-Id` of the causing request — the join key to the log lines around
+             *     it. Nullable because history predates the column.
+             */
+            request_id: string | null;
             /** Format: date-time */
-            createdAt: string;
-        };
-        /** @description Use when NO invoice was created at the provider. → status `failed`. */
-        ReconcileMarkFailed: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            action: "ReconcileMarkFailed";
-            reason: string;
-        };
-        /** @description Use when the invoice WAS created at the provider. → status `created`. */
-        ReconcileAttach: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            action: "ReconcileAttach";
-            reason: string;
-            providerInvoiceId: string;
-            invoiceNumber: string;
-            grossAmount?: number;
-            currency?: string;
+            created_at: string;
         };
         /**
-         * @description DESTRUCTIVE — deletes the row so the client can retry with the SAME
-         *     Idempotency-Key. Only use after confirming no invoice exists at the provider.
+         * @description The closed catalogue. Additive only: a new member needs no version bump, on the one
+         *     condition the receiver contract states — an unrecognised type is ignored and answered
+         *     2xx. `pending` has no event: a row is born pending and the 201 already carries it.
+         * @enum {string}
          */
-        ReconcileRelease: {
+        WebhookEventType: "invoice.created" | "invoice.failed" | "invoice.canceled";
+        /** @description One catalogue entry, as `GET /v1/admin/event-types` serves it. */
+        WebhookEventTypeDescriptor: {
+            event_type: components["schemas"]["WebhookEventType"];
+            /** @enum {string} */
+            resource: "invoice";
+            /** @description One sentence */
+            fires_when: string;
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * @description The status the invoice reaches. **Asserted against the payload**: the participle
+             *     names this value and `data.invoice.status` equals it.
              */
-            action: "ReconcileRelease";
-            reason: string;
+            target_status: string;
+            contract_version: number;
+            /**
+             * @description Blocks behind an `include_*` flag. **Always empty in this service** — it stores no
+             *     personal data, so there is nothing to gate.
+             */
+            sensitive_blocks: string[];
+            /** @description Whether a sibling Lamido service acts on it. */
+            cross_service: boolean;
+        };
+        /**
+         * @description A destination. The member set is identical across every service of the estate, because
+         *     lamido-admin drives all of them from one component.
+         */
+        WebhookEndpoint: {
+            /** Format: uuid */
+            public_id: string;
+            /** Format: uuid */
+            client_public_id: string;
+            /** Format: uri */
+            url: string;
+            description: string | null;
+            /** @description Pinned at creation. Not patchable. */
+            contract_version: number;
+            /** @description `null` means every type, including ones added later. Never an empty array. */
+            subscribed_events: components["schemas"]["WebhookEventType"][] | null;
+            enabled: boolean;
+            /** @description Non-null **only** when `enabled` is false. */
+            disabled_reason: string | null;
+            /** @description Dead-letters in a row. Any 2xx clears it; **20 auto-disables the endpoint**. */
+            consecutive_failures: number;
+            /**
+             * @description Never the secret. **`null` means this endpoint has none and cannot deliver** until
+             *     one is rotated in.
+             */
+            secret_last4: string | null;
+            secret_fingerprint: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One row of the outbox — a fact, written inside the transaction that made it true. */
+        WebhookEvent: {
+            /**
+             * Format: uuid
+             * @description UUIDv7. Equals `X-Event-Id`, and is the receiver's dedupe key.
+             */
+            event_id: string;
+            /** Format: uuid */
+            client_public_id: string;
+            event_type: components["schemas"]["WebhookEventType"];
+            /**
+             * @description The lamido-admin account id. **Null for a client the operator has not paired** —
+             *     such an event cannot be routed cross-service at all.
+             */
+            account_id: string | null;
+            /**
+             * Format: uuid
+             * @description Stable across a whole causal chain. Equals `event_id` on a natively produced event.
+             */
+            correlation_id: string;
+            /** Format: uuid */
+            causation_id: string | null;
+            /** @description `0` natively, `1` when a payment caused it. This is the only service in the estate that emits at a non-zero hop. */
+            hop: number;
+            /** @description The frozen body, as it was at emission. Never rebuilt from the row afterwards. */
+            payload: Record<string, never>;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description One attempt-state row, per event per endpoint. */
+        WebhookDelivery: {
+            /** Format: uuid */
+            delivery_id: string;
+            /** Format: uuid */
+            event_id: string;
+            event_type: components["schemas"]["WebhookEventType"];
+            /** @enum {string} */
+            status: "pending" | "delivered" | "dead_lettered";
+            /** @description The attempt **currently pending**, not the number already made. */
+            attempt: number;
+            /**
+             * Format: date-time
+             * @description **A floor, not a promise.** This service runs no cron: an attempt happens when a
+             *     post-commit burst, an opportunistic drain, or `pnpm db:webhooks-drain` reaches it.
+             */
+            next_attempt_at: string;
+            response_status?: number | null;
+            /** @description At most 500 bytes. A diagnostic for an operator — **never parsed, never acted on**. */
+            response_body_excerpt?: string | null;
+            error?: string | null;
+            request_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description Why an inbound event was not acted on, as a closed vocabulary. `reason` beside it is
+         *     the free-text sentence a human reads; this is the half a count can group by.
+         *
+         *     `unknown_account` is the one `unroutable_inbound_events` counts.
+         *     `no_action_for_event_type` is the permanent majority — written for every emitter
+         *     event type this service has no action for — which is why the tile is narrowed by
+         *     code rather than counting the whole `ignored` outcome.
+         * @enum {string}
+         */
+        InboundReasonCode: "no_action_for_event_type" | "unknown_account" | "client_deactivated" | "no_invoice_details" | "unpaired_account" | "hop_cap" | "chain_replay" | "no_provider_config" | "ambiguous_provider_config" | "invoice_details_invalid" | "action_error" | "reservation_conflict";
+        /**
+         * @description One verified event another service delivered here. A row exists for **every event
+         *     that verifies**, including the ones nothing was done about — that is what makes "a
+         *     payment succeeded and no invoice exists" a query rather than archaeology across two
+         *     services' logs. An event whose signature does not verify is never stored.
+         */
+        InboundEvent: {
+            /**
+             * Format: uuid
+             * @description The emitter's id, stable across every retry.
+             */
+            event_id: string;
+            /** @example payment-service */
+            source_service: string;
+            /** @example payment.succeeded */
+            event_type: string;
+            account_id?: string | null;
+            /**
+             * Format: uuid
+             * @description **Null on an unroutable event by definition** — the account maps to no client here.
+             */
+            client_public_id?: string | null;
+            /** Format: uuid */
+            correlation_id: string;
+            /** Format: uuid */
+            causation_id?: string | null;
+            hop: number;
+            /**
+             * @description Null on any row we did not act on, which keeps it out of the loop-breaker index.
+             * @enum {string|null}
+             */
+            action?: "invoice.issue" | null;
+            /** @enum {string} */
+            outcome: "accepted" | "ignored" | "refused" | "failed";
+            /** @description Null only on `accepted`. */
+            reason_code?: components["schemas"]["InboundReasonCode"] | null;
+            /** @description The sentence. Read during an incident; not something to branch on. */
+            reason?: string | null;
+            /**
+             * Format: uuid
+             * @description **Null on a refused event** — that is the point of the row.
+             */
+            invoice_public_id?: string | null;
+            /** @description The verified body as it arrived, never re-derived. */
+            payload: {
+                [key: string]: unknown;
+            };
+            request_id?: string | null;
+            /** Format: date-time */
+            received_at: string;
+            /** Format: date-time */
+            processed_at?: string | null;
         };
     };
     responses: {
-        /** @description Error envelope */
-        Error: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorEnvelope"];
-            };
-        };
-        /** @description PDF bytes. `Content-Disposition: inline; filename="<name>.pdf"`. */
+        /**
+         * @description The invoice PDF, re-fetched from the provider. `Content-Disposition` carries the
+         *     provider's own filename — the invoice number for szamlazz, the document id for
+         *     Billingo.
+         */
         Pdf: {
             headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                /** @example inline; filename="2026-0042.pdf" */
+                "Content-Disposition"?: string;
                 [name: string]: unknown;
             };
             content: {
                 "application/pdf": string;
             };
         };
+        /**
+         * @description `type: urn:invoice-service:problem:validation` at 400. Carries `errors[]` for a
+         *     schema failure, or a semantic `code` — or, for a credential-resolution failure on
+         *     invoice creation, neither.
+         */
+        ValidationError: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:invoice-service:problem:validation",
+                 *       "title": "Bad Request",
+                 *       "status": 400,
+                 *       "detail": "json must have required property 'items'",
+                 *       "instance": "/v1/invoices",
+                 *       "request_id": "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
+                 *       "errors": [
+                 *         {
+                 *           "pointer": "/items",
+                 *           "code": "required",
+                 *           "detail": "Required"
+                 *         }
+                 *       ]
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:unauthorized` at 401. A missing header, an empty
+         *     token, an unknown key, a revoked key and a deactivated client are all the same
+         *     answer.
+         */
+        Unauthorized: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:forbidden` at 403. The browser tripwire, a
+         *     missing scope, an IP outside the allowlist, a config id not allow-listed for the
+         *     client, or an invalid download token.
+         */
+        Forbidden: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:not-found` at 404. Also returned when a resource
+         *     belongs to another client, so ids cannot be probed for existence.
+         */
+        NotFound: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:conflict` at 409 — a duplicate or a concurrent
+         *     write. The `code` extension member names the case.
+         */
+        Conflict: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:conflict` at **422** — well-formed, but the
+         *     resource's state forbids it. Deliberately not a 400: the state can change, so the
+         *     identical request may succeed later.
+         */
+        WrongState: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:rate-limit` at 429 — the **failed-auth throttle**:
+         *     more than 20 rejected credentials from this IP in the current 60-second window. A
+         *     missing or malformed `Authorization` header is not counted; only a credential that
+         *     was presented and rejected.
+         *
+         *     Both `Retry-After` (header) and `retry_after` (body member) are set and always
+         *     agree — the header is derived from the member. Retrying the same rejected credential
+         *     just extends the window: fix the key first.
+         */
+        RateLimited: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Retry-After": components["headers"]["RetryAfter"];
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:invoice-service:problem:rate-limit",
+                 *       "title": "Too Many Requests",
+                 *       "status": 429,
+                 *       "detail": "Too many failed authentication attempts. Try again in 60 seconds.",
+                 *       "instance": "/v1/invoices",
+                 *       "retry_after": 60
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:rate-limit` at 429 on an endpoint that makes an
+         *     outbound call to szamlazz.hu or Billingo. The throttle rejects **before** that call,
+         *     so nothing was contacted and nothing was written.
+         *
+         *     Two different throttles can produce a 429 here and they are distinguished only by
+         *     `detail`:
+         *
+         *     - `Too many requests. Try again in 60 seconds.` — the provider throttle described
+         *       below.
+         *     - `Too many failed authentication attempts. Try again in 60 seconds.` — the
+         *       failed-auth throttle, which precedes every authenticated route.
+         *
+         *     Provider throttle buckets, all fixed 60-second windows:
+         *
+         *     | Bucket | Scoped to | Limit | Shared by |
+         *     |---|---|---|---|
+         *     | `invoice_create` | the client | 60 | `createInvoice` |
+         *     | `credential_test` | the client | 10 | `testClientIntegration` |
+         *     | `invoice_pdf` | the **invoice** | 20 | `getInvoicePdf`, `getAnyInvoicePdf`, `getPublicInvoicePdf` |
+         *     | `invoice_cancel` | the **invoice** | 5 | `cancelInvoice`, `cancelAnyInvoice` |
+         *
+         *     The per-invoice buckets are keyed on the invoice, not the caller, so the client
+         *     tier, the admin tier and the unauthenticated public download link all spend from one
+         *     counter. An admin key confers no exemption on any of these: the limits protect the
+         *     provider's API, which cannot tell our tiers apart.
+         *
+         *     Ordering notes that decide what you actually see under a loop: on the PDF and cancel
+         *     routes the 422 state guard runs **before** the throttle, so a wrong-state request
+         *     never consumes a unit. On `createInvoice` the throttle runs **before** the
+         *     idempotency key is reserved, so this 429 leaves the key free — the identical request
+         *     with the same key is safe to resend after `retry_after`. The cost of that ordering is
+         *     that an idempotent replay is counted too.
+         *
+         *     Every throttle **fails open**: if the counter table is unreachable the request
+         *     proceeds, including the provider call. Do not treat the absence of a 429 as proof
+         *     the limit is enforced.
+         */
+        ProviderThrottled: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Retry-After": components["headers"]["RetryAfter"];
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:invoice-service:problem:rate-limit",
+                 *       "title": "Too Many Requests",
+                 *       "status": 429,
+                 *       "detail": "Too many requests. Try again in 60 seconds.",
+                 *       "instance": "/v1/invoices",
+                 *       "retry_after": 60
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:internal` at 500. The cause is never disclosed —
+         *     a stack trace or a driver message in a response body is how connection strings leak.
+         *     Quote `request_id` when reporting it.
+         */
+        InternalError: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description `type: urn:invoice-service:problem:internal` at **502** — szamlazz.hu or Billingo
+         *     refused or was unreachable. There is deliberately no `provider` problem type; the
+         *     provider's own short, non-secret text rides in the `provider_error` extension
+         *     member.
+         */
+        ProviderError: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "urn:invoice-service:problem:internal",
+                 *       "title": "Bad Gateway",
+                 *       "status": 502,
+                 *       "detail": "szamlazz error 54: Az agent kulcs hibás",
+                 *       "instance": "/v1/invoices",
+                 *       "provider_error": "54"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
     };
     parameters: {
-        InvoiceId: string;
-        ResourceId: string;
+        /**
+         * @description Your own correlation id. Accepted and echoed verbatim if it matches
+         *     `^[A-Za-z0-9_-]{1,128}$`; anything else is silently replaced with a UUIDv7.
+         */
+        XRequestIdIn: string;
+        /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+        InvoicePublicId: string;
+        /** @description The client's UUIDv7 external id. */
+        ClientPublicId: string;
+        /** @description The webhook endpoint's UUIDv7 external id. */
+        EndpointPublicId: string;
+        /**
+         * @description The admin key's internal uuid. **Not validated** — a non-uuid reaches Postgres and
+         *     surfaces as a `500`.
+         */
+        AdminKeyId: string;
+        /**
+         * @description Must match `^[a-z0-9_]+$`, ≤64 chars, and start with the provider's prefix. The id
+         *     is upper-cased to build env-var fallback names, so it must stay filename-safe.
+         */
         ConfigIdPath: components["schemas"]["ConfigId"];
+        /** @description Page size. Out of range is a `400`, never a clamp. */
         Limit: number;
-        Offset: number;
-        /** @description ISO date or date-time, inclusive, on `createdAt`. `from > to` is a 400. */
+        /**
+         * @description Opaque keyset cursor. Pass back a `next_cursor` **verbatim**; never construct or
+         *     parse one. A malformed cursor is a `400` with
+         *     `errors[0].pointer = "#/query/cursor"`, never a silent restart from page 1.
+         */
+        Cursor: string;
+        /** @description **Inclusive** lower bound on `created_at`. ISO date or date-time. */
         From: string;
-        /** @description ISO date or date-time, inclusive, on `createdAt`. */
-        To: string;
+        /**
+         * @description **Exclusive** upper bound on `created_at`. ISO date or date-time. A whole month is
+         *     `from=2026-07-01&until=2026-08-01`. `from > until` is a `400`.
+         */
+        Until: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /**
+         * @description The request's correlation id — your `X-Request-Id` if it matched
+         *     `^[A-Za-z0-9_-]{1,128}$`, otherwise a freshly minted UUIDv7. Present on every
+         *     response, including `/healthz` and every error.
+         */
+        XRequestId: string;
+        /**
+         * @description Seconds to wait before retrying. Emitted on **every** 429 and on no other status,
+         *     because it is derived in the problem serializer from the `retry_after` extension
+         *     member — so the header and the body member can never disagree. Currently always 60.
+         */
+        RetryAfter: number;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    getHealth: {
+    getHealthz: {
         parameters: {
             query?: never;
             header?: never;
@@ -1025,32 +2457,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Healthy */
+            /** @description The process is alive. `status` reports the database separately. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** @constant */
-                        status: "ok";
-                    };
-                };
-            };
-            /** @description Database unreachable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        status: "degraded";
-                        /** @constant */
-                        db: "unreachable";
-                        /** @description Driver error code or name. Never a connection string. */
-                        code?: string;
-                    };
+                    "application/json": components["schemas"]["Healthz"];
                 };
             };
         };
@@ -1058,23 +2472,37 @@ export interface operations {
     getPublicInvoicePdf: {
         parameters: {
             query: {
-                /** @description `<expiryEpochSeconds>.<base64url HMAC-SHA256>` from a download-link response. */
+                /**
+                 * @description `<expiryEpochSeconds>.<base64url HMAC-SHA256>`, valid for 7 days from minting
+                 *     and bound to this one invoice. Opaque — do not construct one.
+                 */
                 token: string;
             };
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["Pdf"];
-            /** @description Invalid, tampered or expired token */
-            403: components["responses"]["Error"];
-            /** @description Invoice not available for download (not in status `created`) */
-            404: components["responses"]["Error"];
-            502: components["responses"]["Error"];
+            /**
+             * @description Token missing, malformed, tampered with, or expired. Also the response after
+             *     `DOWNLOAD_LINK_SECRET` is rotated, which revokes every outstanding link.
+             */
+            403: components["responses"]["Forbidden"];
+            /** @description Token valid, but the invoice is not in a downloadable state. */
+            404: components["responses"]["NotFound"];
+            /**
+             * @description `invoice_pdf` bucket — more than 20 fetches of this invoice in the current
+             *     minute, from any tier. This unauthenticated route shares the counter with
+             *     `getInvoicePdf` and `getAnyInvoicePdf`, so a customer refreshing the signed link
+             *     spends the same budget your backend uses.
+             */
+            429: components["responses"]["ProviderThrottled"];
+            502: components["responses"]["ProviderError"];
         };
     };
     listInvoices: {
@@ -1082,8 +2510,14 @@ export interface operations {
             query?: {
                 status?: components["schemas"]["InvoiceStatus"];
                 provider?: components["schemas"]["Provider"];
+                /** @description Page size. Out of range is a `400`, never a clamp. */
                 limit?: components["parameters"]["Limit"];
-                offset?: components["parameters"]["Offset"];
+                /**
+                 * @description Opaque keyset cursor. Pass back a `next_cursor` **verbatim**; never construct or
+                 *     parse one. A malformed cursor is a `400` with
+                 *     `errors[0].pointer = "#/query/cursor"`, never a silent restart from page 1.
+                 */
+                cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path?: never;
@@ -1091,29 +2525,40 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description A page of invoices. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["Invoice"][];
-                        limit: number;
-                        offset: number;
+                        next_cursor: components["schemas"]["NextCursor"];
                     };
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     createInvoice: {
         parameters: {
             query?: never;
             header: {
-                /** @description Stable per business event (e.g. an order id). Never random per attempt. */
+                /**
+                 * @description Stable per business event (`order-2026-0001`), never random per attempt.
+                 *     Reserved for 7 days; after that the key is free and reuse starts a new
+                 *     operation with a new `public_id`.
+                 */
                 "Idempotency-Key": string;
+                /**
+                 * @description Your own correlation id. Accepted and echoed verbatim if it matches
+                 *     `^[A-Za-z0-9_-]{1,128}$`; anything else is silently replaced with a UUIDv7.
+                 */
+                "X-Request-Id"?: components["parameters"]["XRequestIdIn"];
             };
             path?: never;
             cookie?: never;
@@ -1124,33 +2569,64 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Idempotent replay — nothing new was issued */
+            /**
+             * @description Idempotent replay — this key was already used by this client. The provider was
+             *     **not** called. The returned invoice may be in any status, including `failed`.
+             */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    /** @description Always `true` on a replay; absent otherwise. */
+                    "Idempotent-Replay"?: "true";
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Invoice"];
-                    };
+                    "application/json": components["schemas"]["Invoice"];
                 };
             };
-            /** @description Invoice issued */
+            /** @description A new invoice was issued. */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Invoice"];
-                    };
+                    "application/json": components["schemas"]["Invoice"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            500: components["responses"]["Error"];
-            502: components["responses"]["Error"];
+            /**
+             * @description Schema failure (`errors[]`), a missing header
+             *     (`code: idempotency_key_required`), a provider/config-id mismatch
+             *     (`code: provider_config_mismatch`), or — with **neither** `errors[]` nor `code`
+             *     — a credential-resolution failure, which is the one 400 that consumes the key.
+             */
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Browser tripwire, or the config id is not allow-listed for this client. */
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description `code: idempotency_key_reused` (same key, different body) or
+             *     `code: idempotency_key_in_flight` (a concurrent request holds the key).
+             */
+            409: components["responses"]["Conflict"];
+            /**
+             * @description `invoice_create` bucket — more than 60 creates for this client in the current
+             *     minute — or the failed-auth throttle; `detail` distinguishes them. **The
+             *     idempotency key is not consumed either way**, so the identical request with the
+             *     same key is safe to resend after `retry_after`. Idempotent replays are counted
+             *     against the bucket too.
+             */
+            429: components["responses"]["ProviderThrottled"];
+            /**
+             * @description Either a credential could not be resolved or decrypted (row left `failed`,
+             *     retry with a NEW key), or — `detail` beginning "The invoice was issued but
+             *     could not be recorded" — the provider issued a real document and the write
+             *     recording it did not land. **Do not retry the second one with a new key**: it
+             *     issues a second real invoice that a human then has to storno. Contact support
+             *     with the `request_id`.
+             */
+            500: components["responses"]["InternalError"];
+            502: components["responses"]["ProviderError"];
         };
     };
     getInvoice: {
@@ -1158,26 +2634,28 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The invoice. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Invoice"];
-                    };
+                    "application/json": components["schemas"]["Invoice"];
                 };
             };
-            401: components["responses"]["Error"];
-            /** @description Not found — also returned when the invoice belongs to another client */
-            404: components["responses"]["Error"];
+            /** @description `public_id` is not a uuid. `errors[0].pointer` is `#/param/public_id`. */
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getInvoicePdf: {
@@ -1185,46 +2663,58 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["Pdf"];
-            /** @description Invoice is not in status `created` */
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            502: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: not_downloadable` — the invoice is not `created`. */
+            422: components["responses"]["WrongState"];
+            /**
+             * @description `invoice_pdf` bucket — more than 20 fetches of this invoice in the current
+             *     minute. Keyed on the invoice and shared with `getAnyInvoicePdf` and
+             *     `getPublicInvoicePdf`. The 422 state guard runs first, so a wrong-state request
+             *     costs no unit.
+             */
+            429: components["responses"]["ProviderThrottled"];
+            502: components["responses"]["ProviderError"];
         };
     };
-    getInvoiceDownloadLink: {
+    createInvoiceDownloadLink: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description A signed URL and its expiry. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["DownloadLink"];
-                    };
+                    "application/json": components["schemas"]["DownloadLink"];
                 };
             };
-            /** @description Invoice is not in status `created` */
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: not_downloadable`. */
+            422: components["responses"]["WrongState"];
         };
     };
     cancelInvoice: {
@@ -1232,35 +2722,48 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Cancelled */
+            /** @description The canceled invoice, plus the storno number if the provider returned one. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Invoice"] & {
-                            /** @description Absent if the provider returned none. Returned on this response only — there is no column for it on the invoice, so a later GET never includes it. Persist it on receipt. */
-                            stornoNumber?: string;
-                        };
-                    };
+                    "application/json": components["schemas"]["CanceledInvoice"];
                 };
             };
-            /** @description Invoice is not in status `created` */
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            /** @description Provider failure */
-            502: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: not_cancellable` — only a `created` invoice can be stornoed. Nothing was sent to the provider. */
+            422: components["responses"]["WrongState"];
+            /**
+             * @description `invoice_cancel` bucket — more than 5 cancels of this invoice in the current
+             *     minute, shared with `cancelAnyInvoice`. Because a successful cancel is terminal
+             *     and the 422 guard runs first, this is reachable only from a retry loop against
+             *     an invoice that is still `created`.
+             */
+            429: components["responses"]["ProviderThrottled"];
+            /**
+             * @description `detail`: "The invoice was canceled but could not be recorded." The storno
+             *     succeeded at the provider and the write recording it did not land. **Do not
+             *     retry** — the document is already reversed. Reconcile from the audit trail,
+             *     which was written before the failure. A concurrent cancel that merely got
+             *     there first is not this: that returns a normal `200`.
+             */
+            500: components["responses"]["InternalError"];
+            502: components["responses"]["ProviderError"];
         };
     };
-    adminMe: {
+    getAdminMe: {
         parameters: {
             query?: never;
             header?: never;
@@ -1269,22 +2772,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The calling key. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminKey"];
-                    };
+                    "application/json": components["schemas"]["AdminKey"];
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
-    adminHealth: {
+    getAdminHealth: {
         parameters: {
             query?: never;
             header?: never;
@@ -1293,30 +2796,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description Health snapshot. The three counts are absent in the degraded body. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminHealth"];
-                    };
+                    "application/json": components["schemas"]["AdminHealth"];
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            /** @description Database unreachable — status `degraded`, counts absent. Body present, and NOT an error envelope. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminHealth"];
-                    };
-                };
-            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listProviders: {
@@ -1328,20 +2819,21 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description Every configurable provider. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["ProviderDescriptor"][];
+                        next_cursor: components["schemas"]["NextCursor"];
                     };
                 };
             };
-            401: components["responses"]["Error"];
-            /** @description Missing scope `credentials:read`, or an Origin header was present */
-            403: components["responses"]["Error"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listAdminKeys: {
@@ -1353,19 +2845,21 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description All admin keys. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["AdminKey"][];
+                        next_cursor: components["schemas"]["NextCursor"];
                     };
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createAdminKey: {
@@ -1377,37 +2871,23 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    label: string;
-                    /**
-                     * @default [
-                     *       "*"
-                     *     ]
-                     */
-                    scopes?: components["schemas"]["AdminScope"][];
-                    /** @default [] */
-                    allowedIps?: string[];
-                };
+                "application/json": components["schemas"]["CreateAdminKeyRequest"];
             };
         };
         responses: {
-            /** @description Created — `apiKey` is returned once and never again */
+            /** @description The new key, including its one-time plaintext. */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminKey"] & {
-                            /** @example iad_9Kd2mQx7… */
-                            apiKey: string;
-                        };
-                    };
+                    "application/json": components["schemas"]["AdminKeyWithSecret"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     revokeAdminKey: {
@@ -1415,28 +2895,32 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
+                /**
+                 * @description The admin key's internal uuid. **Not validated** — a non-uuid reaches Postgres and
+                 *     surfaces as a `500`.
+                 */
+                id: components["parameters"]["AdminKeyId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Revoked */
+            /** @description The revoked key. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminKey"];
-                    };
+                    "application/json": components["schemas"]["AdminKey"];
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            /** @description Refusing to revoke the key making this request */
-            409: components["responses"]["Error"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: self_revocation` — refusing to revoke the calling key. */
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
         };
     };
     updateAdminKey: {
@@ -1444,48 +2928,57 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
+                /**
+                 * @description The admin key's internal uuid. **Not validated** — a non-uuid reaches Postgres and
+                 *     surfaces as a `500`.
+                 */
+                id: components["parameters"]["AdminKeyId"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    label?: string;
-                    scopes?: components["schemas"]["AdminScope"][];
-                    allowedIps?: string[];
-                    active?: boolean;
-                };
+                "application/json": components["schemas"]["UpdateAdminKeyRequest"];
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The updated key. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminKey"];
-                    };
+                    "application/json": components["schemas"]["AdminKey"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            /** @description Refusing to deactivate the key making this request */
-            409: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: self_deactivation` — refusing to deactivate the calling key. */
+            409: components["responses"]["Conflict"];
+            /**
+             * @description Also returned when `{id}` is not a uuid — this route does not validate the path
+             *     parameter, so a malformed id reaches Postgres.
+             */
+            500: components["responses"]["InternalError"];
         };
     };
     listClients: {
         parameters: {
             query?: {
-                /** @description Case-insensitive substring on `name` or `externalRef`. */
+                /** @description Case-insensitive substring on `name` **or** `external_ref`. */
                 q?: string;
-                active?: "true" | "false";
+                active?: components["schemas"]["BoolFlag"];
+                /** @description Page size. Out of range is a `400`, never a clamp. */
                 limit?: components["parameters"]["Limit"];
-                offset?: components["parameters"]["Offset"];
+                /**
+                 * @description Opaque keyset cursor. Pass back a `next_cursor` **verbatim**; never construct or
+                 *     parse one. A malformed cursor is a `400` with
+                 *     `errors[0].pointer = "#/query/cursor"`, never a silent restart from page 1.
+                 */
+                cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path?: never;
@@ -1493,23 +2986,23 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description A page of clients. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["ClientWithCounts"][];
+                        next_cursor: components["schemas"]["NextCursor"];
                         total: number;
-                        limit: number;
-                        offset: number;
                     };
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     createClient: {
@@ -1521,31 +3014,23 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    name: string;
-                    externalRef?: string;
-                    notes?: string;
-                };
+                "application/json": components["schemas"]["CreateClientRequest"];
             };
         };
         responses: {
-            /** @description Created — `apiKey` (isk_…) is the CLIENT's key, shown once */
+            /** @description The new client and its one-time key. */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Client"] & {
-                            /** @example isk_9Kd2mQx7… */
-                            apiKey: string;
-                        };
-                    };
+                    "application/json": components["schemas"]["ClientWithSecret"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getClient: {
@@ -1553,65 +3038,60 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The client with counts and integrations. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["ClientDetail"];
-                    };
+                    "application/json": components["schemas"]["ClientDetail"];
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     deleteClient: {
         parameters: {
             query?: {
-                /** @description `true` permanently deletes — only allowed when the client has no invoices. */
-                hard?: "true" | "false";
+                /** @description Permanent delete. Only when the client has zero invoices. */
+                hard?: components["schemas"]["BoolFlag"];
             };
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Deactivated (soft) or deleted (hard) */
+            /** @description The deactivated client, or the hard-delete acknowledgement. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Client"];
-                    } | {
-                        data: {
-                            /** Format: uuid */
-                            id: string;
-                            /** @constant */
-                            deleted: true;
-                        };
-                    };
+                    "application/json": components["schemas"]["Client"] | components["schemas"]["DeletedAck"];
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            /** @description Hard delete refused — the client has invoices (`details.invoiceCount`) */
-            409: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: client_has_invoices` — deactivate instead. */
+            409: components["responses"]["Conflict"];
         };
     };
     updateClient: {
@@ -1619,41 +3099,31 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    name?: string;
-                    externalRef?: string | null;
-                    notes?: string | null;
-                    active?: boolean;
-                    /**
-                     * @description Escape hatch. Normally maintained automatically by the integration
-                     *     endpoints — setting it by hand can desynchronise it from the credentials.
-                     */
-                    allowedProviderConfigs?: components["schemas"]["ConfigId"][];
-                };
+                "application/json": components["schemas"]["UpdateClientRequest"];
             };
         };
         responses: {
-            /** @description OK */
+            /** @description The updated client, without rollup counts. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Client"];
-                    };
+                    "application/json": components["schemas"]["Client"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     rotateClientKey: {
@@ -1661,44 +3131,50 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Rotated — new `apiKey` shown once */
+            /** @description The client and its new one-time key. */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Client"] & {
-                            apiKey: string;
-                        };
-                    };
+                    "application/json": components["schemas"]["ClientWithSecret"];
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listAllIntegrations: {
         parameters: {
             query?: {
-                clientId?: string;
+                /** @description An unknown id returns an empty page rather than a 404. */
+                client_public_id?: string;
                 provider?: components["schemas"]["Provider"];
-                /** @description Exact match across clients, not a prefix search. */
-                configId?: components["schemas"]["ConfigId"];
-                lastTestStatus?: "ok" | "failed" | "untested";
-                /** @description Whether configId is in the owning client's allowedProviderConfigs. */
-                allowed?: "true" | "false";
-                /** @description false = soft-deleted. */
-                active?: "true" | "false";
+                /** @description Exact match across all clients, not a prefix search. */
+                config_id?: components["schemas"]["ConfigId"];
+                /** @description `untested` is not a stored value — it matches `last_test_status IS NULL`. */
+                last_test_status?: "ok" | "failed" | "untested";
+                /** @description Whether `config_id` is in the owning client's `allowed_provider_configs`. */
+                allowed?: components["schemas"]["BoolFlag"];
+                active?: components["schemas"]["BoolFlag"];
+                /** @description Page size. Out of range is a `400`, never a clamp. */
                 limit?: components["parameters"]["Limit"];
-                offset?: components["parameters"]["Offset"];
+                /**
+                 * @description Opaque keyset cursor. Pass back a `next_cursor` **verbatim**; never construct or
+                 *     parse one. A malformed cursor is a `400` with
+                 *     `errors[0].pointer = "#/query/cursor"`, never a silent restart from page 1.
+                 */
+                cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path?: never;
@@ -1706,216 +3182,244 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description A page of credentials with their owners. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["CredentialWithClient"][];
+                        next_cursor: components["schemas"]["NextCursor"];
                         total: number;
-                        limit: number;
-                        offset: number;
                     };
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
-    listIntegrations: {
+    listClientIntegrations: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description Every credential for this client. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["Credential"][];
+                        next_cursor: components["schemas"]["NextCursor"];
                     };
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Also returned when `{public_id}` is not a uuid — the nested integrations router
+             *     does not validate the parent path parameter.
+             */
+            500: components["responses"]["InternalError"];
         };
     };
-    getIntegration: {
+    getClientIntegration: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
-                configId: components["parameters"]["ConfigIdPath"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+                /**
+                 * @description Must match `^[a-z0-9_]+$`, ≤64 chars, and start with the provider's prefix. The id
+                 *     is upper-cased to build env-var fallback names, so it must stay filename-safe.
+                 */
+                config_id: components["parameters"]["ConfigIdPath"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The credential, masked. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Credential"];
-                    };
+                    "application/json": components["schemas"]["Credential"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            /** @description Config id violates `^[a-z0-9_]+$`. `errors[0].pointer` is `#/param/config_id`. */
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
-    upsertIntegration: {
+    upsertClientIntegration: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
-                configId: components["parameters"]["ConfigIdPath"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+                /**
+                 * @description Must match `^[a-z0-9_]+$`, ≤64 chars, and start with the provider's prefix. The id
+                 *     is upper-cased to build env-var fallback names, so it must stay filename-safe.
+                 */
+                config_id: components["parameters"]["ConfigIdPath"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    provider: components["schemas"]["Provider"];
-                    /** @description Required on create; omit on update to keep the stored secret. */
-                    secret?: string;
-                    /**
-                     * @description Billingo requires {blockId, bankAccountId}; szamlazz requires none.
-                     *     Numeric strings are coerced to numbers.
-                     * @default {}
-                     */
-                    config?: {
-                        [key: string]: number;
-                    };
-                    label?: string;
-                    active?: boolean;
-                };
+                "application/json": components["schemas"]["UpsertIntegrationRequest"];
             };
         };
         responses: {
-            /** @description Updated */
+            /** @description An existing credential was updated. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Credential"];
-                    };
+                    "application/json": components["schemas"]["Credential"];
                 };
             };
-            /** @description Created */
+            /** @description The credential was created. */
             201: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Credential"];
-                    };
+                    "application/json": components["schemas"]["Credential"];
                 };
             };
-            /** @description Bad configId prefix, missing required config keys, or missing secret on create */
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            /**
+             * @description `code: provider_config_mismatch`, or `errors[]` naming every missing config key
+             *     (`pointer: /config/blockId`), a missing `secret` on create
+             *     (`pointer: /secret`), or a malformed config id.
+             */
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
-    deleteIntegration: {
+    deleteClientIntegration: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
-                configId: components["parameters"]["ConfigIdPath"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+                /**
+                 * @description Must match `^[a-z0-9_]+$`, ≤64 chars, and start with the provider's prefix. The id
+                 *     is upper-cased to build env-var fallback names, so it must stay filename-safe.
+                 */
+                config_id: components["parameters"]["ConfigIdPath"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Deactivated */
+            /** @description The credential, now `active: false, allowed: false`. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Credential"];
-                    };
+                    "application/json": components["schemas"]["Credential"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
-    testIntegration: {
+    testClientIntegration: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["ResourceId"];
-                configId: components["parameters"]["ConfigIdPath"];
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+                /**
+                 * @description Must match `^[a-z0-9_]+$`, ≤64 chars, and start with the provider's prefix. The id
+                 *     is upper-cased to build env-var fallback names, so it must stay filename-safe.
+                 */
+                config_id: components["parameters"]["ConfigIdPath"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Test executed (check `data.ok`) */
+            /** @description The test result, whether it passed or failed. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["CredentialTestResult"];
-                    };
+                    "application/json": components["schemas"]["CredentialTestResult"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description `credential_test` bucket — more than 10 tests for this client in the current
+             *     minute, counted across every `config_id` the client has. **An admin key is not
+             *     exempt:** the limit protects the provider's own login endpoint. Pace a sweep by
+             *     grouping the worklist by client.
+             */
+            429: components["responses"]["ProviderThrottled"];
         };
     };
-    adminListInvoices: {
+    listAllInvoices: {
         parameters: {
             query?: {
-                clientId?: string;
+                /** @description An unknown id returns an empty page rather than a 404. */
+                client_public_id?: string;
                 provider?: components["schemas"]["Provider"];
                 status?: components["schemas"]["InvoiceStatus"];
-                configId?: components["schemas"]["ConfigId"];
-                /**
-                 * @description Substring across invoiceNumber, partnerRef and providerInvoiceId.
-                 *     Partner names/addresses are NOT searchable — they are never stored.
-                 */
+                config_id?: components["schemas"]["ConfigId"];
+                /** @description Case-insensitive substring across `invoice_number`, `partner_ref`, `provider_invoice_id`. */
                 q?: string;
-                /** @description ISO date or date-time, inclusive, on `createdAt`. `from > to` is a 400. */
+                /** @description **Inclusive** lower bound on `created_at`. ISO date or date-time. */
                 from?: components["parameters"]["From"];
-                /** @description ISO date or date-time, inclusive, on `createdAt`. */
-                to?: components["parameters"]["To"];
+                /**
+                 * @description **Exclusive** upper bound on `created_at`. ISO date or date-time. A whole month is
+                 *     `from=2026-07-01&until=2026-08-01`. `from > until` is a `400`.
+                 */
+                until?: components["parameters"]["Until"];
+                /** @description Page size. Out of range is a `400`, never a clamp. */
                 limit?: components["parameters"]["Limit"];
-                offset?: components["parameters"]["Offset"];
+                /**
+                 * @description Opaque keyset cursor. Pass back a `next_cursor` **verbatim**; never construct or
+                 *     parse one. A malformed cursor is a `400` with
+                 *     `errors[0].pointer = "#/query/cursor"`, never a silent restart from page 1.
+                 */
+                cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path?: never;
@@ -1923,31 +3427,38 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description A page of invoices across all clients. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["AdminInvoice"][];
+                        next_cursor: components["schemas"]["NextCursor"];
                         total: number;
-                        limit: number;
-                        offset: number;
                     };
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            /** @description Bad filter, malformed cursor, or `from > until` (`pointer: /from`). */
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listStuckInvoices: {
         parameters: {
             query?: {
-                olderThanMinutes?: number;
+                older_than_minutes?: number;
+                /** @description Page size. Out of range is a `400`, never a clamp. */
                 limit?: components["parameters"]["Limit"];
-                offset?: components["parameters"]["Offset"];
+                /**
+                 * @description Opaque keyset cursor. Pass back a `next_cursor` **verbatim**; never construct or
+                 *     parse one. A malformed cursor is a `400` with
+                 *     `errors[0].pointer = "#/query/cursor"`, never a silent restart from page 1.
+                 */
+                cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path?: never;
@@ -1955,108 +3466,121 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description A page of stuck invoices, oldest first. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["AdminInvoice"][];
+                        next_cursor: components["schemas"]["NextCursor"];
                         total: number;
-                        olderThanMinutes: number;
+                        older_than_minutes: number;
                         /** Format: date-time */
                         cutoff: string;
-                        limit: number;
-                        offset: number;
                     };
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
-    adminGetInvoice: {
+    getAnyInvoice: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The invoice, with its owner and idempotency key. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminInvoice"];
-                    };
+                    "application/json": components["schemas"]["AdminInvoice"];
                 };
             };
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
-    adminGetInvoicePdf: {
+    getAnyInvoicePdf: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
             200: components["responses"]["Pdf"];
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            502: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: not_downloadable`. */
+            422: components["responses"]["WrongState"];
+            /**
+             * @description `invoice_pdf` bucket — 20 per invoice per minute, shared with the client-tier
+             *     and public PDF routes. An operator pulling a document a customer is also
+             *     refreshing exhausts it for both.
+             */
+            429: components["responses"]["ProviderThrottled"];
+            502: components["responses"]["ProviderError"];
         };
     };
-    adminGetDownloadLink: {
+    createAnyInvoiceDownloadLink: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description A signed URL and its expiry. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["DownloadLink"];
-                    };
+                    "application/json": components["schemas"]["DownloadLink"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: not_downloadable`. */
+            422: components["responses"]["WrongState"];
         };
     };
-    adminCancelInvoice: {
+    cancelAnyInvoice: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
@@ -2068,26 +3592,35 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Cancelled */
+            /** @description The canceled invoice, plus the storno number if the provider returned one. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminInvoice"] & {
-                            /** @description Absent if the provider returned none. Returned on this response only — there is no column for it on the invoice, so a later GET never includes it. The durable record is the invoice.cancel audit entry's metadata.stornoNumber. */
-                            stornoNumber?: string;
-                        };
-                    };
+                    "application/json": components["schemas"]["CanceledAdminInvoice"];
                 };
             };
-            /** @description Invoice is not in status `created` */
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
-            502: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `code: not_cancellable`. Nothing was sent to the provider. */
+            422: components["responses"]["WrongState"];
+            /**
+             * @description `invoice_cancel` bucket — 5 per invoice per minute, shared with the client-tier
+             *     cancel.
+             */
+            429: components["responses"]["ProviderThrottled"];
+            /**
+             * @description `detail`: "The invoice was canceled but could not be recorded." The storno
+             *     succeeded at the provider and the write recording it did not land. **Do not
+             *     retry** — the document is already reversed. The audit row was written before
+             *     the failure, so reconcile from there.
+             */
+            500: components["responses"]["InternalError"];
+            502: components["responses"]["ProviderError"];
         };
     };
     reconcileInvoice: {
@@ -2095,49 +3628,62 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                id: components["parameters"]["InvoiceId"];
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReconcileMarkFailed"] | components["schemas"]["ReconcileAttach"] | components["schemas"]["ReconcileRelease"];
+                "application/json": components["schemas"]["ReconcileRequest"];
             };
         };
         responses: {
-            /** @description Reconciled */
+            /**
+             * @description The updated invoice for `mark_failed` and `attach`; a release acknowledgement
+             *     for `release`.
+             */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminInvoice"];
-                    } | {
-                        data: {
-                            /** Format: uuid */
-                            id: string;
-                            /** @constant */
-                            released: true;
-                            idempotencyKey: string;
-                        };
-                    };
+                    "application/json": components["schemas"]["AdminInvoice"] | components["schemas"]["ReleasedAck"];
                 };
             };
-            /** @description Invoice is not `pending`, or the body failed validation */
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description No such invoice, or it was deleted between the read and the write by a
+             *     concurrent `release`.
+             */
+            404: components["responses"]["NotFound"];
+            /**
+             * @description `code: invoice_state_changed` — the invoice moved between the read and the
+             *     write, usually a client cancelling concurrently. **Nothing was written.**
+             *     Re-read the invoice and decide again.
+             */
+            409: components["responses"]["Conflict"];
+            /**
+             * @description `code: not_reconcilable` — only a `pending` invoice can be reconciled. A
+             *     `failed` invoice cannot be rescued with `attach`; that transition does not
+             *     exist.
+             */
+            422: components["responses"]["WrongState"];
         };
     };
-    statsOverview: {
+    getStatsOverview: {
         parameters: {
             query?: {
-                /** @description ISO date or date-time, inclusive, on `createdAt`. `from > to` is a 400. */
+                /** @description **Inclusive** lower bound on `created_at`. ISO date or date-time. */
                 from?: components["parameters"]["From"];
-                /** @description ISO date or date-time, inclusive, on `createdAt`. */
-                to?: components["parameters"]["To"];
+                /**
+                 * @description **Exclusive** upper bound on `created_at`. ISO date or date-time. A whole month is
+                 *     `from=2026-07-01&until=2026-08-01`. `from > until` is a `400`.
+                 */
+                until?: components["parameters"]["Until"];
             };
             header?: never;
             path?: never;
@@ -2145,32 +3691,34 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The aggregate. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["StatsOverview"];
-                    };
+                    "application/json": components["schemas"]["StatsOverview"];
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
-    statsTimeseries: {
+    getStatsTimeseries: {
         parameters: {
             query?: {
                 interval?: "hour" | "day";
-                clientId?: string;
+                client_public_id?: string;
                 provider?: components["schemas"]["Provider"];
-                /** @description ISO date or date-time, inclusive, on `createdAt`. `from > to` is a 400. */
+                /** @description **Inclusive** lower bound on `created_at`. ISO date or date-time. */
                 from?: components["parameters"]["From"];
-                /** @description ISO date or date-time, inclusive, on `createdAt`. */
-                to?: components["parameters"]["To"];
+                /**
+                 * @description **Exclusive** upper bound on `created_at`. ISO date or date-time. A whole month is
+                 *     `from=2026-07-01&until=2026-08-01`. `from > until` is a `400`.
+                 */
+                until?: components["parameters"]["Until"];
             };
             header?: never;
             path?: never;
@@ -2178,9 +3726,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The series. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -2191,24 +3740,28 @@ export interface operations {
                             status: components["schemas"]["InvoiceStatus"];
                             count: number;
                         }[];
+                        next_cursor: components["schemas"]["NextCursor"];
                         /** @enum {string} */
                         interval: "hour" | "day";
                         range: components["schemas"]["Range"];
                     };
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
-    statsClients: {
+    getStatsClients: {
         parameters: {
             query?: {
-                /** @description ISO date or date-time, inclusive, on `createdAt`. `from > to` is a 400. */
+                /** @description **Inclusive** lower bound on `created_at`. ISO date or date-time. */
                 from?: components["parameters"]["From"];
-                /** @description ISO date or date-time, inclusive, on `createdAt`. */
-                to?: components["parameters"]["To"];
+                /**
+                 * @description **Exclusive** upper bound on `created_at`. ISO date or date-time. A whole month is
+                 *     `from=2026-07-01&until=2026-08-01`. `from > until` is a `400`.
+                 */
+                until?: components["parameters"]["Until"];
             };
             header?: never;
             path?: never;
@@ -2216,40 +3769,51 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description The rollup. */
             200: {
                 headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
                         data: components["schemas"]["ClientStats"][];
+                        next_cursor: components["schemas"]["NextCursor"];
                         range: components["schemas"]["Range"];
                     };
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
-    listAudit: {
+    listAuditEntries: {
         parameters: {
             query?: {
-                /** @description Which tier acted. Both admin_key and client_key emit action=invoice.cancel, so omit this filter for the complete storno list. */
-                actorType?: components["schemas"]["AuditActorType"];
-                /** @description An admin_keys.id or a clients.id, depending on actorType. */
-                actorId?: string;
+                actor_type?: components["schemas"]["AuditActorType"];
+                /** @description The actor's **internal** id — an `admin_keys.id` or a `clients.id`. */
+                actor_id?: string;
                 /** @description Exact match, not a prefix. */
                 action?: string;
-                targetType?: components["schemas"]["AuditTargetType"];
-                targetId?: string;
-                /** @description ISO date or date-time, inclusive, on `createdAt`. `from > to` is a 400. */
+                target_type?: components["schemas"]["AuditTargetType"];
+                /** @description `public_id` for clients and invoices; internal uuid for credentials and admin keys. */
+                target_id?: string;
+                /** @description **Inclusive** lower bound on `created_at`. ISO date or date-time. */
                 from?: components["parameters"]["From"];
-                /** @description ISO date or date-time, inclusive, on `createdAt`. */
-                to?: components["parameters"]["To"];
+                /**
+                 * @description **Exclusive** upper bound on `created_at`. ISO date or date-time. A whole month is
+                 *     `from=2026-07-01&until=2026-08-01`. `from > until` is a `400`.
+                 */
+                until?: components["parameters"]["Until"];
+                /** @description Page size. Out of range is a `400`, never a clamp. */
                 limit?: components["parameters"]["Limit"];
-                offset?: components["parameters"]["Offset"];
+                /**
+                 * @description Opaque keyset cursor. Pass back a `next_cursor` **verbatim**; never construct or
+                 *     parse one. A malformed cursor is a `400` with
+                 *     `errors[0].pointer = "#/query/cursor"`, never a silent restart from page 1.
+                 */
+                cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path?: never;
@@ -2257,23 +3821,612 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
+            /** @description A page of audit entries. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AuditEntry"][];
+                        next_cursor: components["schemas"]["NextCursor"];
+                        total: number;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    receivePaymentServiceEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description `sha256=<hex>` over `{timestamp}.{raw body}`, HMAC-SHA-256. */
+                "X-Signature": string;
+                /** @description Unix seconds. Rejected outside a 300-second window. */
+                "X-Signature-Timestamp": string;
+                /** @description The emitter's event id. Informational here; the body is authoritative. */
+                "X-Event-Id"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    event_id: string;
+                    event_type: string;
+                    contract_version: number;
+                    /** Format: date-time */
+                    occurred_at: string;
+                    /** @description Must equal `payment-service` on this surface. */
+                    service: string;
+                    /**
+                     * @description The lamido-admin account id. **Null is refused, never guessed** — it means
+                     *     the emitting tenant has not been paired.
+                     */
+                    account_id: string | null;
+                    /** Format: uuid */
+                    correlation_id: string;
+                    /** Format: uuid */
+                    causation_id: string | null;
+                    /** @description Refused at 3 or above, and counted. */
+                    hop: number;
+                    data: Record<string, never>;
+                };
+            };
+        };
+        responses: {
+            /**
+             * @description Accepted, ignored, refused, duplicated or failed — all of them 200. The body says
+             *     which.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["AuditEntry"][];
-                        total: number;
-                        limit: number;
-                        offset: number;
+                        /** @enum {string} */
+                        status: "accepted" | "ignored" | "refused" | "duplicate" | "failed";
                     };
                 };
             };
-            400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            /**
+             * @description Signature verification failed. **The body is not stored** and the failure is logged
+             *     as a security event. The detail deliberately does not say which check failed.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listEventTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every event type this service can emit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookEventTypeDescriptor"][];
+                        next_cursor: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listWebhookEndpoints: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                enabled?: "true" | "false";
+                event_type?: components["schemas"]["WebhookEventType"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of endpoints. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookEndpoint"][];
+                        next_cursor: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listClientWebhookEndpoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The client's endpoints. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookEndpoint"][];
+                        next_cursor: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The client's UUIDv7 external id. */
+                public_id: components["parameters"]["ClientPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: uri
+                     * @description HTTPS. Validated against private and link-local ranges at save time **and
+                     *     again at delivery time**, because DNS can be re-pointed in between.
+                     */
+                    url: string;
+                    description?: string | null;
+                    /**
+                     * @description **Default when omitted: null**, meaning every type including ones added
+                     *     later. An empty array is a 400 — "subscribed to nothing" and "not
+                     *     configured" are different states, and the former is what `disable` is for.
+                     */
+                    subscribed_events?: components["schemas"]["WebhookEventType"][] | null;
+                    /** @description Pinned at creation and never patchable. Default when omitted: the latest. */
+                    contract_version?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description The endpoint, plus its signing secret — the only time it is returned. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        endpoint: components["schemas"]["WebhookEndpoint"];
+                        /** @description `whsec_…`. Store it now; it cannot be read back. */
+                        secret: string;
+                        warning: string;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    patchWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uri */
+                    url?: string;
+                    description?: string | null;
+                    subscribed_events?: components["schemas"]["WebhookEventType"][] | null;
+                };
+            };
+        };
+        responses: {
+            /** @description The endpoint as it now stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    rotateWebhookEndpointSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint, plus the new secret — returned once. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        endpoint: components["schemas"]["WebhookEndpoint"];
+                        secret: string;
+                        warning: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    enableWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint, enabled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    disableWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Recorded on the endpoint. A disable always records one, so a non-null
+                     *     `disabled_reason` never reads as "reason lost".
+                     */
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The endpoint, disabled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    testWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The webhook endpoint's UUIDv7 external id. */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The probe's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Whether the receiver answered 2xx within the timeout. */
+                        ok: boolean;
+                        /** Format: uuid */
+                        event_id: string;
+                        response_status?: number | null;
+                        /** @description At most 500 bytes. A diagnostic */
+                        response_body_excerpt?: string | null;
+                        error?: string | null;
+                        latency_ms?: number | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The endpoint has no signing secret. Rotate one in first. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listWebhookEvents: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                client_public_id?: string;
+                event_type?: components["schemas"]["WebhookEventType"];
+                correlation_id?: string;
+                /** @description Inclusive. Filters `created_at`. */
+                from?: string;
+                /** @description Exclusive. Filters `created_at`. */
+                until?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookEvent"][];
+                        next_cursor: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listWebhookDeliveries: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                client_public_id?: string;
+                endpoint_public_id?: string;
+                event_type?: components["schemas"]["WebhookEventType"];
+                status?: "pending" | "delivered" | "dead_lettered" | "all";
+                /**
+                 * @description Deliveries bound for a sibling Lamido service, recognised by the
+                 *     `…/v1/hooks/{source_service}` URL shape. `true` is the drill-down behind the
+                 *     loudest health count this service has.
+                 */
+                cross_service?: "true" | "false";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of deliveries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookDelivery"][];
+                        next_cursor: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    redeliverWebhookDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The delivery, reset to pending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDelivery"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listInboundEvents: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                outcome?: "accepted" | "ignored" | "refused" | "failed" | "all";
+                /**
+                 * @description `outcome=refused` is the whole outcome; `unroutable` is
+                 *     `outcome=ignored&reason_code=unknown_account`. Filtering on `ignored` alone also
+                 *     counts every event type this service has no action for, which is most of them.
+                 */
+                reason_code?: components["schemas"]["InboundReasonCode"];
+                event_type?: string;
+                correlation_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of inbound events, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["InboundEvent"][];
+                        next_cursor: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getLandingPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
         };
     };
 }

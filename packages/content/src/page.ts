@@ -51,7 +51,7 @@ export interface PublishedPage {
    * tier an unpublished page is a `404`, which the SDK maps to `null` instead.
    */
   readonly version: number | null;
-  readonly publishedAt: string | null;
+  readonly published_at: string | null;
   /** Active sections only, in the order staff defined. */
   readonly sections: readonly PageDocumentSection[];
   /**
@@ -84,7 +84,7 @@ export function toPublishedPage(document: PageDocument): PublishedPage {
     title: document.page.title,
     locale: document.page.locale,
     version: document.page.version,
-    publishedAt: document.page.publishedAt,
+    published_at: document.page.published_at,
     sections,
     section(key: string): PageSection {
       const found = byKey.get(key);

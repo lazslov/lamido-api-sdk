@@ -47,7 +47,6 @@ export type { DeliveryListOptions, DeliveryMethods } from "./deliveries.js";
 export {
   PaymentApiError,
   type PaymentConflictCode,
-  type PaymentProblemType,
 } from "./errors.js";
 export { eurCents, huf, type MinorUnits, minorUnits } from "./money.js";
 export type { PaymentMethods } from "./payments.js";
@@ -80,10 +79,16 @@ export type {
 export {
   deliveryIdHeader,
   eventIdHeader,
+  isKnownEvent,
+  isRefundEvent,
+  type KnownPaymentEvent,
+  type PaymentEventEnvelope,
+  type PaymentEventTenant,
   type PaymentWebhookEvent,
   type PaymentWebhookEventType,
   type PaymentWebhookInput,
   parsePaymentWebhookEvent,
+  type RefundEvent,
   signatureHeader,
   timestampHeader,
   verifyPaymentWebhook,
@@ -98,4 +103,4 @@ export {
  * Kept in step with `package.json` by a test, so a release cannot ship a constant that disagrees with
  * the tarball it came from.
  */
-export const VERSION = "0.1.0";
+export const VERSION = "1.0.0";

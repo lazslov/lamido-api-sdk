@@ -107,7 +107,7 @@ describe("tryCreateInvoiceClient", () => {
     process.env.INVOICE_SERVICE_CLIENT_KEY = testClientKey;
     const stub = fetchStub();
     await tryCreateInvoiceClient({ fetch: stub.fetch })?.getInvoice("6f1c2c8e");
-    expect(stub.lastUrl()).toBe(`${testBaseUrl}/api/invoices/6f1c2c8e`);
+    expect(stub.lastUrl()).toBe(`${testBaseUrl}/v1/invoices/6f1c2c8e`);
   });
 });
 

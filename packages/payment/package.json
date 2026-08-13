@@ -1,6 +1,6 @@
 {
   "name": "@lazslov/payment",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Consumer SDK for payment-service: Stripe and Barion behind one merchant-tier API.",
   "license": "MIT",
   "repository": {

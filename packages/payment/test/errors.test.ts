@@ -23,8 +23,8 @@ function problem(status: number, type: string, extra: Record<string, unknown> = 
   };
 }
 
-const conflict = "urn:payment-service:problem:conflict";
-const internal = "urn:payment-service:problem:internal";
+const conflict = "conflict";
+const internal = "internal";
 
 describe("parsePaymentError", () => {
   it("reads the problem type, which is what a caller branches on", () => {
@@ -32,9 +32,11 @@ describe("parsePaymentError", () => {
       context(400, problem(400, "urn:payment-service:problem:validation")),
     );
     expect(error).toBeInstanceOf(PaymentApiError);
-    expect(error.type).toBe("urn:payment-service:problem:validation");
-    // Also as core's `code`, so cross-service code can read one field on any @lazslov error.
-    expect(error.code).toBe(error.type);
+    // The slug, not the URN: the namespace differs per service and the slug set is shared, so
+    // cross-service code reads one field with one set of values on any @lazslov error.
+    expect(error.type).toBe("validation");
+    // `code` is the extension member now, and a plain validation problem carries none.
+    expect("code" in error).toBe(false);
   });
 
   it("keeps title and detail without ever branching on them", () => {
@@ -57,11 +59,12 @@ describe("parsePaymentError", () => {
     expect(error.requestPath).toBe("/v1/payments");
   });
 
-  it("falls back to the status when no problem body arrived", () => {
-    expect(parsePaymentError(context(403, null)).type).toBe(
-      "urn:payment-service:problem:forbidden",
-    );
-    expect(parsePaymentError(context(500, null)).type).toBe(internal);
+  it("reports an unknown slug when no problem body arrived", () => {
+    // An HTML error page from an edge proxy carries no `type`. Deriving one from the status
+    // would be a guess presented as a fact from the service — and on a 502 that guess decides
+    // whether a payment gets retried.
+    expect(parsePaymentError(context(403, null)).type).toBe("unknown");
+    expect(parsePaymentError(context(500, null)).type).toBe("unknown");
     expect(parsePaymentError(context(500, null)).message).toBe("payment-service answered 500");
   });
 
@@ -69,22 +72,23 @@ describe("parsePaymentError", () => {
     const error = parsePaymentError(
       context(409, problem(409, "urn:payment-service:problem:invented")),
     );
-    expect(error.type).toBe(conflict);
+    expect(error.type).toBe("unknown");
   });
 
-  it("exposes the 422 code extension member as conflictCode", () => {
-    // Not `code`: core already uses that for the machine value, and two fields called `code` on one
-    // error would be a trap in exactly the place where money is involved.
+  it("exposes the 422 code extension member as code", () => {
+    // `code` used to be spelled `conflictCode` here, because core's `code` held the problem type
+    // and two fields called `code` on one error would be a trap where money is involved. Core
+    // holds the slug in `type` now, so the two have merged onto the member the wire calls `code`.
     const error = parsePaymentError(
       context(422, problem(422, conflict, { code: "refund_exceeds_remaining" })),
     );
-    expect(error.conflictCode).toBe("refund_exceeds_remaining");
-    expect(error.code).toBe(conflict);
+    expect(error.code).toBe("refund_exceeds_remaining");
+    expect(error.type).toBe(conflict);
   });
 
   it("ignores a conflict code it does not know", () => {
     expect(
-      parsePaymentError(context(422, problem(422, conflict, { code: "invented" }))).conflictCode,
+      parsePaymentError(context(422, problem(422, conflict, { code: "invented" }))).code,
     ).toBeUndefined();
   });
 });
@@ -198,7 +202,7 @@ describe("extension members", () => {
         "/v1/payments/x/refresh",
       ),
     );
-    expect(error.retryAfterSeconds).toBe(4);
+    expect(error.retryAfter).toBe(4);
   });
 
   it("falls back to the Retry-After header", () => {
@@ -207,7 +211,7 @@ describe("extension members", () => {
         "retry-after": "9",
       }),
     );
-    expect(error.retryAfterSeconds).toBe(9);
+    expect(error.retryAfter).toBe(9);
   });
 
   it("reads supported_events from a 400", () => {
@@ -227,8 +231,8 @@ describe("extension members", () => {
       context(401, problem(401, "urn:payment-service:problem:unauthorized")),
     );
     expect("providerOutcome" in error).toBe(false);
-    expect("retryAfterSeconds" in error).toBe(false);
-    expect("conflictCode" in error).toBe(false);
+    expect("retryAfter" in error).toBe(false);
+    expect("code" in error).toBe(false);
   });
 });
 

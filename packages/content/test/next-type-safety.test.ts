@@ -77,7 +77,7 @@ describe("a SaveResult's error is a code, not prose", () => {
 
   it("accepts every code the service does send, including the SDK's own", () => {
     const codes: SaveResult[] = [
-      { ok: false, error: "validation_error", fields: { cta_url: "must be an absolute URL" } },
+      { ok: false, error: "validation", fields: { cta_url: "must be an absolute URL" } },
       { ok: false, error: "conflict" },
       { ok: false, error: "not_configured" },
     ];

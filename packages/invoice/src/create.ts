@@ -1,5 +1,5 @@
 /**
- * `POST /api/invoices` — the sharpest edge in this service.
+ * `POST /v1/invoices` — the sharpest edge in this service.
  *
  * @remarks
  * One endpoint, one method, and the whole reason this package is opinionated. An idempotency key here
@@ -22,7 +22,7 @@ export interface CreateMethods {
    * attempt removes the protection entirely and will double-invoice.
    * @param options - `init` only.
    * @returns The invoice, and whether this call issued it.
-   * @throws `TypeError` **before any request**, for a `providerConfigId` that breaks the prefix or
+   * @throws `TypeError` **before any request**, for a `provider_config_id` that breaks the prefix or
    * character rule, an empty `items`, a bad `vatRate`, or a date that is not a real `YYYY-MM-DD` day.
    * The service does not check those four and the provider rejects them as a `502` — by which point
    * the key is spent.
@@ -47,13 +47,13 @@ export interface CreateMethods {
    * const { invoice, replayed } = await invoices.createInvoice(
    *   {
    *     provider: "billingo",
-   *     providerConfigId: "billingo_acme",
+   *     provider_config_id: "billingo_acme",
    *     partner: {
    *       name: "Teszt Vevő Kft",
    *       taxNumber: "12345678-2-42",
    *       address: { postalCode: "1011", city: "Budapest", address: "Fő utca 1" },
    *     },
-   *     items: [{ name: "Tanácsadás", quantity: 2, unit: "óra", netUnitPrice: 15000, vatRate: "27" }],
+   *     items: [{ name: "Tanácsadás", quantity: 2, unit: "óra", net_unit_price_minor: "15000", vat_rate: "27" }],
    *     partnerRef: order.id,
    *   },
    *   derivedIdempotencyKey(`invoice-${order.id}`, 1),
@@ -84,12 +84,12 @@ export function bindCreateMethod(cfg: ResolvedConfig): CreateMethods {
 
       const answer = await callWithMeta<Invoice>(cfg, {
         method: "POST",
-        path: "/api/invoices",
+        path: "/v1/invoices",
         // Passed through as given. Unknown fields are silently stripped by the service, so a
         // helpful tidy-up here would hide a typo rather than surface it.
         body,
         headers: { "Idempotency-Key": key },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       });
 

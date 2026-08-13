@@ -1,5 +1,5 @@
 /**
- * `/api/client/collections/*` — repeating content, one row at a time.
+ * `/v1/collections/*` — repeating content, one row at a time.
  *
  * @remarks
  * An item's lifecycle is a `status`, not a version history: a news list of 200 items would otherwise
@@ -8,7 +8,7 @@
  */
 
 import type { ResolvedConfig } from "@lazslov/api-core";
-import { call, callList } from "../call.js";
+import { call, callList, callUnpaginated } from "../call.js";
 import { type ListOptions, type LocaleOptions, passInit, type RequestOptions } from "../options.js";
 import type {
   CollectionItem,
@@ -161,7 +161,7 @@ export interface CollectionMethods {
  * @internal
  */
 export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
-  const items = (key: string) => `/api/client/collections/${encodeURIComponent(key)}/items`;
+  const items = (key: string) => `/v1/collections/${encodeURIComponent(key)}/items`;
   const item = (key: string, id: string) => `${items(key)}/${encodeURIComponent(id)}`;
 
   /** A body carrying a locale only when one was asked for. */
@@ -172,10 +172,9 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
 
   return {
     listCollections: (options = {}) =>
-      call<CollectionSummary[]>(cfg, {
+      callUnpaginated<CollectionSummary>(cfg, {
         method: "GET",
-        path: "/api/client/collections",
-        read: { kind: "data" },
+        path: "/v1/collections",
         ...passInit(options),
       }),
 
@@ -198,7 +197,7 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
         method: "GET",
         path: item(key, id),
         query: { view: options.view, locale: options.locale },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -207,7 +206,7 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
         method: "POST",
         path: items(key),
         body: withLocale({ ...newItem }, options),
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -216,7 +215,7 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
         method: "PATCH",
         path: item(key, id),
         body: withLocale({ ...patch }, options),
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -225,7 +224,7 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
         method: "POST",
         path: `${item(key, id)}/publish`,
         body: withLocale({}, options),
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -234,7 +233,7 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
         method: "POST",
         path: `${item(key, id)}/archive`,
         body: withLocale({}, options),
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -243,7 +242,7 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
         method: "DELETE",
         path: item(key, id),
         query: { force: options.force },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -253,7 +252,7 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
         method: "POST",
         path: `${items(key)}/reorder`,
         body: { ids: [...orderedIds] },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       });
       return applied.ids ?? [...orderedIds];

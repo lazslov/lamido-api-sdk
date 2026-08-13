@@ -4,6 +4,7 @@ import {
   errorResponse,
   fetchStub,
   jsonResponse,
+  listResponse,
   pageDocument,
   testBaseUrl,
   websiteClient,
@@ -12,20 +13,18 @@ import {
 describe("the website tier's reads", () => {
   it("lists published pages without any query parameters", async () => {
     // Not even a locale: a page's title is a column on the page, not a localised value.
-    const stub = fetchStub([
-      jsonResponse({ data: [{ slug: "home", title: "Kezdőlap", version: 8 }] }),
-    ]);
+    const stub = fetchStub([listResponse([{ slug: "home", title: "Kezdőlap", version: 8 }])]);
     const pages = await websiteClient(stub).listPages();
 
-    expect(stub.lastUrl()).toBe(`${testBaseUrl}/api/content/pages`);
+    expect(stub.lastUrl()).toBe(`${testBaseUrl}/v1/public/pages`);
     expect(pages).toHaveLength(1);
   });
 
   it("reads a page and passes the locale through", async () => {
-    const stub = fetchStub([jsonResponse({ data: pageDocument([{ key: "hero", fields: {} }]) })]);
+    const stub = fetchStub([jsonResponse(pageDocument([{ key: "hero", fields: {} }]))]);
     const page = await websiteClient(stub).getPage("home", { locale: "hu" });
 
-    expect(stub.lastUrl()).toBe(`${testBaseUrl}/api/content/pages/home?locale=hu`);
+    expect(stub.lastUrl()).toBe(`${testBaseUrl}/v1/public/pages/home?locale=hu`);
     expect(page?.slug).toBe("home");
   });
 
@@ -44,29 +43,25 @@ describe("the website tier's reads", () => {
   it("reads site chrome, including an empty settings object", async () => {
     const stub = fetchStub([
       jsonResponse({
-        data: {
-          slug: "acme",
-          name: "Acme",
-          defaultLocale: "hu",
-          locales: ["hu"],
-          locale: "hu",
-          settings: {},
-        },
+        slug: "acme",
+        name: "Acme",
+        default_locale: "hu",
+        locales: ["hu"],
+        locale: "hu",
+        settings: {},
       }),
     ]);
     const site = await websiteClient(stub).getSite();
 
-    expect(stub.lastUrl()).toBe(`${testBaseUrl}/api/content/site`);
+    expect(stub.lastUrl()).toBe(`${testBaseUrl}/v1/public/site`);
     expect(site.settings).toEqual({});
   });
 
   it("keeps a collection list's total, so it can be paged to the end", async () => {
-    const stub = fetchStub([
-      jsonResponse({ data: [{ id: "1" }], total: 12, limit: 20, offset: 0 }),
-    ]);
+    const stub = fetchStub([listResponse([{ id: "1" }], { total: 12, limit: 20, offset: 0 })]);
     const page = await websiteClient(stub).getCollection("news", { limit: 20, offset: 0 });
 
-    expect(stub.lastUrl()).toBe(`${testBaseUrl}/api/content/collections/news?limit=20&offset=0`);
+    expect(stub.lastUrl()).toBe(`${testBaseUrl}/v1/public/collections/news?limit=20&offset=0`);
     expect(page).toEqual({ items: [{ id: "1" }], total: 12, limit: 20, offset: 0 });
   });
 
@@ -76,14 +71,14 @@ describe("the website tier's reads", () => {
   });
 
   it("reads one item by slug or by id", async () => {
-    const stub = fetchStub([jsonResponse({ data: { id: "1", slug: "elso_hir" } })]);
+    const stub = fetchStub([jsonResponse({ id: "1", slug: "elso_hir" })]);
     await websiteClient(stub).getCollectionItem("news", "elso_hir");
 
-    expect(stub.lastUrl()).toBe(`${testBaseUrl}/api/content/collections/news/items/elso_hir`);
+    expect(stub.lastUrl()).toBe(`${testBaseUrl}/v1/public/collections/news/items/elso_hir`);
   });
 
   it("builds an aggregate query with joined metrics and repeated filters", async () => {
-    const stub = fetchStub([jsonResponse({ data: [], total: 0, limit: 100, offset: 0 })]);
+    const stub = fetchStub([listResponse([], { total: 0, limit: 100, offset: 0 })]);
     await websiteClient(stub).getDatasetAggregate("donations", {
       groupBy: "beneficiaryId",
       metrics: ["count", "sum:amountForint"],
@@ -92,7 +87,7 @@ describe("the website tier's reads", () => {
     });
 
     const url = new URL(stub.lastUrl());
-    expect(url.pathname).toBe("/api/content/datasets/donations/aggregate");
+    expect(url.pathname).toBe("/v1/public/datasets/donations/aggregate");
     expect(url.searchParams.get("metrics")).toBe("count,sum:amountForint");
     expect(url.searchParams.getAll("eq")).toEqual(["manual:false"]);
     expect(url.searchParams.get("groupBy")).toBe("beneficiaryId");
@@ -105,7 +100,7 @@ describe("the website tier's reads", () => {
   });
 
   it("passes a framework init through to fetch intact", async () => {
-    const stub = fetchStub([jsonResponse({ data: pageDocument([]) })]);
+    const stub = fetchStub([jsonResponse(pageDocument([]))]);
     await websiteClient(stub).getPage("home", {
       init: { next: { tags: ["content"] } } as RequestInit,
     });
@@ -114,7 +109,7 @@ describe("the website tier's reads", () => {
   });
 
   it("sends the credential as a bearer token and nothing else about it", async () => {
-    const stub = fetchStub([jsonResponse({ data: [] })]);
+    const stub = fetchStub([listResponse([])]);
     await websiteClient(stub).listPages();
 
     expect(stub.lastHeaders().authorization).toMatch(/^Bearer cpk_/);

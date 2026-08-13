@@ -22,7 +22,7 @@ const sign = (timestamp, rawBody) =>
 const now = 1_785_168_000;
 
 const paymentBlock = {
-  id: "019e4a91-0000-7000-8000-000000000002",
+  public_id: "019e4a91-0000-7000-8000-000000000003",
   merchant_payment_ref: "order-12345",
   status: "succeeded",
   amount_minor: "1000",
@@ -30,35 +30,55 @@ const paymentBlock = {
   provider: "barion",
 };
 
+/** The estate envelope every event from every Lamido service carries. */
+const envelope = (eventId, eventType, occurredAt) => ({
+  event_id: eventId,
+  event_type: eventType,
+  contract_version: 1,
+  occurred_at: occurredAt,
+  service: "payment-service",
+  account_id: "7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46",
+  tenant: { kind: "merchant", public_id: "019e4a91-0000-7000-8000-000000000002" },
+  correlation_id: eventId,
+  causation_id: null,
+  hop: 0,
+});
+
 const paymentSucceeded = JSON.stringify({
-  event_id: "019e4a91-0000-7000-8000-000000000001",
-  event_type: "payment.succeeded",
-  created_at: "2026-01-21T12:53:20.000Z",
-  payment: paymentBlock,
+  ...envelope(
+    "019e4a91-0000-7000-8000-000000000001",
+    "payment.succeeded",
+    "2026-01-21T12:53:20.000Z",
+  ),
+  data: { payment: paymentBlock },
 });
 
 const refundSucceeded = JSON.stringify({
-  event_id: "019e4a95-0000-7000-8000-000000000003",
-  event_type: "refund.succeeded",
-  created_at: "2026-01-21T13:02:11.140Z",
-  payment: { ...paymentBlock, status: "partially_refunded" },
-  refund: {
-    id: "019e4a95-77c1-7a02-8f31-9b0c4d5e6f70",
-    status: "succeeded",
-    amount_minor: "400",
-    currency: "HUF",
+  ...envelope(
+    "019e4a95-0000-7000-8000-000000000004",
+    "refund.succeeded",
+    "2026-01-21T13:02:11.140Z",
+  ),
+  data: {
+    payment: { ...paymentBlock, status: "partially_refunded" },
+    refund: {
+      public_id: "019e4a95-77c1-7a02-8f31-9b0c4d5e6f70",
+      status: "succeeded",
+      amount_minor: "400",
+      currency: "HUF",
+    },
   },
 });
 
 // A merchant reference with Hungarian accents: the UTF-8 byte length is where a naive HMAC diverges.
 const accented = JSON.stringify({
-  event_id: "019e4a91-0000-7000-8000-000000000004",
-  event_type: "payment.failed",
-  created_at: "2026-01-21T12:53:20.000Z",
-  payment: {
-    ...paymentBlock,
-    merchant_payment_ref: "Árvíztűrő tükörfúrógép — 12345",
-    status: "failed",
+  ...envelope("019e4a91-0000-7000-8000-000000000005", "payment.failed", "2026-01-21T12:53:20.000Z"),
+  data: {
+    payment: {
+      ...paymentBlock,
+      merchant_payment_ref: "Árvíztűrő tükörfúrógép — 12345",
+      status: "failed",
+    },
   },
 });
 
@@ -95,10 +115,12 @@ const cases = [
     name: "bad-signature-tampered-amount",
     describes: "the signature of one body presented with another — the amount was edited in flight",
     rawBody: JSON.stringify({
-      event_id: "019e4a91-0000-7000-8000-000000000001",
-      event_type: "payment.succeeded",
-      created_at: "2026-01-21T12:53:20.000Z",
-      payment: { ...paymentBlock, amount_minor: "100000" },
+      ...envelope(
+        "019e4a91-0000-7000-8000-000000000001",
+        "payment.succeeded",
+        "2026-01-21T12:53:20.000Z",
+      ),
+      data: { payment: { ...paymentBlock, amount_minor: "100000" } },
     }),
     signature: sign(String(now), paymentSucceeded),
     expect: { ok: false, reason: "bad_signature" },

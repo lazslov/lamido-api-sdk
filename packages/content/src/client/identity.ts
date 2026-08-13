@@ -1,4 +1,4 @@
-/** `GET /api/client/me` — the boot-time check that a key points at the site you meant. */
+/** `GET /v1/me` — the boot-time check that a key points at the site you meant. */
 
 import type { ResolvedConfig } from "@lazslov/api-core";
 import { call } from "../call.js";
@@ -34,8 +34,8 @@ export function bindIdentityMethods(cfg: ResolvedConfig): IdentityMethods {
     getMe: (options = {}) =>
       call<ClientIdentity>(cfg, {
         method: "GET",
-        path: "/api/client/me",
-        read: { kind: "data" },
+        path: "/v1/me",
+        read: { kind: "raw" },
         ...passInit(options),
       }),
   };

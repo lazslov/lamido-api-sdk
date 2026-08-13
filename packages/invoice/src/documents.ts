@@ -3,7 +3,7 @@
  *
  * @remarks
  * `getInvoicePdf` fetches the bytes with the client key; `createDownloadLink` mints a public URL for
- * an end customer. The third path — `GET /api/public/invoices/:id/pdf?token=…` — is unauthenticated and
+ * an end customer. The third path — `GET /v1/public/invoices/{public_id}/pdf?token=…` — is unauthenticated and
  * is **not** implemented here: it is a URL to hand to a browser or paste into an email, and fetching it
  * server-side through an authenticated client is pointless.
  *
@@ -88,7 +88,7 @@ export function bindDocumentMethods(cfg: ResolvedConfig): DocumentMethods {
       call<DownloadLink>(cfg, {
         method: "GET",
         path: `${invoicePath(id)}/download-link`,
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
   };

@@ -1,5 +1,5 @@
 /**
- * `/api/content/*` — the published read tier, and the shape of the client that serves it.
+ * `/v1/public/*` — the published read tier, and the shape of the client that serves it.
  *
  * @remarks
  * Every method here is a `GET`, and none of them accepts a `?view=` parameter. Any value other
@@ -9,7 +9,7 @@
 
 import type { ResolvedConfig } from "@lazslov/api-core";
 import { type AggregateQuery, aggregateQuery } from "../aggregate.js";
-import { call, callListOrNull, callOrNull } from "../call.js";
+import { call, callListOrNull, callOrNull, callUnpaginated } from "../call.js";
 import { type ListOptions, type LocaleOptions, passInit, type RequestOptions } from "../options.js";
 import { type PublishedPage, toPublishedPage } from "../page.js";
 import type {
@@ -127,19 +127,18 @@ export interface WebsiteClient {
 export function bindWebsiteReads(cfg: ResolvedConfig): WebsiteClient {
   return {
     listPages: (options = {}) =>
-      call<PublishedPageSummary[]>(cfg, {
+      callUnpaginated<PublishedPageSummary>(cfg, {
         method: "GET",
-        path: "/api/content/pages",
-        read: { kind: "data" },
+        path: "/v1/public/pages",
         ...passInit(options),
       }),
 
     async getPage(slug, options = {}) {
       const document = await callOrNull<PageDocument>(cfg, {
         method: "GET",
-        path: `/api/content/pages/${encodeURIComponent(slug)}`,
+        path: `/v1/public/pages/${encodeURIComponent(slug)}`,
         query: { locale: options.locale },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       });
       return document === null ? null : toPublishedPage(document);
@@ -148,16 +147,16 @@ export function bindWebsiteReads(cfg: ResolvedConfig): WebsiteClient {
     getSite: (options = {}) =>
       call<ContentSite>(cfg, {
         method: "GET",
-        path: "/api/content/site",
+        path: "/v1/public/site",
         query: { locale: options.locale },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
     getCollection: (key, options = {}) =>
       callListOrNull<CollectionItem>(cfg, {
         method: "GET",
-        path: `/api/content/collections/${encodeURIComponent(key)}`,
+        path: `/v1/public/collections/${encodeURIComponent(key)}`,
         query: { locale: options.locale, limit: options.limit, offset: options.offset },
         ...passInit(options),
       }),
@@ -165,20 +164,23 @@ export function bindWebsiteReads(cfg: ResolvedConfig): WebsiteClient {
     getCollectionItem: (key, idOrSlug, options = {}) =>
       callOrNull<CollectionItem>(cfg, {
         method: "GET",
-        path: `/api/content/collections/${encodeURIComponent(key)}/items/${encodeURIComponent(idOrSlug)}`,
+        path: `/v1/public/collections/${encodeURIComponent(key)}/items/${encodeURIComponent(idOrSlug)}`,
         query: { locale: options.locale },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
-    getDatasetAggregate: (key, query = {}) =>
-      callOrNull<AggregateGroup[]>(cfg, {
+    async getDatasetAggregate(key, query = {}) {
+      const page = await callListOrNull<AggregateGroup>(cfg, {
         method: "GET",
-        path: `/api/content/datasets/${encodeURIComponent(key)}/aggregate`,
+        path: `/v1/public/datasets/${encodeURIComponent(key)}/aggregate`,
         query: aggregateQuery(query),
-        read: { kind: "data" },
         ...passInit(query),
-      }),
+      });
+      // `null` stays `null`: a dataset without `publicAggregate` is a documented absence here,
+      // not an empty result. An empty `items` would read as "the total is zero".
+      return page === null ? null : page.items;
+    },
 
     getHealth: (options = {}) => getHealth(cfg, options),
   };

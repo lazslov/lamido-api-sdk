@@ -48,58 +48,52 @@ describe("getInvoicePdf returns bytes and a filename", () => {
   });
 });
 
+/** The wrong-state failure, as the service now reports it: a 422 with a semantic code. */
+function notDownloadable(detail = "Invoice is not in a downloadable state") {
+  return errorResponse(422, "conflict", detail, { code: "not_downloadable" });
+}
+
 describe("the not-downloadable failure is named", () => {
   it("throws InvoiceNotDownloadableError for a cancelled invoice", async () => {
-    const stub = fetchStub([
-      errorResponse(
-        400,
-        "bad_request",
-        "Invoice is not in a downloadable state (status: cancelled)",
-      ),
-    ]);
-
-    const error = (await invoiceClient(stub)
+    const error = (await invoiceClient(fetchStub([notDownloadable()]))
       .getInvoicePdf(id)
       .catch((thrown: unknown) => thrown)) as InvoiceNotDownloadableError;
 
     expect(error).toBeInstanceOf(InvoiceNotDownloadableError);
     expect(error).toBeInstanceOf(InvoiceApiError);
     expect(error.name).toBe("InvoiceNotDownloadableError");
-    expect(error.code).toBe("bad_request");
-    expect(error.retryable).toBe(false);
-    expect(error.invoiceStatus).toBe("cancelled");
+    expect(error.type).toBe("conflict");
+    expect(error.code).toBe("not_downloadable");
+  });
+
+  it("is retryable, because a state can change", async () => {
+    // A `pending` invoice becomes `created`. This used to be a flat 400, which said the opposite.
+    const error = (await invoiceClient(fetchStub([notDownloadable()]))
+      .getInvoicePdf(id)
+      .catch((thrown: unknown) => thrown)) as InvoiceNotDownloadableError;
+    expect(error.retryable).toBe(true);
   });
 
   it("does the same on the download-link endpoint, which shares the state requirement", async () => {
-    const stub = fetchStub([
-      errorResponse(400, "bad_request", "Invoice is not in a downloadable state (status: failed)"),
-    ]);
-
-    const error = (await invoiceClient(stub)
+    const error = (await invoiceClient(fetchStub([notDownloadable()]))
       .createDownloadLink(id)
       .catch((thrown: unknown) => thrown)) as InvoiceNotDownloadableError;
 
     expect(error).toBeInstanceOf(InvoiceNotDownloadableError);
-    expect(error.invoiceStatus).toBe("failed");
   });
 
-  it("reports a null status rather than a guess when the message is reworded", async () => {
-    // Reading the status out of prose is a hint, and it fails closed.
-    const stub = fetchStub([errorResponse(400, "bad_request", "Not downloadable right now")]);
-
-    const error = (await invoiceClient(stub)
+  it("survives a reworded message, because it reads the code and not the prose", async () => {
+    // The old parser lifted the status out of the sentence with a regex. The service names the
+    // sub-case machine-readably now, so the wording can change freely.
+    const error = (await invoiceClient(fetchStub([notDownloadable("Not downloadable right now")]))
       .getInvoicePdf(id)
       .catch((thrown: unknown) => thrown)) as InvoiceNotDownloadableError;
 
     expect(error).toBeInstanceOf(InvoiceNotDownloadableError);
-    expect(error.invoiceStatus).toBeNull();
   });
 
   it("leaves every other failure as a plain InvoiceApiError", async () => {
-    for (const response of [
-      errorResponse(404, "not_found"),
-      errorResponse(502, "provider_error"),
-    ]) {
+    for (const response of [errorResponse(404, "not-found"), errorResponse(502, "internal")]) {
       const error = (await invoiceClient(fetchStub([response]))
         .getInvoicePdf(id)
         .catch((thrown: unknown) => thrown)) as InvoiceApiError;
@@ -109,10 +103,13 @@ describe("the not-downloadable failure is named", () => {
     }
   });
 
-  it("does not name a 400 on any other endpoint as not-downloadable", async () => {
-    // The detection is path-based, and only /pdf and /download-link have that state requirement.
+  it("does not name a different wrong-state failure as not-downloadable", async () => {
+    // `not_cancellable` is the same `(conflict, 422)` pair. Only `code` tells them apart, which
+    // is exactly why the detection reads it rather than the status.
     const stub = fetchStub([
-      errorResponse(400, "bad_request", "Only created invoices can be cancelled (status: failed)"),
+      errorResponse(422, "conflict", "Only created invoices can be cancelled", {
+        code: "not_cancellable",
+      }),
     ]);
 
     const error = (await invoiceClient(stub)
@@ -121,5 +118,6 @@ describe("the not-downloadable failure is named", () => {
 
     expect(error).toBeInstanceOf(InvoiceApiError);
     expect(error).not.toBeInstanceOf(InvoiceNotDownloadableError);
+    expect(error.code).toBe("not_cancellable");
   });
 });

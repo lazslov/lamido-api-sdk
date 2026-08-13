@@ -12,6 +12,33 @@
  */
 
 export interface paths {
+    "/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A static landing page for a human who typed the domain.
+         * @description HTML, no auth, no browser tripwire, `Cache-Control: public, max-age=3600`. Added at
+         *     `d18882f`. Exists so the root of an API host does not answer a problem document to a
+         *     browser, which reads as an outage. Scoped to `/` exactly; every other unknown path
+         *     still returns the problem document, and a non-`GET` here is a `404`.
+         *
+         *     **Not a health check** — the body is a compile-time constant served without touching
+         *     the database, so it stays `200` through a total outage. Use `/healthz`, and read its
+         *     body.
+         */
+        get: operations["getLandingPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -21,8 +48,17 @@ export interface paths {
         };
         /**
          * Liveness plus a database ping.
-         * @description Public, unauthenticated, and not subject to the browser tripwire. On failure the body
-         *     carries the driver's error **code only** — its message contains the connection string.
+         * @description Public, unauthenticated, and not subject to the browser tripwire.
+         *
+         *     **Always answers 200, including when the database is unreachable.** The status code
+         *     answers "should the platform restart this instance?", and while the process is still
+         *     serving requests the answer is no — a 503 would drain every instance at once during a
+         *     database blip. The verdict is in the body: **alert on `status != "ok"`, never on the
+         *     HTTP status.** Use the authenticated `GET /v1/admin/health` when a status code has to
+         *     carry the database's state.
+         *
+         *     On failure the body carries the driver's error **code only** — its message contains
+         *     the connection string.
          */
         get: operations["getHealthz"];
         put?: never;
@@ -103,8 +139,9 @@ export interface paths {
         /**
          * Force a re-read of authoritative provider state.
          * @description Reconciliation, **not polling**. Throttled to one call per payment per 5 seconds; a
-         *     second call inside the window is a 429 with a `retry_after` member and makes no
-         *     provider call. A payment already in a terminal status returns immediately.
+         *     second call inside the window is a 429 carrying the wait in both a `Retry-After`
+         *     header and a `retry_after` member, and makes no provider call. A payment already in
+         *     a terminal status returns immediately.
          */
         post: operations["refreshPayment"];
         delete?: never;
@@ -210,7 +247,7 @@ export interface paths {
         /**
          * Barion's IPN. Called by Barion, never by an integrator.
          * @description The value to paste into the Barion shop settings is returned as `callback_url` by
-         *     `PUT /admin/merchants/{public_id}/credentials/barion` — do not build it by hand.
+         *     `PUT /v1/admin/merchants/{public_id}/credentials/barion` — do not build it by hand.
          *
          *     **Barion sends no body**; `paymentId` arrives in the query string and the `Content-Type`
          *     may be absent. No body parser may be registered on this path: one would answer 415
@@ -289,7 +326,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/me": {
+    "/v1/admin/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -309,7 +346,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/health": {
+    "/v1/admin/health": {
         parameters: {
             query?: never;
             header?: never;
@@ -338,7 +375,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/providers": {
+    "/v1/admin/providers": {
         parameters: {
             query?: never;
             header?: never;
@@ -360,7 +397,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/merchants": {
+    "/v1/admin/merchants": {
         parameters: {
             query?: never;
             header?: never;
@@ -382,7 +419,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/merchants/{public_id}": {
+    "/v1/admin/merchants/{public_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -411,7 +448,7 @@ export interface paths {
         patch: operations["adminUpdateMerchant"];
         trace?: never;
     };
-    "/admin/merchants/{public_id}/api-keys": {
+    "/v1/admin/merchants/{public_id}/api-keys": {
         parameters: {
             query?: never;
             header?: never;
@@ -438,7 +475,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/api-keys/{id}": {
+    "/v1/admin/api-keys/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -463,7 +500,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/credentials": {
+    "/v1/admin/credentials": {
         parameters: {
             query?: never;
             header?: never;
@@ -486,7 +523,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/merchants/{public_id}/credentials": {
+    "/v1/admin/merchants/{public_id}/credentials": {
         parameters: {
             query?: never;
             header?: never;
@@ -511,7 +548,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/merchants/{public_id}/credentials/{provider}": {
+    "/v1/admin/merchants/{public_id}/credentials/{provider}": {
         parameters: {
             query?: never;
             header?: never;
@@ -555,7 +592,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/merchants/{public_id}/credentials/{provider}/test": {
+    "/v1/admin/merchants/{public_id}/credentials/{provider}/test": {
         parameters: {
             query?: never;
             header?: never;
@@ -587,7 +624,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/payments": {
+    "/v1/admin/payments": {
         parameters: {
             query?: never;
             header?: never;
@@ -608,7 +645,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/payments/stuck": {
+    "/v1/admin/payments/stuck": {
         parameters: {
             query?: never;
             header?: never;
@@ -617,7 +654,7 @@ export interface paths {
         };
         /**
          * The stuck queue, oldest first.
-         * @description **Registered before `/admin/payments/{public_id}`** — the other way round, `stuck`
+         * @description **Registered before `/v1/admin/payments/{public_id}`** — the other way round, `stuck`
          *     reaches the detail handler as a public id and the symptom is a 400 on a path that looks
          *     perfectly correct.
          *
@@ -633,7 +670,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/payments/{public_id}": {
+    "/v1/admin/payments/{public_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -661,7 +698,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/payments/{public_id}/refresh": {
+    "/v1/admin/payments/{public_id}/refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -688,7 +725,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/payments/{public_id}/reconcile": {
+    "/v1/admin/payments/{public_id}/reconcile": {
         parameters: {
             query?: never;
             header?: never;
@@ -724,7 +761,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/payments/{public_id}/refunds": {
+    "/v1/admin/payments/{public_id}/refunds": {
         parameters: {
             query?: never;
             header?: never;
@@ -754,7 +791,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/refunds": {
+    "/v1/admin/refunds": {
         parameters: {
             query?: never;
             header?: never;
@@ -776,7 +813,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/refunds/{public_id}": {
+    "/v1/admin/refunds/{public_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -801,7 +838,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/webhook-endpoints": {
+    "/v1/admin/event-types": {
         parameters: {
             query?: never;
             header?: never;
@@ -809,8 +846,49 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The drill-down behind the health strip's `disabled_webhook_endpoints` count.
-         * @description Not paginated, for the same reason as `/admin/credentials`.
+         * The event catalogue, as data.
+         * @description **The highest-leverage route on this surface.** Build an admin UI's trigger picker on
+         *     this, never on a hardcoded array — otherwise every new event type in any of five
+         *     services needs a change in a sixth repository, which means it will be wrong, silently,
+         *     and the symptom is an operator who cannot subscribe to an event that exists.
+         *
+         *     Served from the same array that validates a subscription, drives the emitter and backs
+         *     the catalogue table in the published conventions, so the four cannot disagree.
+         *
+         *     Wrapped in a page with a `null` cursor even though the set is small and static: it is a
+         *     collection, collections go in an envelope, and a client that special-cases one
+         *     collection shape will get the next one wrong.
+         *
+         *     `webhook.ping` is deliberately **absent** — it is reserved estate-wide, in no
+         *     catalogue, and not subscribable.
+         */
+        get: operations["adminListEventTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every endpoint, across merchants.
+         * @description `enabled=false` is the drill-down behind the health strip's
+         *     `disabled_webhook_endpoints` count and binds **that count's own predicate**, which is
+         *     what keeps the tile and the list it opens in agreement.
+         *
+         *     `event_type` is the **trigger-first** view — "on `payment.succeeded`, call these three
+         *     endpoints" — which is the question an operator actually has. It is the subscription
+         *     relation read from the other side, derived on read; the inverse is never stored.
+         *
+         *     Cursor-paginated, which it was not when a merchant could hold only one endpoint.
          */
         get: operations["adminListWebhookEndpoints"];
         put?: never;
@@ -821,7 +899,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/merchants/{public_id}/webhook-endpoint": {
+    "/v1/admin/merchants/{public_id}/webhook-endpoints": {
         parameters: {
             query?: never;
             header?: never;
@@ -832,51 +910,146 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A merchant's webhook endpoint.
-         * @description One endpoint per merchant, by design. With none configured this is a **404, not a
-         *     `null` body** — "this merchant receives no webhooks" is a distinct answer from a
-         *     configuration, and a client branching on a null inside a 200 gets it wrong more often.
+         * This merchant's endpoints.
+         * @description A **`200` with an empty array** when the merchant has none — the opposite of the
+         *     singular route this replaces, which 404'd. "This merchant receives no webhooks" was
+         *     worth a status code when there could be at most one endpoint; over a collection it is
+         *     simply an empty collection, and 404ing it would make a client branch on a status to
+         *     render a table with no rows.
+         *
+         *     Not paginated: twenty is the schema's own ceiling for one merchant.
          */
-        get: operations["adminGetWebhookEndpoint"];
+        get: operations["adminListMerchantWebhookEndpoints"];
+        put?: never;
         /**
-         * Create or update a merchant's webhook endpoint.
-         * @description The signing secret is returned **once**, on the call that mints it — a first save, or
-         *     `rotate_secret: true`. An ordinary update returns `{ endpoint }` with no secret.
+         * Add a destination.
+         * @description The signing secret is returned **once**, here, and never again. It is wrapped the way a
+         *     minted API key is wrapped rather than being a sometimes-null field on the endpoint, so
+         *     a client cannot build a UI that expects to read it back.
          *
-         *     `rotate_secret` is explicit rather than implied by any update: the previous secret stops
-         *     working the instant it lands, and the merchant's deployment has to be ready. There is
-         *     no dual-secret grace period.
+         *     There is **no upsert**. The `PUT` this replaces meant "replace this merchant's
+         *     endpoint", which has no meaning once there are many, so it was deleted rather than
+         *     redefined — a route whose semantics silently changed is worse than one that 404s.
          *
-         *     `subscribed_events: null` or absent means every event type, which is the default and
-         *     what nearly every merchant should use. An **empty array is rejected**, because an
-         *     endpoint subscribed to nothing is indistinguishable from a broken one.
-         *
-         *     A save also **re-enables** an auto-disabled endpoint and clears its failure counter — an
-         *     operator saving is asserting the destination is good now.
+         *     A merchant may hold up to **20**; a 21st is `409 endpoint_limit_reached`.
          */
-        put: operations["adminUpsertWebhookEndpoint"];
-        post?: never;
+        post: operations["adminCreateWebhookEndpoint"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/admin/merchants/{public_id}/webhook-endpoint/enable": {
+    "/v1/admin/webhook-endpoints/{public_id}": {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The merchant's `public_id`. */
-                public_id: components["parameters"]["MerchantPublicId"];
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        /** One endpoint. */
+        get: operations["adminGetWebhookEndpoint"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a destination.
+         * @description Takes its pending deliveries with it and **leaves every event**. An event is a fact
+         *     about a payment; deleting a URL does not un-happen it, and an operator asking "what did
+         *     we emit last Tuesday" must get the same answer before and after this call.
+         *
+         *     `204` with no body, because a body describing a row that no longer exists invites a
+         *     client to render it. The count of deleted deliveries goes to the audit trail.
+         */
+        delete: operations["adminDeleteWebhookEndpoint"];
+        options?: never;
+        head?: never;
+        /**
+         * Change the configuration.
+         * @description Must change at least one field; an empty body is a `400`.
+         *
+         *     **Does not re-enable and does not clear `consecutive_failures`** — the one behaviour
+         *     deliberately dropped from the `PUT` it replaces. Bundling "the destination is good now"
+         *     into every field change meant that fixing a typo in a URL silently re-armed an endpoint
+         *     that had been auto-disabled for a week, and the operator who did it had no idea.
+         *     `POST …/enable` says that, and says only that.
+         *
+         *     `contract_version` is absent on purpose: moving a live endpoint between envelope
+         *     versions changes the bytes its receiver verifies, which is a new endpoint, not an edit.
+         *
+         *     The audit entry records **which fields changed, not their values**.
+         */
+        patch: operations["adminPatchWebhookEndpoint"];
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{public_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
         /**
-         * Re-enable an auto-disabled endpoint.
-         * @description Clears `disabled_reason` and resets `consecutive_failures`.
+         * Mint new key material.
+         * @description Returns the plaintext once, in the create's shape. **The previous secret stops working
+         *     immediately** — no dual-secret grace period — which is why this is a route of its own
+         *     rather than a flag on the patch: it must not be reachable by an operator who thought
+         *     they were editing a URL.
+         *
+         *     Also re-enables the endpoint and clears `consecutive_failures`, on the reasoning that
+         *     an operator rotating is about to hand the receiver a working secret.
+         *
+         *     **The other endpoints of this merchant are untouched.** That is the entire point of
+         *     per-endpoint secrets: with a shared one, rotation would be a simultaneous outage for
+         *     every receiver, and a leak at the least-trusted one would let it forge events to all
+         *     the others.
+         */
+        post: operations["adminRotateWebhookEndpointSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{public_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear a disable.
+         * @description Clears `disabled_reason` **and** resets `consecutive_failures`. Leaving the counter one
+         *     dead-letter below the threshold would disable the endpoint again on its next hiccup,
+         *     which reads to an operator as "the enable button does not work".
          */
         post: operations["adminEnableWebhookEndpoint"];
         delete?: never;
@@ -885,7 +1058,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/webhook-deliveries": {
+    "/v1/admin/webhook-endpoints/{public_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop delivering to this endpoint.
+         * @description **This — not `subscribed_events: []` — is how you say "this endpoint should receive
+         *     nothing".** A disabled endpoint keeps its URL, its secret and its history; an endpoint
+         *     subscribed to nothing looks configured and is silently dead, which is why an empty
+         *     array is a `400`.
+         *
+         *     Always records a reason, defaulted to `"Disabled by an operator"` rather than left
+         *     null, so a non-null `disabled_reason` never has to be read as "auto-disabled, reason
+         *     lost".
+         */
+        post: operations["adminDisableWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{public_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deliver a `webhook.ping` now, synchronously.
+         * @description **Why this route exists.** Without it the only way to prove a URL and a secret are
+         *     right is to cause a real transition — and the operator configuring an endpoint is
+         *     usually not the person who can take a payment. Every misconfiguration would then
+         *     surface as a dead-letter hours later, attached to a real business event that was also
+         *     lost.
+         *
+         *     Shares the envelope, the renderer, the signature, the URL guard, the 5 s timeout, the
+         *     redirect rule and the excerpt cap with a real delivery — a test button that exercises
+         *     its own copy of the delivery path proves only that the copy works.
+         *
+         *     Writes **no event row and no delivery row**, bypasses `subscribed_events` and the
+         *     ladder, and never touches `consecutive_failures`: a probe is not a fact about a
+         *     payment, and a failed probe is an operator mid-configuration rather than a receiver
+         *     that has gone away.
+         *
+         *     > **Answers `200` whatever the receiver said.** The operator's request succeeded; what
+         *     > the receiver answered is the *result*. Read `ok`, never the HTTP status — returning
+         *     > their `401` as ours would make a working diagnostic look like a broken endpoint.
+         */
+        post: operations["adminTestWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The outbox — what exactly did we send?
+         * @description Answers the one question no other list can: **we say we emitted it — what were the
+         *     bytes?** The only place a stored payload is readable.
+         *
+         *     Separate from the delivery list because an event emitted for a merchant with **no
+         *     endpoint configured has no delivery row at all** and must still be findable. The event
+         *     is the fact; having somewhere to send it is a separate question.
+         *
+         *     `correlation_id` is the cross-service query: one value returns everything one payment
+         *     caused, here and — with the same value against a sibling service's copy of this route —
+         *     everywhere else in the estate.
+         */
+        get: operations["adminListWebhookEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-deliveries": {
         parameters: {
             query?: never;
             header?: never;
@@ -897,6 +1179,10 @@ export interface paths {
          * @description Defaults to **`status=all`**, unlike the merchant-facing list which defaults to
          *     `pending`. An operator arrives here from a health-strip count about dead-letters, and
          *     defaulting to `pending` would show a different set than the one they clicked.
+         *
+         *     `cross_service` binds **the same predicate the health counts use**, which is what makes
+         *     `dead_lettered_deliveries_cross_service` and the list behind it the same set by
+         *     construction rather than by two queries that agree today.
          */
         get: operations["adminListWebhookDeliveries"];
         put?: never;
@@ -907,7 +1193,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/webhook-deliveries/{id}/redeliver": {
+    "/v1/admin/webhook-deliveries/{id}/redeliver": {
         parameters: {
             query?: never;
             header?: never;
@@ -923,11 +1209,17 @@ export interface paths {
          * Try a delivery again now.
          * @description **Resets the existing row** rather than inserting a second one — the unique index on
          *     `(event_id, endpoint_id)` makes two queues of attempts for one event impossible. The
-         *     attempt counter goes back to 1 and `delivery_id` is regenerated, because it identifies
-         *     one HTTP request. The `event_id` is unchanged, so the merchant's own dedupe still works.
+         *     attempt counter goes back to 1, so a redelivered dead-letter gets the whole ladder
+         *     again: an operator redelivering has usually just fixed something, and one attempt
+         *     before dead-lettering again would waste the fix.
          *
-         *     It does **not** deliver inline: the row becomes due immediately and the next sweep takes
-         *     it. Redelivering to a disabled endpoint is `422 endpoint_disabled` — enable it first.
+         *     `delivery_id` is regenerated because it identifies one HTTP request. **`X-Event-Id` does
+         *     not change**, so a receiver is entitled to recognise the event and skip it.
+         *
+         *     It does **not** deliver inline: the row becomes due immediately and the next sweep of
+         *     any kind takes it. On the current hosting tier cron sweeps twice a day, so a redelivery
+         *     can sit for hours on a quiet service — manual redelivery is a first-class operator
+         *     tool, not a fallback.
          */
         post: operations["adminRedeliverWebhook"];
         delete?: never;
@@ -936,7 +1228,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/stats/overview": {
+    "/v1/admin/stats/overview": {
         parameters: {
             query?: never;
             header?: never;
@@ -961,7 +1253,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/stats/timeseries": {
+    "/v1/admin/stats/timeseries": {
         parameters: {
             query?: never;
             header?: never;
@@ -983,7 +1275,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/stats/merchants": {
+    "/v1/admin/stats/merchants": {
         parameters: {
             query?: never;
             header?: never;
@@ -1004,7 +1296,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/keys": {
+    "/v1/admin/keys": {
         parameters: {
             query?: never;
             header?: never;
@@ -1039,7 +1331,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/keys/{id}": {
+    "/v1/admin/keys/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1065,7 +1357,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/audit": {
+    "/v1/admin/audit": {
         parameters: {
             query?: never;
             header?: never;
@@ -1121,7 +1413,57 @@ export interface components {
          * @enum {string}
          */
         Mode: "sandbox" | "live";
-        /** @description RFC 7807 Problem Details. Served as `application/problem+json`. */
+        HealthBase: {
+            /**
+             * @description The service's own version, compiled in from source.
+             * @example 0.1.0
+             */
+            version: string;
+            /** @description `VERCEL_GIT_COMMIT_SHA`, or `dev` locally. Answers "which build is live?". */
+            commit: string;
+            /** Format: date-time */
+            now: string;
+        };
+        HealthOk: components["schemas"]["HealthBase"] & {
+            /** @constant */
+            status: "ok";
+            /** @constant */
+            db: "ok";
+        };
+        HealthDegraded: components["schemas"]["HealthBase"] & {
+            /** @constant */
+            status: "degraded";
+            /** @constant */
+            db: "unreachable";
+            /**
+             * @description The driver's error code. Never its message.
+             * @example ECONNREFUSED
+             */
+            code: string;
+        };
+        /** @description One field-level failure, an entry of the `errors` member. */
+        ProblemFieldError: {
+            /**
+             * @description An RFC 6901 JSON Pointer into the request body (`/amount_minor`,
+             *     `/items/0/amount_minor`), or `#/<target>/<name>` for anything that did not arrive
+             *     in the body — `#/query/limit`, `#/param/public_id`.
+             * @example /amount_minor
+             * @example #/query/limit
+             */
+            pointer: string;
+            /**
+             * @description The branchable sub-case. The documented set is `required`, `invalid_type`,
+             *     `invalid_format`, `invalid_enum`, `unknown_field`, `invalid_union`, `too_small`,
+             *     `too_big` and `invalid` — but it is **not closed**: an unmapped validator failure
+             *     falls through carrying its own code rather than being flattened to `invalid`.
+             *     Branch on the documented values and treat anything else as a generic invalid field.
+             * @example unknown_field
+             */
+            code: string;
+            /** @description A sentence about this one field. Prose — do not branch on it. */
+            detail: string;
+        };
+        /** @description RFC 9457 Problem Details. Served as `application/problem+json`. */
         Problem: {
             /**
              * @description **Branch on this, never on `title` or `detail`.** A closed set: adding a member is
@@ -1137,6 +1479,23 @@ export interface components {
             detail: string;
             /** @description The request **path**. Never a full URL and never with a query string. */
             instance: string;
+            /**
+             * @description The value of the response's `X-Request-Id` header, present on **every** problem.
+             *     Quote it in a support request — it is the one string that joins this response to
+             *     the service's logs and audit trail.
+             * @example 019e4a91-3f2b-7c14-9d5e-2a6b8c0d1f33
+             */
+            request_id?: string;
+            /**
+             * @description Present on validation `400`s. Carries **every** field problem in the request, not
+             *     just the first — `detail` names one failure so the message reads well in a
+             *     support ticket, this is the complete list.
+             *
+             *     **Breaking change at `058fddc`:** this was previously the validator's own
+             *     `flatten()` object (`{formErrors, fieldErrors}`), whose keys were top-level only.
+             *     Code doing `errors.fieldErrors[name]` now reads `undefined` rather than throwing.
+             */
+            errors?: components["schemas"]["ProblemFieldError"][];
         } & {
             [key: string]: unknown;
         };
@@ -1205,6 +1564,11 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description **Rejects unknown fields** (400, `errors[].code = unknown_field`). Changed at
+         *     `058fddc`; unknown keys were previously stripped in silence. `metadata` is exempt —
+         *     its contents are the merchant's and are never inspected.
+         */
         CreatePaymentRequest: {
             merchant_payment_ref: string;
             amount_minor: components["schemas"]["MinorAmount"];
@@ -1215,10 +1579,81 @@ export interface components {
              *     guessing which PSP charges a buyer is not a defaulting decision.
              */
             provider?: components["schemas"]["Provider"];
-            /** @description Capped at 4096 bytes serialised. Default when omitted: `null`. */
+            /** @description Capped at 4096 bytes serialised. Default when omitted: `null`. Never buyer PII. */
             metadata?: {
                 [key: string]: unknown;
             };
+            /**
+             * @description The buyer and lines for an invoice to be issued automatically when this payment
+             *     succeeds. **Default when omitted: `null`** — nothing is stored and no invoice is
+             *     issued, which is the normal case.
+             *
+             *     This is the only field on this API carrying personal data. It leaves the service
+             *     only on `payment.succeeded`, and only to a webhook endpoint whose operator has set
+             *     `include_invoice_details`. This service never reads inside it: the receiving service
+             *     validates it against its own invoice schema, so a shape accepted here can still be
+             *     refused downstream — after the money has been taken.
+             */
+            invoice_details?: components["schemas"]["InvoiceDetails"];
+        };
+        /**
+         * @description Buyer identity and invoice lines, passed through verbatim to invoice-service.
+         *
+         *     Every object here is `additionalProperties: false`, because each ends up on a legal
+         *     document reported to NAV: a silently stripped `vat_rat` typo would issue an invoice with
+         *     the wrong tax on it and return 201. Capped at 16384 bytes serialised.
+         *
+         *     Currency is **not** here — the invoice is issued in the payment's `currency`.
+         */
+        InvoiceDetails: {
+            partner: {
+                /** @description The buyer as they must appear on the document. */
+                name: string;
+                /**
+                 * @description Required by the provider for a company buyer; not enforced by this API.
+                 *     Default when omitted: absent.
+                 */
+                tax_number?: string;
+                /**
+                 * Format: email
+                 * @description Where the issuing service may send the document. Default when omitted: absent.
+                 */
+                email?: string;
+                address: {
+                    postal_code: string;
+                    city: string;
+                    /** @description Street and number. */
+                    address: string;
+                    /** @description Default when omitted: the issuer's default, `Magyarország`. */
+                    country?: string;
+                };
+            };
+            /** @description At least one line, or 400. */
+            items: {
+                name: string;
+                quantity: number;
+                /** @description Default when omitted: the issuer's default, `db`. */
+                unit?: string;
+                /** @description **Net**, per unit, in canonical minor units. HUF is zero-decimal. */
+                net_unit_price_minor: components["schemas"]["MinorAmount"];
+                /** @description A percentage (`27`, `5`) or a provider code (`AAM`, `TAM`, `EU`). */
+                vat_rate: string;
+                /** @description Default when omitted: absent. */
+                comment?: string;
+            }[];
+            /** @description Free text on the document. Default when omitted: the issuer's default, `átutalás`. */
+            payment_method?: string;
+            /** @description Default when omitted: the issuer's default, `hu`. */
+            language?: string;
+            /** @description Default when omitted: the issuer's default, `true`. */
+            e_invoice?: boolean;
+            /** @description Free text on the document. Default when omitted: absent. */
+            comment?: string;
+            /**
+             * @description The merchant's own reference, persisted by the issuer for lookups.
+             *     Default when omitted: the payment's `merchant_payment_ref`.
+             */
+            partner_ref?: string;
         };
         /** @description A refund, as the merchant tier returns it. */
         Refund: {
@@ -1244,6 +1679,11 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description **Rejects unknown fields** (400, `errors[].code = unknown_field`). Changed at
+         *     `058fddc` — a silently dropped key on a refund body is a refund for an amount nobody
+         *     asked for.
+         */
         CreateRefundRequest: {
             /**
              * @description **Required, with no "refund the rest" default** — a default would make the same
@@ -1259,43 +1699,142 @@ export interface components {
             reason?: string;
         };
         /**
-         * @description There is deliberately no event for `pending`, `initializing` or `authorized` — those are
-         *     steps, not outcomes — and no `payment.refunded`: the thing that happened is a refund, so
-         *     it arrives as `refund.succeeded`, whose payload carries the payment's new status.
+         * @description The closed catalogue, **additive only** — read it from `GET /v1/admin/event-types` rather
+         *     than hardcoding this list. An unrecognised `event_type` must be ignored and answered
+         *     `2xx`, which is the condition that lets a type be added without a version bump.
+         *
+         *     There is deliberately no event for `pending`, `initializing` or `authorized` — those are
+         *     steps, not outcomes — and no `payment.refunded` or `payment.partially_refunded`: the
+         *     thing that happened is a refund, so it arrives as `refund.succeeded`, whose payload
+         *     carries the payment's new status in the related block. **Two event types must never
+         *     describe one fact** — a receiver handling both would double-count, and one handling
+         *     either would look complete.
+         *
+         *     `webhook.ping` is **not** here: it is reserved estate-wide, delivered only by
+         *     `POST /v1/admin/webhook-endpoints/{public_id}/test`, and not subscribable.
          * @enum {string}
          */
-        WebhookEventType: "payment.succeeded" | "payment.failed" | "payment.canceled" | "payment.expired" | "refund.succeeded" | "refund.failed";
+        WebhookEventType: "payment.succeeded" | "payment.failed" | "payment.canceled" | "payment.expired" | "refund.succeeded" | "refund.failed" | "refund.canceled";
         /**
-         * @description The body we POST to a merchant's endpoint. **This shape is frozen** — it is stored at
-         *     emission and delivered verbatim afterwards, so it does not grow the way the REST
-         *     responses may. Note `payment.id` here is the payment's `public_id`.
+         * @description The reserved probe type. Never emitted by a transition.
+         * @enum {string}
          */
-        WebhookPayload: {
+        WebhookPingEventType: "webhook.ping";
+        /**
+         * @description The metadata every delivered body carries, **byte-identical in shape across every Lamido
+         *     service**, so one receiver verifies, logs and dedupes every event with one piece of code
+         *     before it knows what the event is.
+         *
+         *     Member order in the wire body is the order listed here, and **the bytes are signed** —
+         *     verify against the raw body, never against re-serialised JSON.
+         */
+        WebhookEnvelopeMeta: {
             /**
              * Format: uuid
-             * @description Matches `X-Event-Id`. **Dedupe on this** — delivery is at-least-once.
+             * @description UUIDv7. Matches `X-Event-Id`. **Dedupe on this** — delivery is at-least-once.
              */
             event_id: string;
+            /**
+             * @description The envelope version **these bytes were rendered at**, which is the receiving
+             *     endpoint's own pin — not necessarily the latest the service supports.
+             */
+            contract_version: number;
+            /**
+             * Format: date-time
+             * @description ISO 8601 UTC. **When the fact became true, not when it was sent.** A retry three days
+             *     later carries the original value.
+             */
+            occurred_at: string;
+            /**
+             * @description The emitter's slug.
+             * @enum {string}
+             */
+            service: "payment-service";
+            /**
+             * @description The lamido-admin `accountId` (`merchants.external_ref`) as it stood inside the
+             *     emitting transaction. **`null` for a merchant lamido-admin has not paired** — such a
+             *     merchant cannot participate cross-service, and a receiver should refuse at its
+             *     resolve step rather than guess.
+             */
+            account_id: string | null;
+            /** @description Which tenant, in the emitter's own noun. Means nothing outside this service. */
+            tenant: {
+                /** @enum {string} */
+                kind: "merchant";
+                /** Format: uuid */
+                public_id: string;
+            };
+            /**
+             * Format: uuid
+             * @description Stable across a whole causal chain, and **equal to `event_id`** on an event this
+             *     service produced natively — which today is every event. One value answers "what did
+             *     this payment cause, across five services".
+             */
+            correlation_id: string;
+            /**
+             * @description The `event_id` that caused this one. **Never absent**, and always `null` here because
+             *     nothing in the estate sends *to* payment-service.
+             */
+            causation_id: string | null;
+            /**
+             * @description `0` on a natively-produced event, which is all of them here. A blunt backstop that
+             *     bounds the cost of an undeclared cycle; present so the envelope is one shape
+             *     estate-wide.
+             */
+            hop: number;
+        };
+        /**
+         * @description The body we POST to a merchant's endpoint. **Stored at emission and delivered verbatim
+         *     afterwards** — it does not grow the way the REST responses may, and a delayed retry
+         *     describes the state that fired the event rather than the state now.
+         *
+         *     Note `data.payment.public_id`, not `id`: the wire format never carries an internal uuid.
+         */
+        WebhookPayload: components["schemas"]["WebhookEnvelopeMeta"] & {
             event_type: components["schemas"]["WebhookEventType"];
-            /** Format: date-time */
-            created_at: string;
-            payment: {
-                /** Format: uuid */
-                id: string;
-                merchant_payment_ref: string;
-                status: components["schemas"]["PaymentStatus"];
-                amount_minor: components["schemas"]["MinorAmount"];
-                currency: components["schemas"]["Currency"];
-                provider: components["schemas"]["Provider"] | null;
+            /**
+             * @description The resource blocks, keyed by resource name so the subject can be found
+             *     mechanically. The **only** part of the envelope that varies by event type.
+             */
+            data: {
+                /**
+                 * @description Always present — the primary block on a `payment.*` event, and the related
+                 *     block on a `refund.*` one, where a receiver almost always needs to know what
+                 *     the refund did to the order.
+                 */
+                payment: {
+                    /** Format: uuid */
+                    public_id: string;
+                    status: components["schemas"]["PaymentStatus"];
+                    merchant_payment_ref: string;
+                    amount_minor: components["schemas"]["MinorAmount"];
+                    currency: components["schemas"]["Currency"];
+                    provider: components["schemas"]["Provider"] | null;
+                };
+                /**
+                 * @description Present on `refund.*` events only, where it is the **primary** block and the
+                 *     one the status invariant binds: `refund.canceled` carries
+                 *     `data.refund.status == "canceled"` while `data.payment.status` is whatever
+                 *     the ledger now implies.
+                 */
+                refund?: {
+                    /** Format: uuid */
+                    public_id: string;
+                    status: components["schemas"]["RefundStatus"];
+                    amount_minor: components["schemas"]["MinorAmount"];
+                    currency: components["schemas"]["Currency"];
+                };
             };
-            /** @description Present on `refund.*` events only. */
-            refund?: {
-                /** Format: uuid */
-                id: string;
-                status: components["schemas"]["RefundStatus"];
-                amount_minor: components["schemas"]["MinorAmount"];
-                currency: components["schemas"]["Currency"];
-            };
+        };
+        /**
+         * @description The probe body. **The same envelope with an empty `data`**, signed identically and
+         *     carrying a real `event_id`, so that what a receiver's verification code sees on a test is
+         *     what it will see in production. Deliberately not stored.
+         */
+        WebhookPingPayload: components["schemas"]["WebhookEnvelopeMeta"] & {
+            event_type: components["schemas"]["WebhookPingEventType"];
+            /** @description Always empty. */
+            data: Record<string, never>;
         };
         /** @description One event's delivery state. The payload is deliberately not included. */
         WebhookDelivery: {
@@ -1663,9 +2202,19 @@ export interface components {
             /** Format: uuid */
             public_id?: string;
         };
+        /**
+         * @description A destination. **The member set is identical across all five services of the estate**,
+         *     because lamido-admin drives every one of them from one screen and one client — adding a
+         *     member is a house-rules change, not a local decision.
+         *
+         *     There is deliberately no route that reveals a stored secret.
+         */
         WebhookEndpoint: {
-            /** Format: uuid */
-            id: string;
+            /**
+             * Format: uuid
+             * @description UUIDv7. **What every route addresses this endpoint by**, never the row id.
+             */
+            public_id: string;
             /** Format: uuid */
             merchant_public_id: string;
             /**
@@ -1673,36 +2222,188 @@ export interface components {
              *     **and again at delivery time**, because DNS can be re-pointed in between.
              */
             url: string;
-            /** @description `null` means every event type, which is the default. An empty array is rejected on write. */
+            /** @description The operator's note. What the admin list shows beside the URL. */
+            description: string | null;
+            /**
+             * @description `null` means every event type **including ones added later**, which is the default and
+             *     what nearly every merchant should use. An empty array is rejected on write.
+             */
             subscribed_events: components["schemas"]["WebhookEventType"][] | null;
+            /**
+             * @description The envelope version this endpoint's deliveries are rendered at. **Pinned at
+             *     creation and not patchable** — moving a live endpoint between versions changes the
+             *     bytes its receiver verifies, which is a new endpoint rather than an edit.
+             */
+            contract_version: number;
+            /**
+             * @description Whether `payment.succeeded` carries `data.invoice_details` to this endpoint — the
+             *     buyer's name and postal address, and optionally their email and tax number.
+             *
+             *     **False by default, including on every endpoint that already existed.** This is the
+             *     only control that lets personal data leave this service. Setting it either way writes
+             *     an audit row recording the resulting value and the acting admin key.
+             *
+             *     Per endpoint, not per merchant: one stored event produces a different body per
+             *     endpoint, each signed over what that recipient actually received.
+             */
+            include_invoice_details: boolean;
             enabled: boolean;
-            /** @description Set when 5 consecutive dead-lettered deliveries auto-disabled the endpoint. */
+            /**
+             * @description Why it is off — auto-disabled after 5 consecutive dead-lettered deliveries, or
+             *     switched off by an operator, whose own words are recorded. Non-null **only** when
+             *     `enabled` is false.
+             */
             disabled_reason: string | null;
-            /** @description Reset by any 2xx */
+            /**
+             * @description Dead-letters in a row; at 5 the endpoint is auto-disabled. Reset by any `2xx`, by
+             *     `POST …/enable` and by a rotation — but **not** by a `PATCH`.
+             */
             consecutive_failures: number;
-            secret_last4: string;
-            secret_fingerprint: string;
+            /**
+             * @description Last four characters of the signing secret. Never the secret.
+             *
+             *     **`null` means this endpoint has no secret and cannot deliver** — every delivery is
+             *     refused before it is attempted — which is the state the per-endpoint-secret migration
+             *     left every pre-existing endpoint in. Rotate one in.
+             */
+            secret_last4: string | null;
+            /** @description First 8 hex of its SHA-256, for confirming a rotation landed. */
+            secret_fingerprint: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
         };
-        UpsertWebhookEndpointRequest: {
+        /** @description One entry of the closed catalogue, as `GET /v1/admin/event-types` returns it. */
+        WebhookEventTypeDescriptor: {
+            event_type: components["schemas"]["WebhookEventType"];
+            /**
+             * @description The `data` key carrying the subject. Equals the event type's prefix.
+             * @enum {string}
+             */
+            resource: "payment" | "refund";
+            /** @description One sentence, present tense, suitable for an admin trigger picker. */
+            fires_when: string;
+            /**
+             * @description The status the primary resource reaches, and the participle in the event name. The
+             *     payload is asserted against it.
+             */
+            target_status: string;
+            contract_version: number;
+            /**
+             * @description Blocks that appear only behind an `include_*` flag. **Empty for every type** — no
+             *     payload this service emits carries PII.
+             */
+            sensitive_blocks: string[];
+            /**
+             * @description Whether a sibling Lamido service acts on it today. True only for
+             *     `payment.succeeded`, on which invoice-service issues an invoice.
+             */
+            cross_service: boolean;
+        };
+        /**
+         * @description An event as the admin outbox returns it — the only place a stored payload is readable. A
+         *     merchant's own delivery list omits it, because they already have the body: it is what we
+         *     POSTed them.
+         *
+         *     `payment_id` and `refund_id` are internal uuids and stay internal; the payload carries the
+         *     `public_id`s an operator can search for.
+         */
+        WebhookEvent: {
+            /**
+             * Format: uuid
+             * @description Matches `X-Event-Id`. Stable across every retry **and every redelivery**.
+             */
+            event_id: string;
+            event_type: components["schemas"]["WebhookEventType"];
+            /** Format: uuid */
+            merchant_public_id: string;
+            /** @description The lamido-admin account this belonged to, or `null` if the merchant was unpaired. */
+            account_id: string | null;
+            /** Format: uuid */
+            correlation_id: string;
+            /** @description Always `null` here — nothing sends to this service. */
+            causation_id: string | null;
+            hop: number;
+            /** @description The frozen body, exactly as it was signed and sent. */
+            payload: components["schemas"]["WebhookPayload"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        /**
+         * @description What `POST /v1/admin/webhook-endpoints/{public_id}/test` found. **Read `ok`, not the HTTP
+         *     status** — the route answers `200` whatever the receiver said.
+         */
+        WebhookPingResult: {
+            /**
+             * Format: uuid
+             * @description The id on the wire, so an operator can find it in the receiver's own log.
+             */
+            event_id: string;
+            /** @description Whether the receiver answered `2xx`. The same rule every real delivery uses. */
+            ok: boolean;
+            /** @description The receiver's HTTP status, or `null` when the request never completed. */
+            response_status: number | null;
+            /** @description Round trip, including the URL guard's DNS lookup. */
+            latency_ms: number;
+            /** @description Truncated at 500 bytes, for when the status alone is not enough. */
+            response_body_excerpt: string | null;
+            /**
+             * @description Transport-level failure, or the URL guard's refusal (`Refused by URL guard: …`).
+             *     `null` when we got an answer.
+             */
+            error: string | null;
+        };
+        CreateWebhookEndpointRequest: {
             /** @example https://acme.example.com/api/payment-webhook */
             url: string;
-            /** @description Omitted or `null` means every event type. `[]` is rejected. */
+            /** @description The operator's note. What the admin list shows beside the URL. */
+            description?: string | null;
+            /**
+             * @description Omitted or `null` means every event type, including ones added later. **`[]` is a
+             *     `400`** — an endpoint subscribed to nothing is a configured destination that silently
+             *     receives no traffic, which is indistinguishable from a broken one. To say "this
+             *     endpoint should receive nothing", disable or delete it.
+             */
             subscribed_events?: components["schemas"]["WebhookEventType"][] | null;
             /**
-             * @description Mint a new secret even though one exists. The previous one stops working
-             *     **immediately** — there is no grace period, so coordinate with the merchant's deploy.
-             * @default false
+             * @description Envelope version to pin this endpoint to. Defaults to the latest, and **cannot be
+             *     changed afterwards**. Only supply it when onboarding a receiver written against an
+             *     older envelope; an unsupported value is a `400`.
              */
-            rotate_secret: boolean;
+            contract_version?: number;
         };
-        MintedWebhookEndpoint: {
-            key: components["schemas"]["WebhookEndpoint"];
+        /**
+         * @description **At least one member is required**; an empty body is a `400`.
+         *
+         *     There is no `enabled` member and no `rotate_secret` flag — both are their own routes, so
+         *     that neither is reachable by an operator who thought they were editing a URL.
+         */
+        PatchWebhookEndpointRequest: {
+            url?: string;
+            /** @description `null` **clears** it; omitting the member leaves it alone. */
+            description?: string | null;
+            /** @description `null` means every type. `[]` is a `400`. */
+            subscribed_events?: components["schemas"]["WebhookEventType"][] | null;
+        };
+        DisableWebhookEndpointRequest: {
             /**
-             * @description The plaintext `whsec_` signing secret. **Shown once.** The whole string, prefix included, is the HMAC key.
+             * @description Recorded as `disabled_reason`. Optional, and defaulted to `"Disabled by an operator"`
+             *     rather than stored as null, so a non-null reason always means "and it is off".
+             */
+            reason?: string;
+        };
+        /**
+         * @description Returned by the create and the rotation, and **only** by those two. The plaintext is a
+         *     separate top-level member rather than a field on the endpoint object, so a client that
+         *     persists the endpoint record cannot persist the secret alongside it by accident — the
+         *     same shape, and the same reason, as a minted API key.
+         */
+        MintedWebhookEndpoint: {
+            endpoint: components["schemas"]["WebhookEndpoint"];
+            /**
+             * @description The plaintext `whsec_` signing secret. **Shown once**; stored only as ciphertext and
+             *     unrecoverable afterwards. The whole string, prefix included, is the HMAC key.
              * @example whsec_YOUR_SIGNING_SECRET
              */
             secret: string;
@@ -1714,12 +2415,23 @@ export interface components {
             /** @description Never summed across currencies. */
             amount_minor: components["schemas"]["MinorAmount"];
         };
+        /**
+         * @description Every count here comes from a predicate shared with the listing an operator drills into,
+         *     so a tile and the list behind it are the same set by construction.
+         */
         HealthStrip: {
             /**
              * @description Derived by **blast radius, not severity**. `degraded`: someone cannot take payments,
-             *     or we cannot tell — database unreachable, no encryption key, any failing credential,
-             *     any disabled webhook endpoint. `attention`: something needs a human while payments
-             *     still flow.
+             *     we cannot tell, or a business process has stopped with nobody watching — database
+             *     unreachable, no encryption key, any failing credential, any disabled webhook
+             *     endpoint, or any **cross-service** dead-letter. `attention`: something needs a human
+             *     while payments still flow — stuck payments, a merchant's own dead-letters, or an
+             *     unmapped provider status.
+             *
+             *     `pending_deliveries` and `tenants_without_external_ref` move the verdict **not at
+             *     all**: pending is what a working queue looks like and an unpaired merchant is a
+             *     provisioning step in progress. A count that is routinely non-zero and routinely fine
+             *     is how a dashboard stops being read.
              * @enum {string}
              */
             status: "ok" | "attention" | "degraded";
@@ -1727,14 +2439,44 @@ export interface components {
             database: "ok" | "unreachable";
             /** @description Without a KEK no credential can be decrypted. */
             encryption_key_configured: boolean;
-            /** @description Drill-down: `GET /admin/payments/stuck`. A handful is the normal residue of buyers closing tabs. */
+            /** @description Drill-down: `GET /v1/admin/payments/stuck`. A handful is the normal residue of buyers closing tabs. */
             stuck_payments: number;
-            /** @description Drill-down: `GET /admin/credentials?failing=true`. */
+            /** @description Drill-down: `GET /v1/admin/credentials?failing=true`. */
             failing_credentials: number;
-            /** @description Drill-down: `GET /admin/webhook-deliveries?status=dead_lettered`. */
+            /**
+             * @description Waiting on the ladder. Drill-down:
+             *     `GET /v1/admin/webhook-deliveries?status=pending`. Ordinary — the number to watch for
+             *     a **spike**, not for being non-zero.
+             */
+            pending_deliveries: number;
+            /**
+             * @description Ladders exhausted on a **merchant's own** endpoint. Drill-down:
+             *     `GET /v1/admin/webhook-deliveries?status=dead_lettered&cross_service=false`.
+             *     Recoverable — their reconciliation poll covers it — so `attention`.
+             */
             dead_lettered_deliveries: number;
-            /** @description Drill-down: `GET /admin/webhook-endpoints?enabled=false`. */
+            /**
+             * @description Ladders exhausted on an endpoint pointing at **another Lamido service**. Drill-down:
+             *     `GET /v1/admin/webhook-deliveries?status=dead_lettered&cross_service=true`.
+             *
+             *     **A different fact from the count above, not a subset of it**: a payment took money
+             *     and the invoice it should have caused does not exist, and nobody outside this estate
+             *     is watching for that. Hence `degraded` rather than `attention`, and hence two counts
+             *     rather than one — so the louder signal cannot be diluted by the noisier one.
+             */
+            dead_lettered_deliveries_cross_service: number;
+            /** @description Drill-down: `GET /v1/admin/webhook-endpoints?enabled=false`. */
             disabled_webhook_endpoints: number;
+            /**
+             * @description Merchants lamido-admin has not paired with an account. Drill-down:
+             *     `GET /v1/admin/merchants?external_ref=missing`.
+             *
+             *     Not a data-hygiene number: their events carry `account_id: null` and **can never be
+             *     routed cross-service**, so these customers will never get an invoice for a payment
+             *     they made — and it is invisible without this count because everything else about
+             *     them works.
+             */
+            tenants_without_external_ref: number;
             /**
              * @description The early-warning signal that a PSP added an enum value. It typically fires weeks
              *     before it matters.
@@ -1791,7 +2533,7 @@ export interface components {
             };
         };
         /**
-         * @description A browser-shaped request — `Origin` or `Sec-Fetch-Mode: cors`. A **tripwire, not a
+         * @description A browser-shaped request — `Origin` or `Sec-Fetch-Dest`. A **tripwire, not a
          *     security boundary**: `Origin` is forgeable, and the real boundary is the API key.
          */
         BrowserTripwireProblem: {
@@ -1848,22 +2590,33 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Too many requests. `Retry-After` says how long. */
+        /**
+         * @description Too many requests. The seconds to wait are carried **both** in the `Retry-After`
+         *     header and in the `retry_after` extension member, and the two always agree — the
+         *     header is derived from the member in the problem serializer.
+         */
         RateLimitProblem: {
             headers: {
+                /** @description Seconds to wait. Always equal to the `retry_after` member. */
                 "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
-                "application/problem+json": components["schemas"]["Problem"];
+                "application/problem+json": components["schemas"]["Problem"] & {
+                    /** @description Seconds. */
+                    retry_after?: number;
+                };
             };
         };
         /**
          * @description This payment was refreshed within the last 5 seconds. **No provider call was made.**
-         *     The `retry_after` extension member carries the seconds to wait.
+         *     The seconds to wait are carried both in the `Retry-After` header and in the
+         *     `retry_after` extension member, and the two always agree.
          */
         RefreshThrottledProblem: {
             headers: {
+                /** @description Seconds to wait. Always equal to the `retry_after` member. */
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
@@ -1931,6 +2684,13 @@ export interface components {
         MerchantPublicId: string;
         /** @description The merchant's `public_id`, baked into the callback URL at credential-save time. */
         MerchantPublicIdPath: string;
+        /**
+         * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+         *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+         *     with no external identity of its own; it stopped being defensible the moment an operator
+         *     points at one from a UI that spans five services.
+         */
+        EndpointPublicId: string;
         ProviderName: components["schemas"]["Provider"];
         /** @description An internal uuid. Admin-only objects have no external identity. */
         InternalId: string;
@@ -1955,6 +2715,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getLandingPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
     getHealthz: {
         parameters: {
             query?: never;
@@ -1964,38 +2744,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Alive, database reachable. */
+            /**
+             * @description Alive. `status` is `ok` when the database responded and `degraded` when it did not;
+             *     both are 200. `version`, `commit` and `now` are present on either branch.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** @constant */
-                        status: "ok";
-                        /** @example 0.1.0 */
-                        version: string;
-                        /** @description `VERCEL_GIT_COMMIT_SHA`, or `dev` locally. Answers "which build is live?". */
-                        commit: string;
-                        /** Format: date-time */
-                        now: string;
-                    };
-                };
-            };
-            /** @description The database is unreachable. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @constant */
-                        status: "degraded";
-                        /** @constant */
-                        db: "unreachable";
-                        /** @description The driver's error code. Never its message. */
-                        code: string;
-                    };
+                    "application/json": components["schemas"]["HealthOk"] | components["schemas"]["HealthDegraded"];
                 };
             };
         };
@@ -2436,6 +3194,16 @@ export interface operations {
                 /** @description Matches the name, the external ref **and** the public id — an operator arrives holding whichever of the three was read out to them. */
                 q?: string;
                 active?: boolean;
+                /**
+                 * @description `missing` narrows to merchants lamido-admin has not paired with an account — the
+                 *     drill-down behind `tenants_without_external_ref` on admin health, binding **that
+                 *     count's own predicate**.
+                 *
+                 *     A literal rather than a boolean because the only useful direction is the absent one:
+                 *     "merchants that have one" is every other merchant, which omitting the filter already
+                 *     gives.
+                 */
+                external_ref?: "missing";
                 limit?: components["parameters"]["Limit"];
                 /**
                  * @description Opaque keyset cursor from a previous `next_cursor`. **Do not construct or parse one**;
@@ -3052,10 +3820,51 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
         };
     };
+    adminListEventTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole catalogue. `next_cursor` is always `null`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CursorPage"] & {
+                        data?: components["schemas"]["WebhookEventTypeDescriptor"][];
+                    };
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenScopeProblem"];
+        };
+    };
     adminListWebhookEndpoints: {
         parameters: {
             query?: {
                 enabled?: boolean;
+                /**
+                 * @description Narrow to endpoints that would receive this type — including those with
+                 *     `subscribed_events: null`, which receive everything.
+                 *
+                 *     **This filter is applied in memory, after the page is read**, because
+                 *     `subscribed_events` is a jsonb array where `null` means "every type" and the
+                 *     predicate has no index to use. A page may therefore come back **short of
+                 *     `limit`** without meaning the end of the collection. Follow `next_cursor`, never
+                 *     a short page, to decide when to stop.
+                 */
+                event_type?: components["schemas"]["WebhookEventType"];
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Opaque keyset cursor from a previous `next_cursor`. **Do not construct or parse one**;
+                 *     a malformed cursor is a 400 rather than a quiet restart from page 1.
+                 */
+                cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
             path?: never;
@@ -3063,7 +3872,35 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The endpoints. */
+            /** @description A page of endpoints. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CursorPage"] & {
+                        data?: components["schemas"]["WebhookEndpoint"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenScopeProblem"];
+        };
+    };
+    adminListMerchantWebhookEndpoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The merchant's `public_id`. */
+                public_id: components["parameters"]["MerchantPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoints, oldest first. `[]` when there are none. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3072,9 +3909,52 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookEndpoint"][];
                 };
             };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenScopeProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    adminCreateWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The merchant's `public_id`. */
+                public_id: components["parameters"]["MerchantPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWebhookEndpointRequest"];
+            };
+        };
+        responses: {
+            /** @description Created, with the one-time signing secret. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedWebhookEndpoint"];
+                };
+            };
             400: components["responses"]["ValidationProblem"];
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenScopeProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            /**
+             * @description The merchant already holds the maximum of 20 endpoints
+             *     (`code: endpoint_limit_reached`, with `limit`).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     adminGetWebhookEndpoint: {
@@ -3082,8 +3962,13 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The merchant's `public_id`. */
-                public_id: components["parameters"]["MerchantPublicId"];
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
             };
             cookie?: never;
         };
@@ -3103,35 +3988,90 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
         };
     };
-    adminUpsertWebhookEndpoint: {
+    adminDeleteWebhookEndpoint: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The merchant's `public_id`. */
-                public_id: components["parameters"]["MerchantPublicId"];
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. No body. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenScopeProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    adminPatchWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpsertWebhookEndpointRequest"];
+                "application/json": components["schemas"]["PatchWebhookEndpointRequest"];
             };
         };
         responses: {
-            /** @description Updated. Carries a secret only when one was minted. */
+            /** @description The endpoint as it now stands. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MintedWebhookEndpoint"] | {
-                        endpoint: components["schemas"]["WebhookEndpoint"];
-                    };
+                    "application/json": components["schemas"]["WebhookEndpoint"];
                 };
             };
-            /** @description Created, with the one-time signing secret. */
-            201: {
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenScopeProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    adminRotateWebhookEndpointSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint, with the new one-time signing secret. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3139,7 +4079,6 @@ export interface operations {
                     "application/json": components["schemas"]["MintedWebhookEndpoint"];
                 };
             };
-            400: components["responses"]["ValidationProblem"];
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenScopeProblem"];
             404: components["responses"]["NotFoundProblem"];
@@ -3150,8 +4089,13 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The merchant's `public_id`. */
-                public_id: components["parameters"]["MerchantPublicId"];
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
             };
             cookie?: never;
         };
@@ -3171,11 +4115,142 @@ export interface operations {
             404: components["responses"]["NotFoundProblem"];
         };
     };
+    adminDisableWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DisableWebhookEndpointRequest"];
+            };
+        };
+        responses: {
+            /** @description The endpoint, disabled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenScopeProblem"];
+            404: components["responses"]["NotFoundProblem"];
+        };
+    };
+    adminTestWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The **webhook endpoint's** `public_id`, never the internal row id. Endpoints used to be
+                 *     addressed by `id`, which was defensible while an endpoint was a property of a merchant
+                 *     with no external identity of its own; it stopped being defensible the moment an operator
+                 *     points at one from a UI that spans five services.
+                 */
+                public_id: components["parameters"]["EndpointPublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the probe found. `ok: false` is still a `200`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookPingResult"];
+                };
+            };
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenScopeProblem"];
+            404: components["responses"]["NotFoundProblem"];
+            /**
+             * @description The endpoint has no signing secret, so there is nothing to sign a test with
+             *     (`code: secret_missing`). Rotate its secret first.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    adminListWebhookEvents: {
+        parameters: {
+            query?: {
+                merchant?: string;
+                event_type?: components["schemas"]["WebhookEventType"];
+                /** @description Everything one causal chain produced. Equals `event_id` on a root event. */
+                correlation_id?: string;
+                /** @description **Inclusive** lower bound. */
+                from?: components["parameters"]["From"];
+                /**
+                 * @description **Exclusive** upper bound. Paging by day with `from=D&until=D+1` therefore covers every
+                 *     row exactly once; two inclusive bounds double-count the boundary.
+                 */
+                until?: components["parameters"]["Until"];
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Opaque keyset cursor from a previous `next_cursor`. **Do not construct or parse one**;
+                 *     a malformed cursor is a 400 rather than a quiet restart from page 1.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of events, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CursorPage"] & {
+                        data?: components["schemas"]["WebhookEvent"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationProblem"];
+            401: components["responses"]["UnauthorizedProblem"];
+            403: components["responses"]["ForbiddenScopeProblem"];
+        };
+    };
     adminListWebhookDeliveries: {
         parameters: {
             query?: {
                 merchant?: string;
+                /** @description An endpoint's `public_id`. The drill-down from one row of the endpoint list. */
+                endpoint?: string;
+                event_type?: components["schemas"]["WebhookEventType"];
                 status?: "pending" | "delivered" | "dead_lettered" | "all";
+                /**
+                 * @description `true` narrows to deliveries aimed at **another Lamido service**, recognised by the
+                 *     URL ending `/v1/hooks/payment-service` rather than by a hand-set column. `false` is
+                 *     its exact complement.
+                 */
+                cross_service?: boolean;
                 limit?: components["parameters"]["Limit"];
                 /**
                  * @description Opaque keyset cursor from a previous `next_cursor`. **Do not construct or parse one**;
@@ -3199,6 +4274,12 @@ export interface operations {
                         data?: (components["schemas"]["WebhookDelivery"] & {
                             /** Format: uuid */
                             merchant_public_id: string;
+                            /**
+                             * Format: uuid
+                             * @description Which destination this attempt was aimed at. Present because
+                             *     this list is cross-endpoint as well as cross-tenant.
+                             */
+                            endpoint_public_id: string;
                         })[];
                     };
                 };
@@ -3232,7 +4313,11 @@ export interface operations {
             401: components["responses"]["UnauthorizedProblem"];
             403: components["responses"]["ForbiddenScopeProblem"];
             404: components["responses"]["NotFoundProblem"];
-            /** @description The endpoint is disabled. */
+            /**
+             * @description The endpoint is disabled (`code: endpoint_disabled`) — a redelivery would be
+             *     attempted and immediately refused, so enable it first — or it has no signing secret
+             *     (`code: secret_missing`), so the delivery could not be signed.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;

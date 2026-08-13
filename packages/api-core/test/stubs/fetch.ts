@@ -64,19 +64,20 @@ export function testConfig(overrides: ServiceConfig = {}): ResolvedConfig {
 }
 
 /**
- * A minimal error parser, standing in for the one each service package supplies.
+ * A fixed error parser, so a transport test asserts on the transport.
  *
  * @remarks
- * Reads `error.code`, which is what content-service and invoice-service do; payment-service's
- * RFC 7807 parser is phase 5's problem.
+ * Deliberately **not** the real {@link problemParser}: these tests check that the transport
+ * hands the parser a status, a body, headers and a path, which a parser that reads the body
+ * would let a body-shape change break. The real reader has its own tests.
  */
 export const testErrorParser: ErrorParser = (context) =>
   new LamidoApiError({
     service: "content-service",
     status: context.status,
-    code: (context.body as { error?: { code?: string } } | null)?.error?.code ?? "unknown",
+    type: "unknown",
     message: `request failed with ${context.status}`,
     requestPath: context.requestPath,
     retryable: false,
-    details: (context.body as { error?: { details?: unknown } } | null)?.error?.details,
+    details: context.body ?? undefined,
   });

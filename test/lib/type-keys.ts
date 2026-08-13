@@ -22,13 +22,26 @@
  */
 
 /**
+ * `T` without its index signature, if it has one.
+ *
+ * @remarks
+ * A type that ends in `& { [key: string]: unknown }` — invoice-service's health body does — has
+ * `keyof T` of `string`, which makes {@link AllKeys} degenerate into "any keys at all" and the
+ * assertion vacuous. Filtering the index signature out leaves the declared keys, which is what a
+ * key spec is about; the open half is open by design and there is nothing to enumerate.
+ */
+export type KnownKeys<T> = {
+  [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K];
+};
+
+/**
  * Every key of `T`, optional ones included, as a required record.
  *
  * @remarks
  * `Required<T>` first, so an optional property still has to appear in the list. Annotate a key list with
  * `satisfies AllKeys<T>` and the compiler enforces that it names the type's keys **exactly**.
  */
-export type AllKeys<T> = Record<keyof Required<T>, true>;
+export type AllKeys<T> = Record<keyof Required<KnownKeys<T>>, true>;
 
 /**
  * Just the required keys of `T`.
@@ -38,8 +51,8 @@ export type AllKeys<T> = Record<keyof Required<T>, true>;
  * optional. `-?` strips the modifier first so the mapped type itself does not make everything optional.
  */
 export type RequiredKeys<T> = {
-  [K in keyof T]-?: Record<string, never> extends Pick<T, K> ? never : K;
-}[keyof T];
+  [K in keyof KnownKeys<T>]-?: Record<string, never> extends Pick<KnownKeys<T>, K> ? never : K;
+}[keyof KnownKeys<T>];
 
 /** Just the required keys of `T`, as a required record. See {@link AllKeys}. */
 export type MandatoryKeys<T> = Record<RequiredKeys<T>, true>;

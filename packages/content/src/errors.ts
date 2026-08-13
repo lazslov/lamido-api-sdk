@@ -1,49 +1,36 @@
 /**
- * content-service's error envelope, translated once.
+ * content-service's problem document, narrowed to what this package's callers branch on.
  *
  * @remarks
- * The SDK ships the codes, the typed `details` shapes and a `retryable` verdict. It deliberately
- * ships **no copy table**: "this card has 3 payments against it, so archive it instead" is a
- * user-facing sentence in the site's own voice and its own language, and a translation layer in a
- * dependency is one nobody can edit.
+ * The parse itself is `@lazslov/api-core`'s: the three services share one RFC 9457 document over
+ * one closed slug set, so reading it here again would be a second chance to disagree. What this
+ * module adds is the typed `details` shape and the one retry verdict core cannot reach — the
+ * lost publish race.
+ *
+ * It deliberately ships **no copy table**: "this card has 3 payments against it, so archive it
+ * instead" is a user-facing sentence in the site's own voice and its own language, and a
+ * translation layer in a dependency is one nobody can edit.
  */
 
-import { type ErrorContext, LamidoApiError } from "@lazslov/api-core";
+import { type ErrorContext, LamidoApiError, readProblem } from "@lazslov/api-core";
 
 /** The service this package talks to, named on every error it throws. */
 export const serviceName = "content-service";
 
 /**
- * Every code content-service sends, plus the one it cannot.
- *
- * @remarks
- * Branch on this, never on `message` — a code is part of the contract and a message is written for
- * a human. `not_configured` is the SDK's own, carried on a `status: 0` error when the base URL or
- * key is missing, so a site can route a missing environment variable through the same translator
- * as a real `401`.
- */
-export type ContentErrorCode =
-  | "validation_error"
-  | "bad_request"
-  | "unauthorized"
-  | "forbidden"
-  | "not_found"
-  | "conflict"
-  | "payload_too_large"
-  | "internal_error"
-  | "not_configured";
-
-/**
  * The `details` shapes the service documents, all optional.
  *
  * @remarks
- * Optional rather than per-code unions on purpose: `details` is present only where it helps, and a
- * union would force a cast at every read for no added safety. What it buys is that
- * `error.details?.missing` and `.unknownKeys` are spelled correctly and typed.
+ * Optional rather than per-slug unions on purpose: `details` is present only where it helps, and
+ * a union would force a cast at every read for no added safety. What it buys is that
+ * `error.details?.missing` and `.unknown_keys` are spelled correctly and typed.
+ *
+ * **Members are snake_case**, like every other member on the wire. They were camelCase before
+ * the service's 2026-08 sync.
  */
 export interface ContentErrorDetails extends Record<string, unknown> {
   /** Value keys the section or item schema does not declare. The editor's actual work. */
-  readonly unknownKeys?: string[];
+  readonly unknown_keys?: string[];
   /** One entry per badly shaped value, naming the key and (for a list) the entry index. */
   readonly invalid?: { readonly key: string; readonly message: string }[];
   /** `"<section>.<field>"` for each required field that would publish empty. */
@@ -53,29 +40,32 @@ export interface ContentErrorDetails extends Record<string, unknown> {
   /** Ids a reorder did not include, and ids it named that do not belong. */
   readonly unknown?: string[];
   /** How many dataset records point at the item a delete refused. */
-  readonly recordCount?: number;
-  readonly itemId?: string;
+  readonly record_count?: number;
+  readonly item_id?: string;
   /** Every place an asset is used, in both views — a draft reference is someone's work. */
   readonly references?: unknown[];
   /** The asset already registered under a pathname a registration clashed with. */
-  readonly assetId?: string;
+  readonly asset_id?: string;
   /** Serialised size of a record that exceeded the 8 KB limit. */
   readonly bytes?: number;
-  readonly unresolvableRefs?: string[];
+  readonly unresolvable_refs?: string[];
+  /** Which fields a dataset aggregate can group by, on a bad `group_by`. */
+  readonly groupable?: string[];
 }
 
 /**
  * A non-2xx answer from content-service.
  *
  * @remarks
- * Carries no credential, no host and no request body — see `@lazslov/api-core`'s `LamidoApiError`.
+ * Carries no credential, no host and no request body — see `@lazslov/api-core`'s
+ * `LamidoApiError`. Branch on `type` paired with `status`, never on `message`.
  *
  * @example
  * ```ts
  * try {
  *   await content.publishPage("home");
  * } catch (error) {
- *   if (error instanceof ContentApiError && error.code === "conflict") {
+ *   if (error instanceof ContentApiError && error.type === "conflict") {
  *     return { ok: false, missing: error.details?.missing ?? [] };
  *   }
  *   throw error;
@@ -83,115 +73,50 @@ export interface ContentErrorDetails extends Record<string, unknown> {
  * ```
  */
 export class ContentApiError extends LamidoApiError {
-  declare readonly code: ContentErrorCode;
   declare readonly details?: ContentErrorDetails;
 
-  constructor(init: {
-    status: number;
-    code: ContentErrorCode;
-    message: string;
-    requestPath: string;
-    retryable: boolean;
-    details?: ContentErrorDetails;
-  }) {
-    super({ ...init, service: serviceName });
+  constructor(init: ConstructorParameters<typeof LamidoApiError>[0]) {
+    super(init);
     this.name = "ContentApiError";
   }
 }
 
-/** Codes the service documents. Anything else is a proxy or a bug, not the service. */
-const documented = new Set<ContentErrorCode>([
-  "validation_error",
-  "bad_request",
-  "unauthorized",
-  "forbidden",
-  "not_found",
-  "conflict",
-  "payload_too_large",
-  "internal_error",
-]);
-
 /**
- * How the service pairs a status with a code, used only when no usable body arrived.
+ * Read the service's problem document.
  *
  * @remarks
- * An HTML error page from an edge proxy has no `error.code`, and inventing one from the message
- * would be branching on prose. The status is the only thing left, and this table is the service's
- * own pairing rather than a guess.
- */
-const codeByStatus: Readonly<Record<number, ContentErrorCode>> = {
-  400: "bad_request",
-  401: "unauthorized",
-  403: "forbidden",
-  404: "not_found",
-  409: "conflict",
-  413: "payload_too_large",
-};
-
-/**
- * Read the service's error envelope.
- *
- * @remarks
- * Bound into every request this package makes, so a caller never sees an untranslated status. Typed
- * as returning the narrow error rather than as core's `ErrorParser`, which it still satisfies: a
- * caller reading `details.unknownKeys` should not have to cast at the one place the shape is known.
+ * Bound into every request this package makes, so a caller never sees an untranslated status.
+ * Typed as returning the narrow error rather than as core's `ErrorParser`, which it still
+ * satisfies: a caller reading `details.unknown_keys` should not have to cast at the one place
+ * the shape is known.
  */
 export const parseContentError = (context: ErrorContext): ContentApiError => {
-  const envelope = (
-    context.body as { error?: { code?: unknown; message?: unknown; details?: unknown } } | null
-  )?.error;
-
-  const code = codeFor(context.status, envelope?.code);
-  const message =
-    typeof envelope?.message === "string"
-      ? envelope.message
-      : `${serviceName} answered ${context.status}`;
-
-  // Passed through exactly as it arrived: `details` is where the actionable part lives, and
-  // re-shaping it here would be a second contract for a caller to learn.
-  const details = envelope?.details as ContentErrorDetails | undefined;
-
+  const init = readProblem(serviceName, context);
   return new ContentApiError({
-    status: context.status,
-    code,
-    message,
-    requestPath: context.requestPath,
-    retryable: isRetryable(code, context.requestPath, details),
-    ...(details === undefined ? {} : { details }),
+    ...init,
+    retryable: init.retryable || isLostPublishRace(init, context.requestPath),
   });
 };
 
-/** The code the service sent, or the one its status implies. */
-function codeFor(status: number, raw: unknown): ContentErrorCode {
-  if (typeof raw === "string" && documented.has(raw as ContentErrorCode)) {
-    return raw as ContentErrorCode;
-  }
-  return codeByStatus[status] ?? "internal_error";
-}
-
 /**
- * Whether retrying the identical request can succeed.
+ * The one retry verdict core cannot reach on its own.
  *
  * @remarks
- * Two cases only, both from the service's own table:
+ * A **publish** `conflict` with no `missing` list is the lost publish race: two publishes of one
+ * page collided on the version number, the transaction was already retried once inside the
+ * service, and the answer is safe to retry **after reloading**. Every other `409 conflict` — a
+ * required field empty at publish, a duplicate slug, a referenced asset — needs a human to
+ * resolve the stated cause first, which is why core's flat "409 is not retryable" is right for
+ * everything except this.
  *
- * - `internal_error` — *"retry once, then report"*.
- * - a **publish** `conflict` with no `missing` list, which is the lost publish race: two publishes
- *   of one page collided on the version number, the transaction was already retried once inside
- *   the service, and the answer is safe to retry **after reloading**. Every other `conflict` — a
- *   required field empty at publish, a duplicate slug, a referenced asset — needs a human to
- *   resolve the stated cause first.
- *
- * Distinguishing the two requires reading `details`, which is why this is not a status lookup. It
- * does not read the message: the sentence about another publish completing first is prose and may
- * be reworded at any time.
+ * It reads `details` rather than the message: the sentence about another publish completing
+ * first is prose and may be reworded at any time.
  */
-function isRetryable(
-  code: ContentErrorCode,
+function isLostPublishRace(
+  init: { readonly type: string; readonly status: number; readonly details?: unknown },
   requestPath: string,
-  details: ContentErrorDetails | undefined,
 ): boolean {
-  if (code === "internal_error") return true;
-  if (code !== "conflict") return false;
-  return requestPath.endsWith("/publish") && details?.missing === undefined;
+  if (init.type !== "conflict" || init.status !== 409) return false;
+  if (!requestPath.endsWith("/publish")) return false;
+  return (init.details as ContentErrorDetails | undefined)?.missing === undefined;
 }

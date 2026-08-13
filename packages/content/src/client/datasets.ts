@@ -1,5 +1,5 @@
 /**
- * `/api/client/datasets/*` — application data, not content.
+ * `/v1/datasets/*` — application data, not content.
  *
  * @remarks
  * A client site owns no datastore, so its donations, RSVPs and form submissions live here: one flat
@@ -10,11 +10,11 @@
 
 import type { ResolvedConfig } from "@lazslov/api-core";
 import { type AggregateQuery, aggregateQuery } from "../aggregate.js";
-import { call, callList, callOrNull } from "../call.js";
+import { call, callCursorList, callList, callOrNull, callUnpaginated } from "../call.js";
 import { passInit, type RequestOptions } from "../options.js";
 import type {
   AggregateGroup,
-  ContentList,
+  ContentCursorList,
   DatasetRecord,
   DatasetSummary,
   DeleteResult,
@@ -43,35 +43,50 @@ export interface NewRecord extends RequestOptions {
    *
    * Omitted means "always insert": NULLs never collide in a unique index.
    */
-  readonly externalId?: string;
+  readonly external_id?: string;
   /**
    * The **event** time, ISO 8601 — not the write time.
    *
    * @remarks
-   * What the list orders by and what `from`/`to` filter on. Required by this SDK rather than
+   * What the list orders by and what `from`/`until` filter on. Required by this SDK rather than
    * defaulted to now, because a default would quietly make every backfilled record sort as if it had
    * happened at import. A donation's date is not the moment the webhook landed.
    */
-  readonly occurredAt: string;
+  readonly occurred_at: string;
 }
 
 /** A partial update to one record. */
 export interface RecordPatch extends RequestOptions {
   /** Merges key by key; `null` clears one. `required` is checked against the merged result. */
   readonly data?: RecordData;
-  readonly occurredAt?: string;
+  readonly occurred_at?: string;
 }
 
-/** Options for the record list. */
+/**
+ * Options for the record list.
+ *
+ * @remarks
+ * Keyset-paged, so there is a `cursor` and no `offset`. The list grows with your activity, and
+ * it reports no `total` — the pager terminates on `nextCursor`.
+ */
 export interface RecordListOptions extends RequestOptions {
   /** `field:value` equality, at most three, on `groupable` fields only. */
   readonly eq?: readonly string[];
-  /** Inclusive ISO 8601 bounds on `occurredAt`. */
+  /** Lower bound on `occurred_at`, **inclusive**, ISO 8601. */
   readonly from?: string;
-  readonly to?: string;
-  /** 1–100, default 20. */
+  /**
+   * Upper bound on `occurred_at`, **exclusive**, ISO 8601.
+   *
+   * @remarks
+   * Renamed from `to` and its meaning changed with it. `to` was inclusive; `until` is not, so a
+   * range that used to include midnight now stops just before it. Passing the old value unchanged
+   * silently drops the final instant's rows.
+   */
+  readonly until?: string;
+  /** 1–200, default 50. */
   readonly limit?: number;
-  readonly offset?: number;
+  /** An opaque cursor from a previous page's `nextCursor`. Never construct one. */
+  readonly cursor?: string;
 }
 
 /** Options for reading one record. */
@@ -89,11 +104,11 @@ export interface RecordOptions extends RequestOptions {
 
 /** The dataset half of a client-tier client. */
 export interface DatasetMethods {
-  /** Every dataset definition, with its `recordCount`. Unpaginated. */
+  /** Every dataset definition, with its `record_count`. Unpaginated. */
   listDatasets(options?: RequestOptions): Promise<DatasetSummary[]>;
 
   /**
-   * Insert a record, idempotently on `externalId`.
+   * Insert a record, idempotently on `external_id`.
    *
    * @returns The record, and `created: false` when it already existed.
    * @remarks
@@ -105,7 +120,7 @@ export interface DatasetMethods {
   createRecord(key: string, record: NewRecord): Promise<RecordInsert>;
 
   /**
-   * List records, newest `occurredAt` first.
+   * List records, newest `occurred_at` first.
    *
    * @remarks
    * **Sensitive values are withheld entirely here** — `record.withheld` names the keys that are set
@@ -114,7 +129,7 @@ export interface DatasetMethods {
    *
    * A record list is donor PII. The SDK ships no convenience that logs or serialises one.
    */
-  getRecords(key: string, options?: RecordListOptions): Promise<ContentList<DatasetRecord>>;
+  getRecords(key: string, options?: RecordListOptions): Promise<ContentCursorList<DatasetRecord>>;
 
   /**
    * One record.
@@ -123,7 +138,7 @@ export interface DatasetMethods {
    */
   getRecord(key: string, id: string, options?: RecordOptions): Promise<DatasetRecord | null>;
 
-  /** Update one record. `externalId` is stripped from the body by the service, on purpose. */
+  /** Update one record. `external_id` is stripped from the body by the service, on purpose. */
   patchRecord(key: string, id: string, patch: RecordPatch): Promise<DatasetRecord>;
 
   /**
@@ -153,43 +168,44 @@ export interface DatasetMethods {
  * @internal
  */
 export function bindDatasetMethods(cfg: ResolvedConfig): DatasetMethods {
-  const records = (key: string) => `/api/client/datasets/${encodeURIComponent(key)}/records`;
+  const records = (key: string) => `/v1/datasets/${encodeURIComponent(key)}/records`;
 
   return {
     listDatasets: (options = {}) =>
-      call<DatasetSummary[]>(cfg, {
+      callUnpaginated<DatasetSummary>(cfg, {
         method: "GET",
-        path: "/api/client/datasets",
-        read: { kind: "data" },
+        path: "/v1/datasets",
         ...passInit(options),
       }),
 
     async createRecord(key, record) {
-      // The envelope, not `data`: `created` is a sibling of it and is the whole point of the call.
-      const answer = await call<{ data: DatasetRecord; created: boolean }>(cfg, {
+      // `created` rides BESIDE the record now rather than wrapping it, so the body is the record
+      // with one extra member. Note the trap the contract itself calls out: a record's own payload
+      // member is also called `data`, and it is the record's data, never an envelope.
+      const { created, ...inserted } = await call<DatasetRecord & { created: boolean }>(cfg, {
         method: "POST",
         path: records(key),
         body: {
           data: record.data,
-          occurredAt: record.occurredAt,
-          ...(record.externalId === undefined ? {} : { externalId: record.externalId }),
+          occurred_at: record.occurred_at,
+          ...(record.external_id === undefined ? {} : { external_id: record.external_id }),
         },
-        read: { kind: "envelope" },
+        read: { kind: "raw" },
         ...passInit(record),
       });
-      return { record: answer.data, created: answer.created };
+      return { record: inserted as DatasetRecord, created };
     },
 
     getRecords: (key, options = {}) =>
-      callList<DatasetRecord>(cfg, {
+      callCursorList<DatasetRecord>(cfg, {
         method: "GET",
         path: records(key),
         query: {
           eq: options.eq,
           from: options.from,
-          to: options.to,
+          until: options.until,
           limit: options.limit,
-          offset: options.offset,
+          cursor: options.cursor,
         },
         ...passInit(options),
       }),
@@ -199,7 +215,7 @@ export function bindDatasetMethods(cfg: ResolvedConfig): DatasetMethods {
         method: "GET",
         path: `${records(key)}/${encodeURIComponent(id)}`,
         query: { include: options.includeSensitive ? "sensitive" : undefined },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
@@ -209,9 +225,9 @@ export function bindDatasetMethods(cfg: ResolvedConfig): DatasetMethods {
         path: `${records(key)}/${encodeURIComponent(id)}`,
         body: {
           ...(patch.data === undefined ? {} : { data: patch.data }),
-          ...(patch.occurredAt === undefined ? {} : { occurredAt: patch.occurredAt }),
+          ...(patch.occurred_at === undefined ? {} : { occurred_at: patch.occurred_at }),
         },
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(patch),
       }),
 
@@ -219,17 +235,18 @@ export function bindDatasetMethods(cfg: ResolvedConfig): DatasetMethods {
       call<DeleteResult>(cfg, {
         method: "DELETE",
         path: `${records(key)}/${encodeURIComponent(id)}`,
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
 
-    getDatasetAggregate: (key, query = {}) =>
-      call<AggregateGroup[]>(cfg, {
+    async getDatasetAggregate(key, query = {}) {
+      const page = await callList<AggregateGroup>(cfg, {
         method: "GET",
-        path: `/api/client/datasets/${encodeURIComponent(key)}/aggregate`,
+        path: `/v1/datasets/${encodeURIComponent(key)}/aggregate`,
         query: aggregateQuery(query),
-        read: { kind: "data" },
         ...passInit(query),
-      }),
+      });
+      return page.items;
+    },
   };
 }

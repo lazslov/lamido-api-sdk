@@ -1,20 +1,34 @@
 {
   "name": "valid-collection-item",
-  "describes": "a collection item, whose version is null because items have no versions",
+  "describes": "a collection item reaching published, which carries its own status",
   "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
-  "rawBody": "{\"site\":\"acme_foundation\",\"type\":\"collection_item\",\"slug\":\"elso_hir\",\"collection\":\"news\",\"version\":null,\"publishedAt\":\"2026-07-28T09:12:44.101Z\"}",
+  "rawBody": "{\"event_id\":\"019fc236-0c4e-7e3f-8203-70fcad1d20e2\",\"event_type\":\"collection_item.published\",\"contract_version\":1,\"occurred_at\":\"2026-07-28T09:12:44.101Z\",\"service\":\"content-service\",\"account_id\":\"3f7c1a92-5d84-4e60-b1c7-9a2e0f6b8d43\",\"tenant\":{\"kind\":\"site\",\"public_id\":\"bb0e8f21-3c4d-4a5b-9e6f-7a8b9c0d1e2f\"},\"correlation_id\":\"019fc236-0c4e-7e3f-8203-70fcad1d20e2\",\"causation_id\":null,\"hop\":0,\"data\":{\"collection_item\":{\"collection\":\"news\",\"slug\":\"elso_hir\",\"status\":\"published\"}}}",
   "timestamp": "1785168000",
-  "signature": "sha256=b5a0e644671bee91d6bac3c7335eeb9749d1da631065c6eb6c187c3a6a9cc9ac",
+  "signature": "sha256=8c0c2cbd794fe096041e774e98d7cf97c0703f3be6319e2b8357f5b6bc07afa4",
   "nowSeconds": 1785168000,
   "expect": {
     "ok": true,
     "event": {
-      "site": "acme_foundation",
-      "type": "collection_item",
-      "slug": "elso_hir",
-      "collection": "news",
-      "version": null,
-      "publishedAt": "2026-07-28T09:12:44.101Z"
+      "event_id": "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+      "event_type": "collection_item.published",
+      "contract_version": 1,
+      "occurred_at": "2026-07-28T09:12:44.101Z",
+      "service": "content-service",
+      "account_id": "3f7c1a92-5d84-4e60-b1c7-9a2e0f6b8d43",
+      "tenant": {
+        "kind": "site",
+        "public_id": "bb0e8f21-3c4d-4a5b-9e6f-7a8b9c0d1e2f"
+      },
+      "correlation_id": "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+      "causation_id": null,
+      "hop": 0,
+      "data": {
+        "collection_item": {
+          "collection": "news",
+          "slug": "elso_hir",
+          "status": "published"
+        }
+      }
     }
   }
 }

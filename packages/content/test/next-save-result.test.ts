@@ -21,13 +21,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** A content error with the given code and details. */
-function contentError(code: "validation_error" | "conflict" | "unauthorized", details?: unknown) {
+/** A content error with the given problem slug and details. */
+function contentError(type: "validation" | "conflict" | "unauthorized", details?: unknown) {
   return new ContentApiError({
+    service: "content-service",
     status: 400,
-    code,
-    message: `stub ${code}`,
-    requestPath: "/api/client/pages/home/values",
+    type,
+    message: `stub ${type}`,
+    requestPath: "/v1/pages/home/values",
     retryable: false,
     ...(details === undefined ? {} : { details: details as never }),
   });
@@ -45,7 +46,7 @@ describe("the happy path", () => {
 
 describe("a failure becomes a result object", () => {
   it("never throws, for any of the codes the service sends", async () => {
-    for (const code of ["validation_error", "conflict", "unauthorized"] as const) {
+    for (const code of ["validation", "conflict", "unauthorized"] as const) {
       const result = await asSaveResult(async () => {
         throw contentError(code);
       });
@@ -57,7 +58,7 @@ describe("a failure becomes a result object", () => {
     // A JavaScript caller, or a bug in the action's own body.
     expect(await asSaveResult(async () => Promise.reject("a bare string"))).toEqual({
       ok: false,
-      error: "internal_error",
+      error: "internal",
     });
   });
 
@@ -66,7 +67,7 @@ describe("a failure becomes a result object", () => {
       await asSaveResult(() => {
         throw new TypeError("prepareValues rejected a url");
       }),
-    ).toEqual({ ok: false, error: "internal_error" });
+    ).toEqual({ ok: false, error: "internal" });
   });
 
   it("routes not_configured through the same channel as a real 401", async () => {
@@ -85,10 +86,10 @@ describe("a failure becomes a result object", () => {
   });
 });
 
-describe("validation_error details become per-field messages", () => {
+describe("validation details become per-field messages", () => {
   it("maps invalid[] entries onto their keys", async () => {
     const result = await asSaveResult(async () => {
-      throw contentError("validation_error", {
+      throw contentError("validation", {
         invalid: [
           {
             key: "cta_url",
@@ -101,7 +102,7 @@ describe("validation_error details become per-field messages", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "validation_error",
+      error: "validation",
       fields: {
         cta_url: "must be an absolute URL, a mailto:, a tel:, /path or #anchor",
         headline: "must be a string",
@@ -109,9 +110,9 @@ describe("validation_error details become per-field messages", () => {
     });
   });
 
-  it("maps unknownKeys, which say which field rather than why", async () => {
+  it("maps unknown_keys, which say which field rather than why", async () => {
     const result = await asSaveResult(async () => {
-      throw contentError("validation_error", { unknownKeys: ["old_field"] });
+      throw contentError("validation", { unknown_keys: ["old_field"] });
     });
 
     expect(result).toMatchObject({ fields: { old_field: expect.stringContaining("schema") } });
@@ -119,8 +120,8 @@ describe("validation_error details become per-field messages", () => {
 
   it("prefers invalid[] on a collision, because it explains why", async () => {
     const result = await asSaveResult(async () => {
-      throw contentError("validation_error", {
-        unknownKeys: ["cta_url"],
+      throw contentError("validation", {
+        unknown_keys: ["cta_url"],
         invalid: [{ key: "cta_url", message: "must be an absolute URL" }],
       });
     });
@@ -130,10 +131,10 @@ describe("validation_error details become per-field messages", () => {
 
   it("omits fields entirely when the service named none", async () => {
     const result = await asSaveResult(async () => {
-      throw contentError("validation_error");
+      throw contentError("validation");
     });
 
-    expect(result).toEqual({ ok: false, error: "validation_error" });
+    expect(result).toEqual({ ok: false, error: "validation" });
     expect("fields" in result).toBe(false);
   });
 

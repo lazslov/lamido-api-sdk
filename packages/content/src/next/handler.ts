@@ -10,7 +10,7 @@
 
 import { revalidateTag } from "next/cache";
 import { readEnv, revalidateSecretVar } from "../env.js";
-import { type RevalidationEvent, verifyRevalidationWebhook } from "../webhook.js";
+import { type ContentEvent, verifyContentWebhook } from "../webhook.js";
 import { CONTENT_TAG } from "./tag.js";
 
 /** What {@link createRevalidationHandler} accepts. */
@@ -42,7 +42,7 @@ export interface RevalidationHandlerOptions {
    * delivery is retried once and then given up on, and a failure never fails the publish — the content
    * is live either way.
    */
-  readonly onPublish?: (event: RevalidationEvent) => void | Promise<void>;
+  readonly onPublish?: (event: ContentEvent) => void | Promise<void>;
   /** Passed to the verifier. Defaults to the 300 seconds the service documents. */
   readonly toleranceSeconds?: number;
 }
@@ -60,20 +60,22 @@ export interface RevalidationHandlerOptions {
  * 3. `revalidateTag(tag)`;
  * 4. `onPublish`, then `200`.
  *
- * **`site` is not checked, and that is deliberate.** The signing secret is per site, so a valid
- * signature already proves which tenant sent it. Comparing the field as well only adds a way to reject
- * your own deliveries after a site slug is renamed — so the check is absent, and this comment is here
- * so nobody adds one.
+ * **`tenant` is not checked, and that is deliberate.** The signing secret is per endpoint, so a valid
+ * signature already proves who sent it. Comparing the field as well only adds a way to reject
+ * your own deliveries — so the check is absent, and this comment is here so nobody adds one.
  *
- * Two payload shapes it has to survive, both documented and both easy to crash on: **`slug: null`
- * means "revalidate everything"** — an item with no slug, or a staff re-fire sent without one — and
- * **`version` is `null`** for a collection item *and* for a whole-site re-fire, so a receiver keying
- * off `version` must tolerate null on a page delivery too. Neither is special-cased here, because the
- * single coarse tag makes both the same invalidation.
+ * **Every event type busts the tag, including one this SDK has never heard of.** The catalogue is
+ * `page.published`, `collection_item.published`, `collection_item.archived`, `record.created` and
+ * `site.revalidation_requested`, and it grows. A receiver that answered non-2xx for an unrecognised
+ * type would dead-letter a delivery that was fine, and five of those disable the endpoint. The
+ * single coarse tag makes every one of them the same invalidation, so there is nothing to branch on
+ * here; `onPublish` is where a caller does finer work, and {@link ../webhook.js | subjectOf} finds
+ * the subject of any event without a per-type branch.
  *
- * **Treat delivery as idempotent.** The service retries once with the identical body, timestamp and
- * signature — two deliveries are one publish, and busting the same tag twice costs nothing. There is
- * no dedupe here for that reason, unlike the payment handler, where the work is not idempotent.
+ * **Treat delivery as idempotent.** The service retries, and an operator can redeliver; both carry
+ * the same `X-Event-Id`. Busting the same tag twice costs nothing, so there is no dedupe here —
+ * unlike the payment handler, where the work is not idempotent. A caller whose `onPublish` does
+ * non-idempotent work should dedupe on `event.event_id` itself.
  *
  * @example
  * ```ts
@@ -98,7 +100,7 @@ export function createRevalidationHandler(
 
     const rawBody = await request.text();
 
-    const verdict = await verifyRevalidationWebhook({
+    const verdict = await verifyContentWebhook({
       secret,
       rawBody,
       headers: request.headers,

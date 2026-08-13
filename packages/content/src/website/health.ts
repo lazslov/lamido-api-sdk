@@ -1,71 +1,48 @@
 /**
- * `GET /api/health` — the only unauthenticated endpoint, and the only one where a non-2xx answer
- * is still an answer.
+ * `GET /healthz` — the only unauthenticated endpoint, and liveness only.
+ *
+ * @remarks
+ * This used to be the one endpoint where a non-2xx answer was still an answer: it returned a
+ * `503` carrying `{ status: "degraded", db: "unreachable" }`, and this module smuggled that body
+ * back out through the transport's error path.
+ *
+ * It cannot do that any more. As of the service's `d013970` the route never touches the database,
+ * always answers `200 {"status":"ok"}`, and the `db` member is **gone from the body** rather than
+ * stubbed. A monitor polling it on a short interval was holding a Neon database awake around the
+ * clock for a reading nothing acted on. So the smuggling machinery is gone with it — there is no
+ * degraded response left to smuggle.
  */
 
-import { LamidoApiError, type ResolvedConfig, request } from "@lazslov/api-core";
-import { parseContentError, serviceName } from "../errors.js";
+import type { ResolvedConfig } from "@lazslov/api-core";
+import { call } from "../call.js";
 import type { RequestOptions } from "../options.js";
 import type { ContentHealth } from "../types.js";
 
 /**
- * A `503` carrying a health body, smuggled back through the transport's error path.
- *
- * @remarks
- * Not exported, and not something a caller ever catches: it exists only because `request` is the
- * one door out of this package and it throws for every non-2xx. Hand-rolling this one request to
- * avoid that would put a second `fetch` call — and a second place the credential is attached — in
- * the package, which is a much worse trade than this small detour.
- */
-class DegradedHealth extends LamidoApiError {
-  readonly health: ContentHealth;
-
-  constructor(health: ContentHealth, requestPath: string) {
-    super({
-      service: serviceName,
-      status: 503,
-      code: "internal_error",
-      message: "content-service reports a degraded database",
-      requestPath,
-      retryable: true,
-    });
-    this.health = health;
-  }
-}
-
-/**
- * Read the service's health.
+ * Read the service's liveness.
  *
  * @param cfg - The resolved configuration.
  * @param options - `init` only; this endpoint takes no parameters.
- * @returns The health body, **including** the degraded one a `503` carries.
+ * @returns `{ status: "ok" }`, the only body this endpoint can produce.
  * @remarks
- * The body is the point. When the database is unreachable the service answers `503` *with*
- * `{ status: "degraded", db: "unreachable", code: "…" }`, and a monitor that checks `response.ok`
- * before reading the body never sees the reason. So a degraded answer is returned rather than
- * thrown, and `status === "degraded"` is the check instead of a try/catch.
+ * **This proves the process is up. It cannot prove the service works.** The route reads no
+ * environment variable and opens no connection, so it keeps answering `200` while a malformed
+ * `DATABASE_URL` fails every other endpoint on the host.
  *
- * Any other failure still throws: a `401` from a misconfigured key is not a health report.
+ * Database health is `GET /v1/admin/health`, which is authenticated — deliberately, so it cannot
+ * be polled by accident — and reports far more. It is not on this tier.
+ *
+ * Any failure here throws, because a non-2xx from an endpoint that always answers `200` is a
+ * network or proxy fault rather than a health report.
  */
-export async function getHealth(
+export function getHealth(
   cfg: ResolvedConfig,
   options: RequestOptions = {},
 ): Promise<ContentHealth> {
-  try {
-    return await request<ContentHealth>(cfg, {
-      method: "GET",
-      path: "/api/health",
-      read: { kind: "raw" },
-      ...(options.init ? { init: options.init } : {}),
-      onError: (context) => {
-        const body = context.body as ContentHealth | null;
-        return context.status === 503 && body?.status === "degraded"
-          ? new DegradedHealth(body, context.requestPath)
-          : parseContentError(context);
-      },
-    });
-  } catch (error) {
-    if (error instanceof DegradedHealth) return error.health;
-    throw error;
-  }
+  return call<ContentHealth>(cfg, {
+    method: "GET",
+    path: "/healthz",
+    read: { kind: "raw" },
+    ...(options.init ? { init: options.init } : {}),
+  });
 }

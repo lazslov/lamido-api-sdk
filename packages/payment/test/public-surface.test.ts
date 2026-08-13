@@ -59,6 +59,8 @@ describe("the runtime exports", () => {
       "eventIdHeader",
       "huf",
       "isFulfillable",
+      "isKnownEvent",
+      "isRefundEvent",
       "isTerminal",
       "minorUnits",
       "parsePaymentWebhookEvent",

@@ -2,9 +2,9 @@
   "name": "valid-refund-succeeded",
   "describes": "a refund event, which carries the extra refund block and the payment's NEW status",
   "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
-  "rawBody": "{\"event_id\":\"019e4a95-0000-7000-8000-000000000003\",\"event_type\":\"refund.succeeded\",\"created_at\":\"2026-01-21T13:02:11.140Z\",\"payment\":{\"id\":\"019e4a91-0000-7000-8000-000000000002\",\"merchant_payment_ref\":\"order-12345\",\"status\":\"partially_refunded\",\"amount_minor\":\"1000\",\"currency\":\"HUF\",\"provider\":\"barion\"},\"refund\":{\"id\":\"019e4a95-77c1-7a02-8f31-9b0c4d5e6f70\",\"status\":\"succeeded\",\"amount_minor\":\"400\",\"currency\":\"HUF\"}}",
+  "rawBody": "{\"event_id\":\"019e4a95-0000-7000-8000-000000000004\",\"event_type\":\"refund.succeeded\",\"contract_version\":1,\"occurred_at\":\"2026-01-21T13:02:11.140Z\",\"service\":\"payment-service\",\"account_id\":\"7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46\",\"tenant\":{\"kind\":\"merchant\",\"public_id\":\"019e4a91-0000-7000-8000-000000000002\"},\"correlation_id\":\"019e4a95-0000-7000-8000-000000000004\",\"causation_id\":null,\"hop\":0,\"data\":{\"payment\":{\"public_id\":\"019e4a91-0000-7000-8000-000000000003\",\"merchant_payment_ref\":\"order-12345\",\"status\":\"partially_refunded\",\"amount_minor\":\"1000\",\"currency\":\"HUF\",\"provider\":\"barion\"},\"refund\":{\"public_id\":\"019e4a95-77c1-7a02-8f31-9b0c4d5e6f70\",\"status\":\"succeeded\",\"amount_minor\":\"400\",\"currency\":\"HUF\"}}}",
   "timestamp": "1785168000",
-  "signature": "sha256=e2aa31f69eb5af6f786898fdffdfad83b603efb379c55c21bc3fb1fe2863e8c9",
+  "signature": "sha256=7a1489c9a646fa80f1845daf7659492b41d999bbd8c27073cd6d1b5dd1cf2aad",
   "nowSeconds": 1785168000,
   "expect": {
     "ok": true

@@ -63,7 +63,7 @@ describe("the runtime exports", () => {
   });
 
   it("offers no conversion to or from payment-service's minor-unit amounts", () => {
-    // The two services disagree by a factor of 100 — grossAmount is a major-unit number here, a
+    // The two services disagree by a factor of 100 — gross_amount_minor is a major-unit number here, a
     // decimal string of minor units there — and that conversion belongs in the site, written once,
     // visibly. A shared money type would imply the two services agree.
     const conversion = /(minor|toMinor|fromMinor|huf|forint|cents|toMajor|money|amount)/i;

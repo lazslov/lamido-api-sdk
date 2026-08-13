@@ -148,7 +148,7 @@ An unrecognised message classifies as `unclassified` with `retryable: false` —
 `rejected`, the only value that permits a free retry. If the service rewords a message, this
 SDK becomes *more* cautious.
 
-Elsewhere: a `422` carries `conflictCode` and **is** retryable later, because all four causes
+Elsewhere: a `422` carries `code` and **is** retryable later, because all four causes
 describe the payment's *state* and state changes. A `409` is not — except an attempt still in
 flight, whose 60-second lease clears; that error carries a note saying to pause and reuse the
 same key.
@@ -271,13 +271,13 @@ const results = await reconcilePayments(payments, {
   onStatus: (publicId, payment) => applyPaymentStatus(publicId, payment.status),
 });
 for (const result of results) {
-  if (result.retryAfterSeconds) scheduleRecheck(result.publicId, result.retryAfterSeconds);
+  if (result.retryAfter) scheduleRecheck(result.publicId, result.retryAfter);
 }
 ```
 
 It reads each payment, refreshes only the `pending` ones, never refreshes a terminal payment,
 and serialises per id — `refresh` is throttled to one call per payment per 5 seconds, and a
-failed refresh consumes the window too. A `429` comes back as `retryAfterSeconds` rather than
+failed refresh consumes the window too. A `429` comes back as `retryAfter` rather than
 being retried or swallowed. Scheduling, storage and the "orders awaiting payment older than N
 minutes" query stay yours.
 

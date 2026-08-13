@@ -8,13 +8,13 @@ describe("request", () => {
     const stub = fetchStub(() => jsonResponse({ data: [] }));
     await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/content/pages",
+      path: "/v1/public/pages",
       query: { limit: 10, published: true, cursor: undefined },
-      read: { kind: "data" },
+      read: { kind: "envelope" },
       onError: testErrorParser,
     });
     expect(stub.calls[0]?.url).toBe(
-      "https://content.example.com/api/content/pages?limit=10&published=true",
+      "https://content.example.com/v1/public/pages?limit=10&published=true",
     );
   });
 
@@ -22,7 +22,7 @@ describe("request", () => {
     const stub = fetchStub();
     await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       read: { kind: "raw" },
       onError: testErrorParser,
     });
@@ -33,7 +33,7 @@ describe("request", () => {
     const stub = fetchStub();
     await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       read: { kind: "raw" },
       onError: testErrorParser,
     });
@@ -44,9 +44,9 @@ describe("request", () => {
     const stub = fetchStub(() => jsonResponse({ data: { id: "1" } }, 201));
     await request(testConfig({ fetch: stub.fetch }), {
       method: "POST",
-      path: "/api/client/pages",
+      path: "/v1/pages",
       body: { slug: "about" },
-      read: { kind: "data" },
+      read: { kind: "envelope" },
       onError: testErrorParser,
     });
     expect(stub.lastHeaders()["content-type"]).toBe("application/json");
@@ -68,25 +68,28 @@ describe("request", () => {
     const onRequest = vi.fn();
     await request(testConfig({ fetch: fetchStub().fetch, onRequest }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       read: { kind: "raw" },
       onError: testErrorParser,
     });
     // No headers, no body, no key — there is no code path that can log a credential.
-    expect(onRequest).toHaveBeenCalledWith({ method: "GET", path: "/api/health" });
+    expect(onRequest).toHaveBeenCalledWith({ method: "GET", path: "/healthz" });
   });
 });
 
 describe("request read modes", () => {
-  it("unwraps data", async () => {
-    const stub = fetchStub(() => jsonResponse({ data: { slug: "about" }, requestId: "r1" }));
+  it("returns a single resource unwrapped, because the wrapper is gone", async () => {
+    // The `{data: {…}}` wrapper around a single resource was removed across all three
+    // services precisely because it invited an `unwrap(body.data)` helper. There is no read
+    // kind that unwraps any more; a resource response *is* the resource.
+    const stub = fetchStub(() => jsonResponse({ slug: "about", title: "About" }));
     const result = await request<{ slug: string }>(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/content/pages/about",
-      read: { kind: "data" },
+      path: "/v1/public/pages/about",
+      read: { kind: "raw" },
       onError: testErrorParser,
     });
-    expect(result).toEqual({ slug: "about" });
+    expect(result).toEqual({ slug: "about", title: "About" });
   });
 
   it("returns an envelope whole, so sibling metadata survives", async () => {
@@ -96,7 +99,7 @@ describe("request read modes", () => {
       testConfig({ fetch: stub.fetch }),
       {
         method: "GET",
-        path: "/api/client/stats",
+        path: "/v1/admin/stats/overview",
         read: { kind: "envelope" },
         onError: testErrorParser,
       },
@@ -124,7 +127,7 @@ describe("request read modes", () => {
       testConfig({ fetch: stub.fetch }),
       {
         method: "GET",
-        path: "/api/invoices/inv_1/pdf",
+        path: "/v1/invoices/inv_1/pdf",
         read: { kind: "bytes" },
         onError: testErrorParser,
       },
@@ -137,7 +140,7 @@ describe("request read modes", () => {
     const stub = fetchStub(() => new Response(null, { status: 204 }));
     const result = await request(testConfig({ fetch: stub.fetch }), {
       method: "DELETE",
-      path: "/api/client/pages/about",
+      path: "/v1/pages/about",
       read: { kind: "none" },
       onError: testErrorParser,
     });
@@ -168,35 +171,36 @@ describe("request read modes", () => {
 
 describe("request error handling", () => {
   it("parses the error body and hands it to the service's parser", async () => {
-    const stub = fetchStub(() =>
-      jsonResponse({ error: { code: "page_not_found", details: { slug: "nope" } } }, 404),
-    );
+    const body = { type: "urn:content-service:problem:not-found", status: 404 };
+    const stub = fetchStub(() => jsonResponse(body, 404));
     const caught = await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/content/pages/nope",
-      read: { kind: "data" },
+      path: "/v1/public/pages/nope",
+      read: { kind: "envelope" },
       onError: testErrorParser,
     }).catch((error: unknown) => error);
 
     expect(caught).toBeInstanceOf(LamidoApiError);
     const error = caught as LamidoApiError;
     expect(error.status).toBe(404);
-    expect(error.code).toBe("page_not_found");
-    expect(error.details).toEqual({ slug: "nope" });
-    expect(error.requestPath).toBe("/api/content/pages/nope");
+    // The stub parser echoes the parsed body, which is what this asserts: the transport read
+    // the error body and passed it on rather than discarding it.
+    expect(error.details).toEqual(body);
+    expect(error.requestPath).toBe("/v1/public/pages/nope");
   });
 
   it("degrades a non-JSON error body to null rather than throwing a parse error", async () => {
     const stub = fetchStub(() => new Response("<html>502 Bad Gateway</html>", { status: 502 }));
     const caught = (await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       read: { kind: "raw" },
       onError: testErrorParser,
     }).catch((error: unknown) => error)) as LamidoApiError;
 
     expect(caught.status).toBe(502);
-    expect(caught.code).toBe("unknown");
+    // A malformed error body must not replace the real failure with a parse error.
+    expect("details" in caught).toBe(false);
   });
 
   it("never puts the query string in requestPath", async () => {
@@ -219,9 +223,9 @@ describe("request init pass-through", () => {
     const stub = fetchStub();
     await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/content/pages",
+      path: "/v1/public/pages",
       init: { next: { tags: ["content"] } } as RequestInit,
-      read: { kind: "data" },
+      read: { kind: "envelope" },
       onError: testErrorParser,
     });
     expect((stub.calls[0]?.init as { next?: unknown } | undefined)?.next).toEqual({
@@ -234,7 +238,7 @@ describe("request init pass-through", () => {
     const controller = new AbortController();
     await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       init: { signal: controller.signal },
       read: { kind: "raw" },
       onError: testErrorParser,
@@ -246,7 +250,7 @@ describe("request init pass-through", () => {
     const stub = fetchStub();
     await request(testConfig({ fetch: stub.fetch, defaultInit: { cache: "force-cache" } }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       init: { cache: "no-store" },
       read: { kind: "raw" },
       onError: testErrorParser,
@@ -258,7 +262,7 @@ describe("request init pass-through", () => {
     const stub = fetchStub();
     await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       init: { headers: { Authorization: "Bearer attacker-supplied" } },
       read: { kind: "raw" },
       onError: testErrorParser,
@@ -270,7 +274,7 @@ describe("request init pass-through", () => {
     const stub = fetchStub();
     await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       read: { kind: "raw" },
       onError: testErrorParser,
     });

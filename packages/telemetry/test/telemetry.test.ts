@@ -284,3 +284,91 @@ describe("alert() (OB-12…OB-14)", () => {
     expect(JSON.stringify(lines)).not.toContain("bot-token-123");
   });
 });
+
+describe("correlation_id (OB-4)", () => {
+  it("rides every line a correlated logger writes", () => {
+    // The rule is "every line where one exists", so binding is what is tested — not that one
+    // call site remembered to pass it.
+    const lines = captureLines();
+    const log = testTelemetry().correlated("019e4a91-0000-7000-8000-000000000001");
+
+    log.info("Invoice issued", { event: "invoice.issued" });
+    log.warn("Provider slow", { event: "provider.slow" });
+
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.correlation_id).toBe("019e4a91-0000-7000-8000-000000000001");
+    }
+  });
+
+  it("survives a further child binding, so a handler can add its own fields", () => {
+    const lines = captureLines();
+    const log = testTelemetry().correlated("chain-1").child({ delivery_id: "d-9" });
+    log.info("Delivery worked");
+
+    const line = must(lines[0]);
+    expect(line.correlation_id).toBe("chain-1");
+    expect(line.delivery_id).toBe("d-9");
+  });
+
+  it("extends the request logger, so request_id and correlation_id travel together", () => {
+    // The two ids answer different questions — one request, one causal chain — and a receiver
+    // handling a delivery is inside both.
+    const lines = captureLines();
+    const telemetry = testTelemetry();
+    const requestLogger = telemetry.createLogger({ request_id: "req-7" });
+
+    telemetry.correlated("chain-1", requestLogger).info("Handling event");
+
+    const line = must(lines[0]);
+    expect(line.request_id).toBe("req-7");
+    expect(line.correlation_id).toBe("chain-1");
+  });
+
+  it("does not leak the id onto lines written through an unrelated logger", () => {
+    const lines = captureLines();
+    const telemetry = testTelemetry();
+    telemetry.correlated("chain-1");
+    telemetry.logger.info("Unrelated background work");
+
+    expect(must(lines[0]).correlation_id).toBeUndefined();
+  });
+});
+
+describe("the flag vocabulary (OB-5)", () => {
+  // One case per flag, driven through the logger and asserted on the captured line. The set is
+  // closed: a service uses the flags that apply and must not invent parallel ones.
+  const flags = [
+    "alert",
+    "anomaly",
+    "security",
+    "unmapped",
+    "external_refund",
+    "recovered",
+    "fail_open",
+  ] as const;
+
+  it.each(flags)("carries %s as a top-level boolean", (flag) => {
+    const lines = captureLines();
+    testTelemetry().logger.warn("Condition met", { [flag]: true });
+
+    const line = must(lines[0]);
+    expect(line[flag]).toBe(true);
+    // Top-level, not nested under `meta` — a vendor alert rule keys on it directly.
+    expect(Object.hasOwn(line, flag)).toBe(true);
+  });
+
+  it("keeps a flag out of the line when the condition did not hold", () => {
+    const lines = captureLines();
+    testTelemetry().logger.info("Nothing to see");
+    for (const flag of flags) expect(must(lines[0])[flag]).toBeUndefined();
+  });
+
+  it("is what alert() already sets, so the two cannot drift", async () => {
+    // OB-12's alert line is the `alert` flag's own origin; it must use the vocabulary rather
+    // than a parallel spelling of it.
+    const lines = captureLines();
+    await testTelemetry().alert("critical", "db.unreachable");
+    expect(must(lines[0]).alert).toBe(true);
+  });
+});

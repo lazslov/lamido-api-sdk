@@ -3,7 +3,7 @@
 Consumer SDK for invoice-service — Hungarian invoices through szamlazz.hu and Billingo, with the
 provider chosen per request.
 
-**Status: phase 4.** All six client-tier endpoints plus `/api/health`. There is no `./next`
+**Status: phase 4.** All six client-tier endpoints plus `/healthz`. There is no `./next`
 subpath and there never will be: this service has no webhooks, so there is nothing for a route
 handler to receive.
 
@@ -54,26 +54,28 @@ const invoices = createInvoiceClient();
 const { invoice, replayed } = await invoices.createInvoice(
   {
     provider: "billingo",
-    providerConfigId: "billingo_acme",
+    provider_config_id: "billingo_acme",
     partner: {
       name: "Teszt Vevő Kft",
-      taxNumber: "12345678-2-42",
-      address: { postalCode: "1011", city: "Budapest", address: "Fő utca 1" },
+      tax_number: "12345678-2-42",
+      address: { postal_code: "1011", city: "Budapest", address: "Fő utca 1" },
     },
     items: [
-      { name: "Tanácsadás", quantity: 2, unit: "óra", netUnitPrice: 15000, vatRate: "27" },
+      // Minor units, as a decimal string. HUF is zero-decimal here, so this is 15 000 Ft.
+      { name: "Tanácsadás", quantity: 2, unit: "óra", net_unit_price_minor: "15000", vat_rate: "27" },
     ],
-    dueDate: isoDate("2026-08-02"),
-    partnerRef: order.id, // an order id — never a name or a tax number
+    due_date: isoDate("2026-08-02"),
+    partner_ref: order.id, // an order id — never a name or a tax number
   },
   derivedIdempotencyKey(`invoice-${order.id}`, 1),
 );
 
-if (!replayed) await store(order.id, invoice.id);
+if (!replayed) await store(order.id, invoice.public_id);
 ```
 
-**Persist the returned `id` immediately.** It is the only handle for the PDF, the cancel and a
-support lookup. If it is lost, only an operator can find the invoice again — by `partnerRef`.
+**Persist the returned `public_id` immediately.** It is the only handle for the PDF, the cancel
+and a support lookup — the internal primary key never appears. If it is lost, only an operator can
+find the invoice again, by `partner_ref`.
 
 ## The idempotency rule that is the opposite of payment-service
 
@@ -86,7 +88,7 @@ get it wrong by reading the body. And a replay can be in any status:
 
 | Outcome | Key consumed | What to do |
 | --- | --- | --- |
-| `201` | yes | Done. Store `invoice.id`. |
+| `201` | yes | Done. Store `invoice.public_id`. |
 | `200`, `status: "created"` | already was | Done — you already issued this. |
 | `200`, `status: "failed"` | already was | **A new key.** Retrying this one is pointless. |
 | `200`, `status: "pending"` | already was | Stuck mid-call. An operator must reconcile it. |
@@ -102,10 +104,10 @@ Derive keys from the business event, never from the clock: `invoice-<orderId>` f
 attempt, `attempt: 2` for a deliberate retry. A random UUID per attempt removes the protection
 entirely and will double-invoice.
 
-## Four things the service does not check, so this package does
+## Five things the service does not check, so this package does
 
 Each of these is forwarded to the provider verbatim and comes back as an opaque `502` — with the
-key already spent. All four fail locally, before any request, with a `TypeError` naming the rule.
+key already spent. All five fail locally, before any request, with a `TypeError` naming the rule.
 
 ```ts
 isoDate("2026-13-45"); // throws — no such month
@@ -114,39 +116,59 @@ isoDate("25/07/2026"); // throws — the service would forward this
 
 | Field | The rule |
 | --- | --- |
-| `issueDate`, `fulfillmentDate`, `dueDate` | A real day in `YYYY-MM-DD`. The branded `IsoDate` type means a bare string does not even compile. |
-| `items[].vatRate` | A bare percentage **as a string** (`"27"`, `"5"`, `"0"`) or an upper-case code (`"AAM"`, `"TAM"`, `"EU"`). Never `"27%"`, never the number `27`. |
-| `providerConfigId` | `^[a-z0-9_]+$`, ≤ 64 characters, and starting with `szamlazz_` or `billingo_`. |
+| `issue_date`, `fulfillment_date`, `due_date` | A real day in `YYYY-MM-DD`. The branded `IsoDate` type means a bare string does not even compile. |
+| `items[].vat_rate` | A bare percentage **as a string** (`"27"`, `"5"`, `"0"`) or an upper-case code (`"AAM"`, `"TAM"`, `"EU"`). Never `"27%"`, never the number `27`. |
+| `items[].net_unit_price_minor` | Canonical minor units as a string: digits only, no sign, no decimal point, no leading zero, and **never `"0"`**. Never the number `15000`. |
+| `provider_config_id` | `^[a-z0-9_]+$`, ≤ 64 characters, and starting with `szamlazz_` or `billingo_`. |
 | `items` | At least one line — a tuple type, plus a runtime check. |
 
-> **`validation_error.details.fieldErrors` keys are top-level only.** A failure deep inside
-> `partner.address.postalCode` surfaces under the key `partner`, not the full path. Validate the
-> body against the schema locally to find the real field.
+> **A `400` carries `errors[]` with exact JSON Pointers.** `error.errors` is the machine-readable
+> half — `{ pointer: "/items/0/vat_rate", code, detail }` — and every problem in the request is
+> reported at once, so one round trip is enough to fix all of them. This replaced Zod's
+> `fieldErrors`, whose keys were top-level only: a failure deep inside `partner.address.postal_code`
+> used to surface as just `partner`.
 
-## Money is a major-unit number here
+## Money is a minor-unit string here
 
-`grossAmount: 38100` means **38 100 Ft**. It is `number | null` and it is `null` until the status
-is `created` — do not write `grossAmount ?? 0`, which reports a pending invoice as a zero-forint
-one. `currency` is free text, whatever the provider echoed back, and is not an enum.
+`gross_amount_minor: "38100"` means **38 100 Ft**, because HUF is zero-decimal in this API — a
+deliberate estate-wide deviation from ISO 4217. For EUR or USD it is cents. It is `string | null`
+and `null` until the status is `created`, so do not write `gross_amount_minor ?? "0"`, which
+reports a pending invoice as a zero-forint one.
 
-> This is the **opposite** of `@lazslov/payment`, where every amount is a decimal string of *minor*
-> units and HUF is zero-decimal. A value moved between the two packages without conversion is
-> wrong by a factor of 100 in one direction or the other.
+A string rather than a number because **a JSON number loses precision above 2^53**, which a yearly
+HUF total reaches.
 
-Neither package offers that conversion, and a shared money type would imply the two services
-agree. If a site needs to invoice a payment, write the conversion in the site — once, visibly.
+> **This changed, and the old value is wrong rather than merely renamed.** `grossAmount` was a
+> major-unit `number` and `netUnitPrice` was one too. Passing an old major-unit value into
+> `net_unit_price_minor` under-charges by a factor of 100 on every two-decimal currency, and the
+> SDK rejects the shapes it can see — a number, a decimal point, a sign, a leading zero, `"0"` —
+> before the request leaves.
 
-## `GET /api/invoices` returns no `total`
+The upside: this now **agrees** with `@lazslov/payment`, which has always used minor-unit strings.
+The two packages used to contradict each other by a factor of 100, and a value moved between them
+needed a conversion neither offered. It no longer does, for the same currency.
 
-The list type declares none, so `Math.ceil(list.total / limit)` is a compile error rather than
-`NaN` pages. Paginate until a page returns fewer than `limit` rows, or let the SDK do it:
+## `GET /v1/invoices` is keyset-paged and returns no `total`
+
+Counting a filtered, unbounded table on every page is not cheap, so the list reports no `total` —
+and the list type declares none, making `Math.ceil(list.total / limit)` a compile error rather than
+`NaN` pages.
+
+> **Follow `nextCursor`, never a short page.** A filtered keyset page can come back under `limit`
+> with more behind it, so "fewer rows than I asked for" is not the end of the list. This replaced
+> `limit`/`offset`, where a short page *was* the terminator — the same loop written against the new
+> list silently drops everything after the first gap.
 
 ```ts
 const page = await invoices.listInvoices({ status: "failed", limit: 50 });
-const done = page.items.length < 50;
+const done = page.nextCursor === null;
+const next = await invoices.listInvoices({ status: "failed", limit: 50, cursor: page.nextCursor });
 
 const all = await invoices.listAllInvoices({ status: "created" });
 ```
+
+The cursor is opaque: pass it back verbatim, and never construct, parse or store one. A malformed
+cursor is a `400`, never a quiet restart from page one.
 
 `listAllInvoices` throws rather than truncating if it runs past its loop breaker; raise `maxPages`
 deliberately. This tier has no date filter and no free-text search — both are admin-only — and

@@ -48,7 +48,10 @@ try {
 } catch (error) {
   if (error instanceof LamidoApiError) {
     error.status;       // HTTP status, or 0 when the request was never made
-    error.code;         // the service's stable machine value, widened per package
+    error.type;         // the RFC 9457 problem slug — branch on this, paired with status
+    error.code;         // the 409/422 sub-case, where one exists
+    error.retryAfter;   // seconds, on a 429
+    error.requestId;    // quote it in a support request
     error.retryable;    // from the service's own error table, not guessed from the status
     error.requestPath;  // path only — never a host, never a query string
   }

@@ -5,6 +5,7 @@ import type {
   ClientIdentity,
   CollectionItem,
   ContentAsset,
+  ContentHealth,
   ContentSite,
   DatasetRecord,
   PageDocument,
@@ -53,13 +54,28 @@ function examplesOf(service: string): DocExample[] {
   return JSON.parse(readFileSync(file, "utf8")) as DocExample[];
 }
 
-/** `{ data }`, with the siblings a list adds. */
-type Envelope = { data?: unknown; total?: unknown; limit?: unknown; offset?: unknown };
+/** A list envelope: `data` plus the siblings that make it interpretable. */
+type Envelope = {
+  data?: unknown;
+  next_cursor?: unknown;
+  total?: unknown;
+  limit?: unknown;
+  offset?: unknown;
+};
 
-/** The `data` of an envelope, or `undefined` when this is not one. */
+/**
+ * The subject of an example: a list's rows, or the resource itself.
+ *
+ * @remarks
+ * **The single-resource wrapper is gone.** A resource response *is* the resource now, so this
+ * unwraps only a list — recognised by `data` alongside `next_cursor`, which every list carries and
+ * nothing else does. Unwrapping `data` unconditionally would strip a *dataset record's own*
+ * payload member, which is also called `data`.
+ */
 function unwrap(value: unknown): unknown {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  return (value as Envelope).data;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const envelope = value as Envelope;
+  return "data" in envelope && "next_cursor" in envelope ? envelope.data : envelope;
 }
 
 /** A classification: what an example is, and how to check it. */
@@ -90,58 +106,72 @@ function spec(
 
 const invoiceSpec = spec(
   {
-    id: true,
+    public_id: true,
     provider: true,
-    providerConfigId: true,
+    provider_config_id: true,
     status: true,
-    invoiceNumber: true,
-    providerInvoiceId: true,
-    grossAmount: true,
+    invoice_number: true,
+    provider_invoice_id: true,
+    gross_amount_minor: true,
     currency: true,
-    partnerRef: true,
-    errorMessage: true,
-    createdAt: true,
-    updatedAt: true,
+    partner_ref: true,
+    error_message: true,
+    created_at: true,
+    updated_at: true,
   } satisfies AllKeys<Invoice>,
   {
-    id: true,
+    // Every member is required on the wire now — the nullable ones are present and `null`
+    // rather than absent, so a reader never has to tell "absent" from "not set yet".
+    public_id: true,
     provider: true,
-    providerConfigId: true,
+    provider_config_id: true,
     status: true,
-    createdAt: true,
-    updatedAt: true,
+    invoice_number: true,
+    provider_invoice_id: true,
+    gross_amount_minor: true,
+    currency: true,
+    partner_ref: true,
+    error_message: true,
+    created_at: true,
+    updated_at: true,
   } satisfies MandatoryKeys<Invoice>,
 );
 
 const cancelledInvoiceSpec = spec(
   {
-    id: true,
+    public_id: true,
     provider: true,
-    providerConfigId: true,
+    provider_config_id: true,
     status: true,
-    invoiceNumber: true,
-    providerInvoiceId: true,
-    grossAmount: true,
+    invoice_number: true,
+    provider_invoice_id: true,
+    gross_amount_minor: true,
     currency: true,
-    partnerRef: true,
-    errorMessage: true,
-    createdAt: true,
-    updatedAt: true,
-    stornoNumber: true,
+    partner_ref: true,
+    error_message: true,
+    created_at: true,
+    updated_at: true,
+    storno_number: true,
   } satisfies AllKeys<CancelledInvoice>,
   {
-    id: true,
+    public_id: true,
     provider: true,
-    providerConfigId: true,
+    provider_config_id: true,
     status: true,
-    createdAt: true,
-    updatedAt: true,
+    invoice_number: true,
+    provider_invoice_id: true,
+    gross_amount_minor: true,
+    currency: true,
+    partner_ref: true,
+    error_message: true,
+    created_at: true,
+    updated_at: true,
   } satisfies MandatoryKeys<CancelledInvoice>,
 );
 
 const downloadLinkSpec = spec(
-  { url: true, expiresAt: true } satisfies AllKeys<DownloadLink>,
-  { url: true, expiresAt: true } satisfies MandatoryKeys<DownloadLink>,
+  { url: true, expires_at: true } satisfies AllKeys<DownloadLink>,
+  { url: true, expires_at: true } satisfies MandatoryKeys<DownloadLink>,
 );
 
 const paymentSpec = spec(
@@ -234,7 +264,7 @@ const siteSpec = spec(
     name: true,
     locale: true,
     locales: true,
-    defaultLocale: true,
+    default_locale: true,
     settings: true,
   } satisfies AllKeys<ContentSite>,
   {
@@ -242,7 +272,7 @@ const siteSpec = spec(
     name: true,
     locale: true,
     locales: true,
-    defaultLocale: true,
+    default_locale: true,
     settings: true,
   } satisfies MandatoryKeys<ContentSite>,
 );
@@ -252,31 +282,32 @@ const publishedPageSpec = spec(
     slug: true,
     title: true,
     version: true,
-    publishedAt: true,
+    published_at: true,
   } satisfies AllKeys<PublishedPageSummary>,
   {
     slug: true,
     title: true,
     version: true,
-    publishedAt: true,
+    published_at: true,
   } satisfies MandatoryKeys<PublishedPageSummary>,
 );
 
 const itemSpec = spec(
   {
+    // A collection item is still keyed by `id`, not `public_id` — the identifier rule applies
+    // per resource, and this one was never exposed under a second name.
     id: true,
-    collectionKey: true,
+    collection_key: true,
     slug: true,
     position: true,
     status: true,
-    publishedAt: true,
-    createdAt: true,
-    updatedAt: true,
+    published_at: true,
+    created_at: true,
+    updated_at: true,
     values: true,
   } satisfies AllKeys<CollectionItem>,
   {
     id: true,
-    collectionKey: true,
     slug: true,
     position: true,
     status: true,
@@ -287,46 +318,49 @@ const itemSpec = spec(
 const recordSpec = spec(
   {
     id: true,
-    datasetKey: true,
-    externalId: true,
+    public_id: true,
+    dataset_key: true,
+    external_id: true,
     data: true,
     withheld: true,
-    occurredAt: true,
-    createdAt: true,
-    updatedAt: true,
+    occurred_at: true,
+    created_at: true,
+    updated_at: true,
   } satisfies AllKeys<DatasetRecord>,
   {
-    id: true,
-    datasetKey: true,
-    externalId: true,
+    dataset_key: true,
+    external_id: true,
     data: true,
     withheld: true,
-    occurredAt: true,
+    occurred_at: true,
   } satisfies MandatoryKeys<DatasetRecord>,
 );
 
 const assetSpec = spec(
   {
+    // Both identity members, because the service's prose and its schema disagree about which
+    // one an asset carries. See ContentAsset in packages/content/src/types.ts.
     id: true,
-    siteId: true,
+    public_id: true,
+    site_id: true,
     pathname: true,
     url: true,
-    contentType: true,
+    content_type: true,
     size: true,
     width: true,
     height: true,
-    uploadedBy: true,
-    createdAt: true,
+    uploaded_by: true,
+    created_at: true,
     references: true,
   } satisfies AllKeys<ContentAsset>,
   {
-    id: true,
-    siteId: true,
+    // Neither identity member is required, because neither is guaranteed present.
+    site_id: true,
     pathname: true,
     url: true,
-    contentType: true,
+    content_type: true,
     size: true,
-    uploadedBy: true,
+    uploaded_by: true,
     references: true,
   } satisfies MandatoryKeys<ContentAsset>,
 );
@@ -335,14 +369,14 @@ const uploadTokenSpec = spec(
   {
     token: true,
     pathname: true,
-    maximumSizeInBytes: true,
-    allowedContentTypes: true,
+    maximum_size_in_bytes: true,
+    allowed_content_types: true,
   } satisfies AllKeys<UploadToken>,
   {
     token: true,
     pathname: true,
-    maximumSizeInBytes: true,
-    allowedContentTypes: true,
+    maximum_size_in_bytes: true,
+    allowed_content_types: true,
   } satisfies MandatoryKeys<UploadToken>,
 );
 
@@ -381,42 +415,58 @@ const deliverySpec = spec(
 );
 
 /**
- * The `payment.*` branch of the delivery union — the one **without** a `refund` block.
+ * The delivered event envelope.
  *
- * @remarks
- * Selected by the absence of `refund` rather than by an `event_type` literal, because that field is itself
- * a four-member union on this branch and `Extract` against one of them narrows to `never`.
- */
-type PaymentOnlyEvent = Exclude<PaymentWebhookEvent, { refund: unknown }>;
-
-/**
- * Both webhook branches together.
  *
- * @remarks
- * `all` covers the union, since `refund` is legal on one branch and not the other and the key check runs
- * per example rather than per branch. `required` is the four keys **every** delivery carries, so a
- * `refund.*` example that omitted `payment` would still fail.
+ * Every event from every Lamido service is this shape now. The resource blocks moved inside `data`,
+ * so the union's two branches differ only in what `data` holds — which means one key spec covers
+ * both, where the old top-level `payment` / `refund` split needed an `Exclude` to describe.
  */
 const webhookEventSpec = spec(
   {
     event_id: true,
     event_type: true,
-    created_at: true,
-    payment: true,
-    refund: true,
-  } satisfies AllKeys<PaymentOnlyEvent> & Record<"refund", true>,
+    contract_version: true,
+    occurred_at: true,
+    service: true,
+    account_id: true,
+    tenant: true,
+    correlation_id: true,
+    causation_id: true,
+    hop: true,
+    data: true,
+  } satisfies AllKeys<PaymentWebhookEvent>,
   {
     event_id: true,
     event_type: true,
-    created_at: true,
-    payment: true,
-  } satisfies MandatoryKeys<PaymentOnlyEvent>,
+    contract_version: true,
+    occurred_at: true,
+    service: true,
+    account_id: true,
+    tenant: true,
+    correlation_id: true,
+    causation_id: true,
+    hop: true,
+    data: true,
+  } satisfies MandatoryKeys<PaymentWebhookEvent>,
 );
 
-/** invoice-service's healthy body: `{ status: "ok" }`, and nothing beside it. */
+/** content-service's `/healthz` body: `{ status: "ok" }`, and nothing beside it. */
+const contentHealthSpec = spec(
+  { status: true } satisfies AllKeys<ContentHealth>,
+  { status: true } satisfies MandatoryKeys<ContentHealth>,
+);
+
+/**
+ * invoice-service's health body.
+ *
+ * @remarks
+ * Unlike content-service, this route still reports the database — and both the healthy and the
+ * degraded body now arrive at `200`, so `status` is the only thing that says which.
+ */
 const healthSpec = spec(
-  { status: true } satisfies AllKeys<Extract<InvoiceHealth, { status: "ok" }>>,
-  { status: true } satisfies MandatoryKeys<Extract<InvoiceHealth, { status: "ok" }>>,
+  { status: true, db: true, code: true } satisfies AllKeys<InvoiceHealth>,
+  { status: true } satisfies MandatoryKeys<InvoiceHealth>,
 );
 
 // ── Shared classifications ───────────────────────────────────────────────────────────────────────
@@ -428,24 +478,70 @@ const adminTier: Classifier = {
     example.file === "admin-api.md" || /\/(api\/)?admin\//.test(example.context),
 };
 
-/** An `{ error }` envelope, on the two services that use one. */
-function errorEnvelope(id: string): Classifier {
+/**
+ * An RFC 9457 problem document. All three services now, where two used an `{ error }` envelope.
+ *
+ * @remarks
+ * Checked by hand rather than by key spec: the SDK models this as an *error class*, not as a wire
+ * type, so there is no `T` to derive keys from. What is asserted instead is the part the shared
+ * reader depends on — the five core members are present, and `type` is a URN whose slug is one of
+ * the closed set.
+ */
+function problemDocument(id: string): Classifier {
+  const slugs = new Set([
+    "validation",
+    "unauthorized",
+    "forbidden",
+    "not-found",
+    "conflict",
+    "payload-too-large",
+    "rate-limit",
+    "internal",
+  ]);
+
+  return {
+    id,
+    matches: (example) =>
+      typeof example.json === "object" &&
+      example.json !== null &&
+      "type" in (example.json as object) &&
+      String((example.json as { type: unknown }).type).startsWith("urn:"),
+    check: (example) => {
+      const problem = example.json as Record<string, unknown>;
+      for (const member of ["type", "title", "status", "detail", "instance"]) {
+        expect(problem, `${example.file}:${example.line} is missing ${member}`).toHaveProperty(
+          member,
+        );
+      }
+      const type = String(problem.type);
+      expect(slugs.has(type.slice(type.lastIndexOf(":") + 1)), `unknown slug in ${type}`).toBe(
+        true,
+      );
+      return null;
+    },
+  };
+}
+
+/**
+ * A pre-RFC-9457 `{ error: { code, message, details } }` envelope still shown in the docs.
+ *
+ * @remarks
+ * **This is a finding, not a shape the SDK supports.** conventions §4 of every service now says
+ * every failure is `application/problem+json`, and the SDK reads only that. A handful of Markdown
+ * blocks were not updated with the rest, so they still show the envelope the services stopped
+ * sending.
+ *
+ * Classified explicitly rather than left unclaimed so the suite stays green while *recording* the
+ * divergence: an unclaimed example says "nobody looked at this", and these have been looked at.
+ * The entry goes when the documentation is corrected upstream.
+ */
+function staleErrorEnvelope(id: string): Classifier {
   return {
     id,
     matches: (example) =>
       typeof example.json === "object" &&
       example.json !== null &&
       "error" in (example.json as object),
-    check: (example) => {
-      const envelope = (example.json as { error: Record<string, unknown> }).error;
-      // Checked by hand rather than by key spec: the SDK models this as an *error class*, not as a wire
-      // type, so there is no `T` to derive keys from. The three the services document are these.
-      expect(Object.keys(envelope).sort().join(",")).toMatch(
-        /^(code|details|message)(,(code|details|message))*$/,
-      );
-      expect(typeof envelope.code).toBe("string");
-      return null;
-    },
   };
 }
 
@@ -458,7 +554,36 @@ function requestBody(id: string, matches: Classifier["matches"]): Classifier {
 
 const contentClassifiers: readonly Classifier[] = [
   adminTier,
-  errorEnvelope("content: error envelope"),
+  problemDocument("content: problem document"),
+  staleErrorEnvelope("content: STALE doc — pre-RFC-9457 error envelope"),
+  {
+    id: "content: Health",
+    matches: (example) => {
+      const data = unwrap(example.json);
+      return (
+        typeof data === "object" &&
+        data !== null &&
+        Object.keys(data).length === 1 &&
+        "status" in data
+      );
+    },
+    check: (example) => ({ value: unwrap(example.json) as object, spec: contentHealthSpec }),
+  },
+  {
+    id: "content: PublishedPageSummary",
+    matches: (example) => {
+      const data = unwrap(example.json);
+      return (
+        typeof data === "object" &&
+        data !== null &&
+        !Array.isArray(data) &&
+        "published_at" in data &&
+        "title" in data &&
+        "version" in data
+      );
+    },
+    check: (example) => ({ value: unwrap(example.json) as object, spec: publishedPageSpec }),
+  },
   {
     id: "content: PageDocument",
     matches: (example) => {
@@ -479,7 +604,7 @@ const contentClassifiers: readonly Classifier[] = [
     id: "content: ContentSite",
     matches: (example) => {
       const data = unwrap(example.json);
-      return typeof data === "object" && data !== null && "defaultLocale" in data;
+      return typeof data === "object" && data !== null && "default_locale" in data;
     },
     check: (example) => ({ value: unwrap(example.json) as object, spec: siteSpec }),
   },
@@ -495,7 +620,9 @@ const contentClassifiers: readonly Classifier[] = [
     id: "content: ContentAsset",
     matches: (example) => {
       const data = unwrap(example.json);
-      return typeof data === "object" && data !== null && "pathname" in data && "url" in data;
+      // `references` is what makes it a response: a registration request carries no such member,
+      // and `pathname` + `url` alone match the request body too.
+      return typeof data === "object" && data !== null && "references" in data;
     },
     check: (example) => ({ value: unwrap(example.json) as object, spec: assetSpec }),
   },
@@ -504,7 +631,7 @@ const contentClassifiers: readonly Classifier[] = [
     matches: (example) => {
       const data = unwrap(example.json);
       return (
-        Array.isArray(data) && data.length > 0 && "publishedAt" in data[0] && "title" in data[0]
+        Array.isArray(data) && data.length > 0 && "published_at" in data[0] && "title" in data[0]
       );
     },
     check: (example) => ({
@@ -516,14 +643,14 @@ const contentClassifiers: readonly Classifier[] = [
     id: "content: VersionSummary[]",
     matches: (example) => {
       const data = unwrap(example.json);
-      return Array.isArray(data) && data.length > 0 && "publishedBy" in data[0];
+      return Array.isArray(data) && data.length > 0 && "published_by" in data[0];
     },
   },
   {
     id: "content: CollectionItem[]",
     matches: (example) => {
       const data = unwrap(example.json);
-      return Array.isArray(data) && data.length > 0 && "collectionKey" in data[0];
+      return Array.isArray(data) && data.length > 0 && "collection_key" in data[0];
     },
     check: (example) => ({
       value: (unwrap(example.json) as object[])[0] as object,
@@ -546,7 +673,7 @@ const contentClassifiers: readonly Classifier[] = [
     matches: (example) =>
       typeof example.json === "object" &&
       example.json !== null &&
-      "collectionKey" in (example.json as object),
+      "collection_key" in (example.json as object),
     check: (example) => ({ value: example.json as object, spec: itemSpec }),
   },
   {
@@ -554,7 +681,7 @@ const contentClassifiers: readonly Classifier[] = [
     matches: (example) =>
       typeof example.json === "object" &&
       example.json !== null &&
-      "datasetKey" in (example.json as object),
+      "dataset_key" in (example.json as object),
     check: (example) => ({ value: example.json as object, spec: recordSpec }),
   },
   requestBody(
@@ -576,12 +703,12 @@ const contentClassifiers: readonly Classifier[] = [
 
 const invoiceClassifiers: readonly Classifier[] = [
   adminTier,
-  errorEnvelope("invoice: error envelope"),
+  problemDocument("invoice: problem document"),
   {
     id: "invoice: CancelledInvoice",
     matches: (example) => {
       const data = unwrap(example.json);
-      return typeof data === "object" && data !== null && "stornoNumber" in data;
+      return typeof data === "object" && data !== null && "storno_number" in data;
     },
     check: (example) => ({ value: unwrap(example.json) as object, spec: cancelledInvoiceSpec }),
   },
@@ -589,7 +716,7 @@ const invoiceClassifiers: readonly Classifier[] = [
     id: "invoice: DownloadLink",
     matches: (example) => {
       const data = unwrap(example.json);
-      return typeof data === "object" && data !== null && "expiresAt" in data && "url" in data;
+      return typeof data === "object" && data !== null && "expires_at" in data && "url" in data;
     },
     check: (example) => ({ value: unwrap(example.json) as object, spec: downloadLinkSpec }),
   },
@@ -600,7 +727,7 @@ const invoiceClassifiers: readonly Classifier[] = [
       return (
         typeof value === "object" &&
         value !== null &&
-        "providerConfigId" in value &&
+        "provider_config_id" in value &&
         "status" in value
       );
     },
@@ -614,8 +741,37 @@ const invoiceClassifiers: readonly Classifier[] = [
     matches: (example) =>
       typeof example.json === "object" &&
       example.json !== null &&
-      Object.keys(example.json as object).join() === "status",
+      "status" in (example.json as object) &&
+      Object.keys(example.json as object).every((key) => ["status", "db", "code"].includes(key)),
     check: (example) => ({ value: example.json as object, spec: healthSpec }),
+  },
+  {
+    id: "out of scope: a partial illustration, not a full resource",
+    // conventions.md shows fragments to make one point — that a single resource is unwrapped,
+    // that money is a minor-unit string — rather than a whole body. A key check against the
+    // full type would fail on every member the fragment deliberately leaves out.
+    matches: (example) =>
+      example.file === "conventions.md" &&
+      typeof example.json === "object" &&
+      example.json !== null &&
+      Object.keys(example.json as object).length <= 2,
+  },
+  {
+    id: "invoice: inbound webhook event",
+    // The estate envelope, received on /v1/hooks/{source_service}. The SDK sends invoices; it
+    // does not model what this service receives from payment-service.
+    matches: (example) =>
+      typeof example.json === "object" &&
+      example.json !== null &&
+      "event_type" in (example.json as object) &&
+      "occurred_at" in (example.json as object),
+  },
+  {
+    id: "out of scope: an empty body, sent to prove a route answers",
+    matches: (example) =>
+      typeof example.json === "object" &&
+      example.json !== null &&
+      Object.keys(example.json as object).length === 0,
   },
   {
     id: "invoice: CreateInvoiceInput",
@@ -655,6 +811,16 @@ const invoiceClassifiers: readonly Classifier[] = [
 
 const paymentClassifiers: readonly Classifier[] = [
   adminTier,
+  {
+    id: "out of scope: the /healthz body, which the SDK declares no type for",
+    // payment-service's liveness body carries `version`, `commit` and `now` as well as the
+    // database status. The SDK does not model it: nothing in the merchant surface reads it.
+    matches: (example) =>
+      typeof example.json === "object" &&
+      example.json !== null &&
+      "status" in (example.json as object) &&
+      "db" in (example.json as object),
+  },
   {
     id: "payment: PaymentWebhookEvent",
     matches: (example) =>

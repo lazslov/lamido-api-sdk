@@ -24,9 +24,9 @@ async function attempt(overrides: Partial<CreateInvoiceInput>) {
   return { thrown, calls: stub.calls };
 }
 
-describe("providerConfigId", () => {
+describe("provider_config_id", () => {
   it("must start with the provider's prefix", async () => {
-    const { thrown, calls } = await attempt({ providerConfigId: "szamlazz_acme" });
+    const { thrown, calls } = await attempt({ provider_config_id: "szamlazz_acme" });
     expect(thrown).toBeInstanceOf(TypeError);
     expect(thrown?.message).toMatch(/must start with "billingo_"/);
     expect(calls).toEqual([]);
@@ -34,41 +34,46 @@ describe("providerConfigId", () => {
 
   it("rejects a dash and an upper-case letter, naming the rule", async () => {
     for (const bad of ["billingo-acme", "billingo_Acme"]) {
-      const { thrown, calls } = await attempt({ providerConfigId: bad });
+      const { thrown, calls } = await attempt({ provider_config_id: bad });
       expect(thrown?.message).toMatch(/\^\[a-z0-9_\]\+\$/);
       expect(calls).toEqual([]);
     }
   });
 
   it("rejects more than 64 characters", async () => {
-    const { thrown } = await attempt({ providerConfigId: `billingo_${"a".repeat(60)}` });
+    const { thrown } = await attempt({ provider_config_id: `billingo_${"a".repeat(60)}` });
     expect(thrown?.message).toMatch(/at most 64 characters/);
   });
 
   it("rejects an empty value", async () => {
-    const { thrown } = await attempt({ providerConfigId: "" });
+    const { thrown } = await attempt({ provider_config_id: "" });
     expect(thrown?.message).toMatch(/non-empty string/);
   });
 
   it("accepts a well-formed id", async () => {
-    const { thrown } = await attempt({ providerConfigId: "billingo_acme_2026" });
+    const { thrown } = await attempt({ provider_config_id: "billingo_acme_2026" });
     expect(thrown).toBeNull();
   });
 });
 
-describe("vatRate", () => {
+describe("vat_rate", () => {
   it("rejects a percent sign, which the service forwards and the provider refuses", async () => {
     const { thrown, calls } = await attempt({
-      items: [{ name: "Tanácsadás", quantity: 1, netUnitPrice: 15000, vatRate: "27%" }],
+      items: [{ name: "Tanácsadás", quantity: 1, net_unit_price_minor: "15000", vat_rate: "27%" }],
     });
-    expect(thrown?.message).toMatch(/items\[0\]\.vatRate/);
+    expect(thrown?.message).toMatch(/items\[0\]\.vat_rate/);
     expect(calls).toEqual([]);
   });
 
   it("rejects a number, in the shape a JavaScript caller reaches it with", async () => {
     const { thrown } = await attempt({
       items: [
-        { name: "Tanácsadás", quantity: 1, netUnitPrice: 15000, vatRate: 27 as unknown as string },
+        {
+          name: "Tanácsadás",
+          quantity: 1,
+          net_unit_price_minor: "15000",
+          vat_rate: 27 as unknown as string,
+        },
       ],
     });
     expect(thrown?.message).toMatch(/must be a string, not a number/);
@@ -77,7 +82,7 @@ describe("vatRate", () => {
   it("rejects whitespace, a decimal point, a lower-case code and an empty value", async () => {
     for (const bad of [" 27", "27 ", "27.0", "aam", "", "-5"]) {
       const { thrown } = await attempt({
-        items: [{ name: "Tanácsadás", quantity: 1, netUnitPrice: 15000, vatRate: bad }],
+        items: [{ name: "Tanácsadás", quantity: 1, net_unit_price_minor: "15000", vat_rate: bad }],
       });
       expect(thrown, `expected ${JSON.stringify(bad)} to be rejected`).toBeInstanceOf(TypeError);
     }
@@ -88,7 +93,7 @@ describe("vatRate", () => {
     // legitimate rate would be an SDK bug a consumer could not work around.
     for (const good of ["27", "18", "5", "0", "AAM", "TAM", "EU", "FAD"]) {
       const { thrown } = await attempt({
-        items: [{ name: "Tanácsadás", quantity: 1, netUnitPrice: 15000, vatRate: good }],
+        items: [{ name: "Tanácsadás", quantity: 1, net_unit_price_minor: "15000", vat_rate: good }],
       });
       expect(thrown, `expected ${JSON.stringify(good)} to be accepted`).toBeNull();
     }
@@ -97,11 +102,11 @@ describe("vatRate", () => {
   it("names the line's index, because fieldErrors would only say `items`", async () => {
     const { thrown } = await attempt({
       items: [
-        { name: "A", quantity: 1, netUnitPrice: 1, vatRate: "27" },
-        { name: "B", quantity: 1, netUnitPrice: 1, vatRate: "27%" },
+        { name: "A", quantity: 1, net_unit_price_minor: "1", vat_rate: "27" },
+        { name: "B", quantity: 1, net_unit_price_minor: "1", vat_rate: "27%" },
       ],
     });
-    expect(thrown?.message).toMatch(/items\[1\]\.vatRate/);
+    expect(thrown?.message).toMatch(/items\[1\]\.vat_rate/);
   });
 });
 
@@ -119,18 +124,67 @@ describe("the date fields are re-checked at runtime", () => {
   it("rejects a bad date that was cast past the brand, naming the field", async () => {
     // The brand makes this a compile error; this is the JavaScript caller's path.
     const { thrown, calls } = await attempt({
-      dueDate: "25/07/2026" as unknown as CreateInvoiceInput["dueDate"],
+      due_date: "25/07/2026" as unknown as CreateInvoiceInput["due_date"],
     });
-    expect(thrown?.message).toMatch(/^dueDate: /);
+    expect(thrown?.message).toMatch(/^due_date: /);
     expect(calls).toEqual([]);
   });
 
   it("accepts dates built through isoDate", async () => {
     const { thrown } = await attempt({
-      issueDate: isoDate("2026-07-25"),
-      fulfillmentDate: isoDate("2026-07-25"),
-      dueDate: isoDate("2026-08-02"),
+      issue_date: isoDate("2026-07-25"),
+      fulfillment_date: isoDate("2026-07-25"),
+      due_date: isoDate("2026-08-02"),
     });
     expect(thrown).toBeNull();
+  });
+});
+
+describe("net_unit_price_minor", () => {
+  it("rejects a number, which is what the old major-unit field was", async () => {
+    // The most likely migration mistake, and the one that bills the wrong amount instead of
+    // failing loudly: `15000` and `"15000"` look identical in a diff.
+    const { thrown, calls } = await attempt({
+      items: [
+        {
+          name: "Tanácsadás",
+          quantity: 1,
+          net_unit_price_minor: 15000 as unknown as string,
+          vat_rate: "27",
+        },
+      ],
+    });
+    expect(thrown?.message).toMatch(/must be a string of minor units, not a number/);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a major-unit decimal, a sign, a leading zero and zero itself", async () => {
+    for (const bad of ["150.00", "-15000", "+15000", "015000", "0", "", "1e4", "15 000"]) {
+      const { thrown } = await attempt({
+        items: [{ name: "Tanácsadás", quantity: 1, net_unit_price_minor: bad, vat_rate: "27" }],
+      });
+      expect(thrown, `expected ${JSON.stringify(bad)} to be rejected`).toBeInstanceOf(TypeError);
+    }
+  });
+
+  it("accepts canonical minor units, including one far above 2^53", async () => {
+    // The reason the field is a string at all: a yearly HUF total exceeds what a JSON number
+    // can carry without losing precision.
+    for (const good of ["1", "15000", "38100", "9007199254740993"]) {
+      const { thrown } = await attempt({
+        items: [{ name: "Tanácsadás", quantity: 1, net_unit_price_minor: good, vat_rate: "27" }],
+      });
+      expect(thrown, `expected ${JSON.stringify(good)} to be accepted`).toBeNull();
+    }
+  });
+
+  it("names the line's index", async () => {
+    const { thrown } = await attempt({
+      items: [
+        { name: "A", quantity: 1, net_unit_price_minor: "1", vat_rate: "27" },
+        { name: "B", quantity: 1, net_unit_price_minor: "0", vat_rate: "27" },
+      ],
+    });
+    expect(thrown?.message).toMatch(/items\[1\]\.net_unit_price_minor/);
   });
 });

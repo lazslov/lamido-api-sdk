@@ -44,7 +44,7 @@ describe("the credential does not widen its blast radius", () => {
     const stub = fetchStub();
     await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/health",
+      path: "/healthz",
       read: { kind: "raw" },
       onError: testErrorParser,
     });
@@ -55,8 +55,8 @@ describe("the credential does not widen its blast radius", () => {
     const stub = fetchStub(() => jsonResponse({ error: { code: "unauthorized" } }, 401));
     const caught = await request(testConfig({ fetch: stub.fetch }), {
       method: "GET",
-      path: "/api/content/pages",
-      read: { kind: "data" },
+      path: "/v1/public/pages",
+      read: { kind: "envelope" },
       onError: testErrorParser,
     }).catch((error: unknown) => error);
 
@@ -71,7 +71,7 @@ describe("the credential does not widen its blast radius", () => {
       testConfig({ fetch: fetchStub().fetch, onRequest: (event) => seen.push(event) }),
       {
         method: "GET",
-        path: "/api/health",
+        path: "/healthz",
         read: { kind: "raw" },
         onError: testErrorParser,
       },

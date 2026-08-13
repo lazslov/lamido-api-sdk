@@ -1,5 +1,5 @@
 /**
- * `POST /api/invoices/:id/cancel` — the storno, and the one response that carries `stornoNumber`.
+ * `POST /v1/invoices/:id/cancel` — the storno, and the one response that carries `stornoNumber`.
  */
 
 import type { ResolvedConfig } from "@lazslov/api-core";
@@ -55,7 +55,7 @@ export function bindCancelMethod(cfg: ResolvedConfig): CancelMethods {
         path: `${invoicePath(id)}/cancel`,
         // No body: the service neither requires nor reads one, and sending `{}` would add a
         // Content-Type header to a request that has nothing to declare.
-        read: { kind: "data" },
+        read: { kind: "raw" },
         ...passInit(options),
       }),
   };

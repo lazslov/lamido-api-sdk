@@ -1,38 +1,19 @@
 /**
- * `GET /api/health` — the unauthenticated liveness probe, and the only endpoint where a non-2xx answer
- * is still an answer.
- */
-
-import { LamidoApiError, type ResolvedConfig, request } from "@lazslov/api-core";
-import type { RequestOptions } from "./call.js";
-import { parseInvoiceError, serviceName } from "./errors.js";
-import type { InvoiceHealth } from "./types.js";
-
-/**
- * A `503` carrying a health body, smuggled back through the transport's error path.
+ * `GET /healthz` — the one unauthenticated route.
  *
  * @remarks
- * Not exported, and not something a caller ever catches: it exists only because `request` is the one
- * door out of this package and it throws for every non-2xx. Hand-rolling this one request to avoid
- * that would put a second `fetch` call — and a second place the credential is attached — in the
- * package, which is a much worse trade than this small detour. The same pattern, for the same reason,
- * as `@lazslov/content`.
+ * This used to be the endpoint where a non-2xx answer was still an answer: a degraded database
+ * arrived as a `503` carrying the health body, and this module smuggled it back out through the
+ * transport's error path.
+ *
+ * **The route now always answers `200`.** The degraded *body* still exists — unlike
+ * content-service, this service does report the database here — so the check is still
+ * `status === "degraded"`, but there is no error path left to smuggle it through.
  */
-class DegradedHealth extends LamidoApiError {
-  readonly health: InvoiceHealth;
 
-  constructor(health: InvoiceHealth, requestPath: string) {
-    super({
-      service: serviceName,
-      status: 503,
-      code: "internal_error",
-      message: "invoice-service reports a degraded database",
-      requestPath,
-      retryable: true,
-    });
-    this.health = health;
-  }
-}
+import type { ResolvedConfig } from "@lazslov/api-core";
+import { call, passInit, type RequestOptions } from "./call.js";
+import type { InvoiceHealth } from "./types.js";
 
 /** The health half of a client. */
 export interface HealthMethods {
@@ -40,22 +21,20 @@ export interface HealthMethods {
    * Read the service's health.
    *
    * @param options - `init` only; this endpoint takes no parameters.
-   * @returns `{ status: "ok" }`, or the degraded body a `503` carries.
-   * @throws {@link ./errors.js | InvoiceApiError} for any other failure. A `401` from a misconfigured
-   * key is not a health report.
+   * @returns `{ status: "ok", db: "ok" }`, or the degraded body — both at `200`.
+   * @throws {@link ./errors.js | InvoiceApiError} for any failure. A non-2xx from a route that
+   * always answers `200` is a network or proxy fault, not a health report.
    * @remarks
-   * The body is **not** wrapped in `data` — one of the service's three documented envelope exceptions,
-   * and the reason `@lazslov/api-core`'s read mode is explicit per call: a shared `unwrap(body.data)`
-   * applied here returns `undefined`.
+   * The body is **not** wrapped in `data`, and never was — the reason `@lazslov/api-core`'s read
+   * mode is explicit per call.
    *
-   * When the database is unreachable the service answers `503` *with*
-   * `{ status: "degraded", db: "unreachable", code: "…" }`, and the service's own documentation lists
-   * "a client that throws before reading it" as a live problem. So a degraded answer is returned rather
-   * than thrown, and `status === "degraded"` is the check instead of a try/catch. `code` is a driver
-   * error code, never a connection string.
+   * When the database is unreachable the body is
+   * `{ status: "degraded", db: "unreachable", code: "…" }` **at `200`**, so a monitor that checks
+   * `response.ok` and stops there reports a healthy service with an unreachable database. Read
+   * `status`. `code` is a driver error code, never a connection string.
    *
-   * Unauthenticated at the service, so this is the one call that works with a key the service would
-   * otherwise reject — which also makes it useless as a credential check.
+   * Unauthenticated at the service, so this is the one call that works with a key the service
+   * would otherwise reject — which also makes it useless as a credential check.
    */
   getHealth(options?: RequestOptions): Promise<InvoiceHealth>;
 }
@@ -68,25 +47,13 @@ export interface HealthMethods {
  */
 export function bindHealthMethod(cfg: ResolvedConfig): HealthMethods {
   return {
-    async getHealth(options = {}) {
-      try {
-        return await request<InvoiceHealth>(cfg, {
-          method: "GET",
-          path: "/api/health",
-          // `raw`, not `data`: there is no envelope on this route at all.
-          read: { kind: "raw" },
-          ...(options.init ? { init: options.init } : {}),
-          onError: (context) => {
-            const body = context.body as InvoiceHealth | null;
-            return context.status === 503 && body?.status === "degraded"
-              ? new DegradedHealth(body, context.requestPath)
-              : parseInvoiceError(context);
-          },
-        });
-      } catch (error) {
-        if (error instanceof DegradedHealth) return error.health;
-        throw error;
-      }
-    },
+    getHealth: (options = {}) =>
+      call<InvoiceHealth>(cfg, {
+        method: "GET",
+        path: "/healthz",
+        // `raw`: there is no envelope on this route at all.
+        read: { kind: "raw" },
+        ...passInit(options),
+      }),
   };
 }

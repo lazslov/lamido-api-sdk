@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   deliveryIdHeader,
   eventIdHeader,
+  isKnownEvent,
+  isRefundEvent,
   parsePaymentWebhookEvent,
   signatureHeader,
   timestampHeader,
@@ -155,26 +157,47 @@ describe("verifyPaymentWebhook behaviour", () => {
 });
 
 describe("parsePaymentWebhookEvent", () => {
-  it("does not rename payment.id to public_id", () => {
-    // The payload is a frozen wire format. Renaming would hide the discrepancy from someone reading a
-    // payload and a REST response side by side — and payment.id IS the payment's public_id.
+  it("finds the payment under data, identified by public_id", () => {
+    // The payload used to be a frozen wire format spelled `payment.id` at the top level. It is the
+    // estate envelope now: resource blocks live under `data`, keyed by resource name, and every
+    // one identifies itself with `public_id` — the same spelling the REST responses use.
     const event = parsePaymentWebhookEvent(fixture("valid-payment-succeeded").rawBody);
-    expect(event?.payment.id).toBe("019e4a91-0000-7000-8000-000000000002");
-    expect(event?.payment).not.toHaveProperty("public_id");
+    expect(isKnownEvent(event!) && event!.data.payment.public_id).toBe(
+      "019e4a91-0000-7000-8000-000000000003",
+    );
+  });
+
+  it("carries the chain metadata a receiver logs and dedupes on", () => {
+    const event = parsePaymentWebhookEvent(fixture("valid-payment-succeeded").rawBody);
+    expect(event?.correlation_id).toBe(event?.event_id);
+    expect(event?.causation_id).toBeNull();
+    expect(event?.hop).toBe(0);
+    expect(event?.tenant.kind).toBe("merchant");
+  });
+
+  it("keeps an event type it has never heard of, rather than rejecting it", () => {
+    // Answering non-2xx for an unrecognised type dead-letters a delivery that was fine.
+    const body = JSON.stringify({
+      ...JSON.parse(fixture("valid-payment-succeeded").rawBody),
+      event_type: "payment.disputed",
+    });
+    const event = parsePaymentWebhookEvent(body);
+    expect(event?.event_type).toBe("payment.disputed");
   });
 
   it("keeps the amount as the string it arrived as", () => {
     const event = parsePaymentWebhookEvent(fixture("valid-payment-succeeded").rawBody);
-    expect(event?.payment.amount_minor).toBe("1000");
+    expect(isKnownEvent(event!) && event!.data.payment.amount_minor).toBe("1000");
   });
 
   it("carries the extra refund block on a refund event, with the payment's new status", () => {
     const event = parsePaymentWebhookEvent(fixture("valid-refund-succeeded").rawBody);
     expect(event?.event_type).toBe("refund.succeeded");
-    expect(event?.payment.status).toBe("partially_refunded");
-    if (event?.event_type !== "refund.succeeded") throw new Error("expected a refund event");
-    expect(event.refund).toEqual({
-      id: "019e4a95-77c1-7a02-8f31-9b0c4d5e6f70",
+    if (!event || !isRefundEvent(event)) throw new Error("expected a refund event");
+    // The payment's NEW status, derived from the refunds ledger — not the refund's.
+    expect(event.data.payment.status).toBe("partially_refunded");
+    expect(event.data.refund).toEqual({
+      public_id: "019e4a95-77c1-7a02-8f31-9b0c4d5e6f70",
       status: "succeeded",
       amount_minor: "400",
       currency: "HUF",
@@ -183,8 +206,10 @@ describe("parsePaymentWebhookEvent", () => {
 
   it("answers null for a refund event with no refund block", () => {
     // Inventing an empty one would hand a handler a zero-amount refund.
-    const body = JSON.parse(fixture("valid-refund-succeeded").rawBody) as Record<string, unknown>;
-    delete body.refund;
+    const body = JSON.parse(fixture("valid-refund-succeeded").rawBody) as {
+      data: Record<string, unknown>;
+    };
+    delete body.data.refund;
     expect(parsePaymentWebhookEvent(JSON.stringify(body))).toBeNull();
   });
 

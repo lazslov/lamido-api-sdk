@@ -10,6 +10,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Per ENDPOINT now, not per site. The old per-site secret cannot be carried across.
 const secret = "whsec_EXAMPLE_TEST_SECRET_0123456789";
 
 /** HMAC-SHA-256 over `${timestamp}.${rawBody}`, lowercase hex behind the prefix the service sends. */
@@ -19,81 +20,97 @@ const sign = (timestamp, rawBody) =>
 /** A fixed "now", in Unix seconds, so every case is deterministic. */
 const now = 1_785_168_000;
 
-/** One delivery body, as the service composes it. */
-const delivery = (overrides) =>
+/** One delivery body, in the estate's standard event envelope. */
+const delivery = (eventType, data, overrides = {}) =>
   JSON.stringify({
-    site: "acme_foundation",
-    type: "page",
-    slug: "home",
-    collection: null,
-    version: 8,
-    publishedAt: "2026-07-28T09:12:44.101Z",
+    event_id: "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+    event_type: eventType,
+    contract_version: 1,
+    occurred_at: "2026-07-28T09:12:44.101Z",
+    service: "content-service",
+    account_id: "3f7c1a92-5d84-4e60-b1c7-9a2e0f6b8d43",
+    tenant: { kind: "site", public_id: "bb0e8f21-3c4d-4a5b-9e6f-7a8b9c0d1e2f" },
+    correlation_id: "019fc236-0c4e-7e3f-8203-70fcad1d20e2",
+    causation_id: null,
+    hop: 0,
+    data,
     ...overrides,
   });
 
-const pagePublish = delivery({});
-const wholeSite = delivery({ slug: null, version: null });
-const itemPublish = delivery({
-  type: "collection_item",
-  slug: "elso_hir",
-  collection: "news",
-  version: null,
+const pagePublished = delivery("page.published", {
+  page: { slug: "home", version: 8, locales: ["hu"] },
 });
-// A page delivery whose version is null. Every field of this payload is a slug, a timestamp or an
-// enum, so there is no non-ASCII case to pin here — that lives in api-core's own HMAC fixtures.
-const nullVersionPage = delivery({ version: null });
+const wholeSite = delivery("site.revalidation_requested", {
+  site: { slug: "acme_foundation", scope: null },
+});
+const itemPublished = delivery("collection_item.published", {
+  collection_item: { collection: "news", slug: "elso_hir", status: "published" },
+});
+// An item with no slug. Slugless items are legal — only ones addressable by URL need one — so a
+// receiver reading `data.collection_item.slug` must tolerate null.
+const sluglessItem = delivery("collection_item.archived", {
+  collection_item: { collection: "news", slug: null, status: "archived" },
+});
+// A type this SDK has never heard of. It must verify and parse: answering non-2xx for it would
+// dead-letter a delivery that was fine, and five of those disable the endpoint.
+const unknownType = delivery("page.unpublished", { page: { slug: "home", version: 9 } });
 
 const cases = [
   {
     name: "valid-page",
     describes: "a page publish, the ordinary delivery",
-    rawBody: pagePublish,
-    expect: { ok: true, event: JSON.parse(pagePublish) },
+    rawBody: pagePublished,
+    expect: { ok: true, event: JSON.parse(pagePublished) },
   },
   {
     name: "valid-whole-site",
-    describes:
-      "a null slug, which means revalidate everything — a staff re-fire or a slugless item",
+    describes: "an operator re-fired the whole site — its own event type now, not a null slug",
     rawBody: wholeSite,
     expect: { ok: true, event: JSON.parse(wholeSite) },
   },
   {
     name: "valid-collection-item",
-    describes: "a collection item, whose version is null because items have no versions",
-    rawBody: itemPublish,
-    expect: { ok: true, event: JSON.parse(itemPublish) },
+    describes: "a collection item reaching published, which carries its own status",
+    rawBody: itemPublished,
+    expect: { ok: true, event: JSON.parse(itemPublished) },
   },
   {
-    name: "valid-null-version-on-a-page",
-    describes: "a page delivery with a null version, which a whole-site re-fire produces",
-    rawBody: nullVersionPage,
-    expect: { ok: true, event: JSON.parse(nullVersionPage) },
+    name: "valid-slugless-item",
+    describes: "an item with no slug, which is legal: only URL-addressable items need one",
+    rawBody: sluglessItem,
+    expect: { ok: true, event: JSON.parse(sluglessItem) },
+  },
+  {
+    name: "valid-unknown-event-type",
+    describes: "an event type this SDK does not know, which must still verify and parse",
+    rawBody: unknownType,
+    expect: { ok: true, event: JSON.parse(unknownType) },
   },
   {
     name: "bad-signature-tampered-slug",
     describes: "the signature of one body presented with another — the slug was edited in flight",
-    rawBody: delivery({ slug: "pricing" }),
-    signature: sign(String(now), pagePublish),
+    rawBody: delivery("page.published", { page: { slug: "pricing", version: 8, locales: ["hu"] } }),
+    signature: sign(String(now), pagePublished),
     expect: { ok: false, reason: "bad_signature" },
   },
   {
     name: "stale-timestamp",
     describes: "a correctly signed delivery replayed 301 seconds later, one second past tolerance",
-    rawBody: pagePublish,
+    rawBody: pagePublished,
     timestamp: String(now - 301),
-    signature: sign(String(now - 301), pagePublish),
+    signature: sign(String(now - 301), pagePublished),
     expect: { ok: false, reason: "stale_timestamp" },
   },
   {
     name: "missing-signature",
     describes: "no signature header at all — an unsigned POST is one any stranger could forge",
-    rawBody: pagePublish,
+    rawBody: pagePublished,
     signature: null,
     expect: { ok: false, reason: "missing_signature" },
   },
   {
     name: "malformed-body",
-    describes: "a valid signature over a body that is not a delivery",
+    describes: "a valid signature over a body that is not an event envelope",
     rawBody: JSON.stringify({ hello: "world" }),
     expect: { ok: false, reason: "malformed_body" },
   },

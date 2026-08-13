@@ -5,11 +5,13 @@ describe("LamidoApiError", () => {
   const error = new LamidoApiError({
     service: "payment-service",
     status: 422,
-    code: "https://example.com/problems/payment-not-refundable",
+    type: "conflict",
+    code: "payment_not_refundable",
     message: "the payment cannot be refunded in its current state",
     requestPath: "/v1/payments/pay_1/refunds",
     retryable: true,
     details: { state: "pending" },
+    requestId: "019e4a91-3f2b-7c14-9d5e-2a6b8c0d1f33",
   });
 
   it("is an Error, so existing handling still works", () => {
@@ -21,30 +23,39 @@ describe("LamidoApiError", () => {
   it("carries the fields a caller can act on", () => {
     expect(error.service).toBe("payment-service");
     expect(error.status).toBe(422);
+    expect(error.type).toBe("conflict");
+    expect(error.code).toBe("payment_not_refundable");
     expect(error.retryable).toBe(true);
     expect(error.details).toEqual({ state: "pending" });
   });
 
-  it("omits details entirely when there are none", () => {
+  it("carries the request id, which is what a support ticket quotes", () => {
+    expect(error.requestId).toBe("019e4a91-3f2b-7c14-9d5e-2a6b8c0d1f33");
+  });
+
+  it("omits every optional field entirely when there is nothing to put in it", () => {
     const bare = new LamidoApiError({
       service: "content-service",
       status: 404,
-      code: "page_not_found",
+      type: "not-found",
       message: "no such page",
-      requestPath: "/api/content/pages/nope",
+      requestPath: "/v1/public/pages/nope",
       retryable: false,
     });
+    // Absence is the honest signal, and it keeps a logged error down to what it carries.
     expect("details" in bare).toBe(false);
+    expect("code" in bare).toBe(false);
+    expect("errors" in bare).toBe(false);
+    expect("retryAfter" in bare).toBe(false);
+    expect("requestId" in bare).toBe(false);
   });
 
   it("carries a path, never a full URL", () => {
-    // payment-service does the same in its RFC 7807 `instance` member, and for the same
-    // reason: a provider id in a query string has no business in anyone's logs.
+    // The services do the same in the problem document's `instance` member, and for the same
+    // reason: a download token in a query string has no business in anyone's logs.
     expect(error.requestPath).toBe("/v1/payments/pay_1/refunds");
     expect(error.requestPath).not.toMatch(/https?:\/\//);
     expect(error.requestPath).not.toContain("?");
-    // `code` may well be a URI — an RFC 7807 problem type is one, as above — which is exactly
-    // why core keeps `code` a plain string and lets each package widen it.
   });
 });
 
@@ -62,7 +73,13 @@ describe("NotConfiguredError", () => {
 
   it("uses the status 0 sentinel to mean the request was never made", () => {
     expect(error.status).toBe(0);
-    expect(error.code).toBe("not_configured");
     expect(error.retryable).toBe(false);
+  });
+
+  it("reports an unknown problem type, because no problem document exists", () => {
+    // Nothing left the process, so there is nothing to classify. Claiming `unauthorized`
+    // here would be a guess dressed as a fact from the service.
+    expect(error.type).toBe("unknown");
+    expect(error.code).toBe("not_configured");
   });
 });

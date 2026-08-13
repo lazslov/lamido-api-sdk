@@ -46,7 +46,7 @@ describe.skipIf(!contentTarget.ready)(`content-service live`, () => {
     // mean a caller asking for 500 silently gets 100 and never learns their pager is wrong.
     const error = await failure<ContentApiError>(() => client().listAssets({ limit: 500 }));
     expect(error.status).toBe(400);
-    expect(error.code).toBe("validation_error");
+    expect(error.type).toBe("validation");
   });
   it("keeps a list's total alongside its rows, which is what the paginator follows", async () => {
     // content-service DOES return total — the opposite of invoice-service, and the reason core's

@@ -1,6 +1,6 @@
 {
   "name": "@lazslov/invoice",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Consumer SDK for invoice-service: Hungarian invoicing via szamlazz.hu and Billingo.",
   "license": "MIT",
   "repository": {

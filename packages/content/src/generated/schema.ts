@@ -12,7 +12,7 @@
  */
 
 export interface paths {
-    "/api/health": {
+    "/": {
         parameters: {
             query?: never;
             header?: never;
@@ -20,8 +20,38 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Liveness and a database ping
-         * @description The ONLY unauthenticated endpoint. Answers 503 WITH A BODY when the database is unreachable — a monitor that checks `response.ok` before reading will never see `status: "degraded"`.
+         * A static landing page for a human who typed the domain
+         * @description HTML, no auth, `Cache-Control: public, max-age=3600`. Added at `9113063`. Exists so
+         *     the root of an API host does not answer a problem document to a browser, which reads
+         *     as an outage. Scoped to `/` exactly; every other unknown path still returns the
+         *     problem document, and a non-`GET` here is a `404`.
+         *
+         *     **Not a health check** — the body is a compile-time constant served without touching
+         *     the database, so it stays `200` through a total outage. Use `/healthz` for liveness and
+         *     `GET /v1/admin/health` for the database.
+         */
+        get: operations["getLandingPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/healthz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Liveness — is the process alive
+         * @description The ONLY unauthenticated endpoint, and LIVENESS ONLY. ALWAYS ANSWERS 200 `{"status":"ok"}` while the process is alive. It answers one question: should the platform restart or drain this instance? While requests are still being served the answer is no, so a database blip must not tell every instance to die at once.
+         *     IT DOES NOT TOUCH THE DATABASE as of d013970, and the `db` member is GONE from the body rather than stubbed. It ran `select 1` and reported db: ok | unreachable, but Neon bills per hour of compute and suspends after five minutes of silence, so a monitor polling this on any shorter interval held the database awake around the clock — for a reading nothing acted on, since the route answers 200 either way. A stub would have left an alert wired to a value that can never change again.
+         *     It reads no environment variable either, so it keeps answering 200 while a malformed DATABASE_URL fails every other endpoint on the host. It proves the PROCESS is up; it cannot prove the service works.
+         *     DATABASE HEALTH IS GET /v1/admin/health, which reported it already and in far more detail. That endpoint is authenticated, so it cannot be polled by accident.
          */
         get: operations["getHealth"];
         put?: never;
@@ -32,7 +62,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/content/site": {
+    "/v1/public/site": {
         parameters: {
             query?: never;
             header?: never;
@@ -41,7 +71,7 @@ export interface paths {
         };
         /**
          * Site identity and the published `settings` section
-         * @description One request a website makes per render and caches. `settings` is `{}` — never a 404 — when the site has no `settings` section. The ETag folds in the site row's own `updatedAt`, because renaming a site changes this payload with nothing published.
+         * @description One request a website makes per render and caches. `settings` is `{}` — never a 404 — when the site has no `settings` section. The ETag folds in the site row's own `updated_at`, because renaming a site changes this payload with nothing published.
          */
         get: operations["getPublicSite"];
         put?: never;
@@ -52,7 +82,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/content/pages": {
+    "/v1/public/pages": {
         parameters: {
             query?: never;
             header?: never;
@@ -72,7 +102,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/content/pages/{slug}": {
+    "/v1/public/pages/{slug}": {
         parameters: {
             query?: never;
             header?: never;
@@ -92,7 +122,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/content/collections/{key}": {
+    "/v1/public/collections/{key}": {
         parameters: {
             query?: never;
             header?: never;
@@ -101,7 +131,7 @@ export interface paths {
         };
         /**
          * Published items of a collection
-         * @description `position` order, published only. The ETag folds in `updatedAt` as well as `publishedAt`, because a reorder moves `position` without touching any publish stamp.
+         * @description `position` order, published only. The ETag folds in `updated_at` as well as `published_at`, because a reorder moves `position` without touching any publish stamp.
          */
         get: operations["listPublishedItems"];
         put?: never;
@@ -112,7 +142,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/content/collections/{key}/items/{idOrSlug}": {
+    "/v1/public/collections/{key}/items/{idOrSlug}": {
         parameters: {
             query?: never;
             header?: never;
@@ -132,7 +162,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/content/datasets/{key}/aggregate": {
+    "/v1/public/datasets/{key}/aggregate": {
         parameters: {
             query?: never;
             header?: never;
@@ -141,7 +171,7 @@ export interface paths {
         };
         /**
          * Grouped counts and sums — the only public thing a dataset exposes
-         * @description Lets a browser render a live total without a secret key and without the site owning a database. Answered ONLY when the dataset's `publicAggregate` is true; otherwise a 404 with the same message as an unknown dataset, because a 403 would confirm it exists. Cached for 10 SECONDS, not 60: no publish invalidates a total, so this is the freshness mechanism rather than a backstop. The ETag folds in the record count, so a DELETE moves it even though no timestamp changed. There is no public records list and no public write, on any tier.
+         * @description Lets a browser render a live total without a secret key and without the site owning a database. Answered ONLY when the dataset's `public_aggregate` is true; otherwise a 404 with the same message as an unknown dataset, because a 403 would confirm it exists. Cached for 10 SECONDS, not 60: no publish invalidates a total, so this is the freshness mechanism rather than a backstop. The ETag folds in the record count, so a DELETE moves it even though no timestamp changed. There is no public records list and no public write, on any tier.
          */
         get: operations["getPublicAggregate"];
         put?: never;
@@ -152,7 +182,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/me": {
+    "/v1/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -172,7 +202,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/pages": {
+    "/v1/pages": {
         parameters: {
             query?: never;
             header?: never;
@@ -192,7 +222,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/pages/{slug}": {
+    "/v1/pages/{slug}": {
         parameters: {
             query?: never;
             header?: never;
@@ -212,7 +242,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/pages/{slug}/values": {
+    "/v1/pages/{slug}/values": {
         parameters: {
             query?: never;
             header?: never;
@@ -227,12 +257,12 @@ export interface paths {
         head?: never;
         /**
          * Save draft values
-         * @description ONLY THE DRAFT MOVES — a save never touches what is live. AN UNKNOWN KEY IS A 400, not a silent strip: stripping a typo would lose the editor's text behind a 200 OK. Every problem comes back at once in `details.unknownKeys` and `details.invalid`. One transaction. Answers with the updated draft document so an optimistic UI reconciles in one round trip.
+         * @description ONLY THE DRAFT MOVES — a save never touches what is live. AN UNKNOWN KEY IS A 400, not a silent strip: stripping a typo would lose the editor's text behind a 200 OK. Every problem comes back at once in `details.unknown_keys` and `details.invalid`. One transaction. Answers with the updated draft document so an optimistic UI reconciles in one round trip.
          */
         patch: operations["setDraftValues"];
         trace?: never;
     };
-    "/api/client/pages/{slug}/publish": {
+    "/v1/pages/{slug}/publish": {
         parameters: {
             query?: never;
             header?: never;
@@ -252,7 +282,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/pages/{slug}/revert": {
+    "/v1/pages/{slug}/revert": {
         parameters: {
             query?: never;
             header?: never;
@@ -272,7 +302,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/pages/{slug}/versions": {
+    "/v1/pages/{slug}/versions": {
         parameters: {
             query?: never;
             header?: never;
@@ -292,7 +322,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/pages/{slug}/versions/{version}": {
+    "/v1/pages/{slug}/versions/{version}": {
         parameters: {
             query?: never;
             header?: never;
@@ -309,7 +339,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/pages/{slug}/versions/{version}/restore": {
+    "/v1/pages/{slug}/versions/{version}/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -329,7 +359,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/rendered/pages/{slug}": {
+    "/v1/rendered/pages/{slug}": {
         parameters: {
             query?: never;
             header?: never;
@@ -349,7 +379,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/collections": {
+    "/v1/collections": {
         parameters: {
             query?: never;
             header?: never;
@@ -369,7 +399,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/collections/{key}/items": {
+    "/v1/collections/{key}/items": {
         parameters: {
             query?: never;
             header?: never;
@@ -384,7 +414,7 @@ export interface paths {
         put?: never;
         /**
          * Create an item — always born a draft
-         * @description `status` is not settable: otherwise "add the next news item" would be a publish. An unknown value key is a 400, checked against the collection's itemSchema. A duplicate slug is a 409; a null slug never collides.
+         * @description `status` is not settable: otherwise "add the next news item" would be a publish. An unknown value key is a 400, checked against the collection's item_schema. A duplicate slug is a 409; a null slug never collides.
          */
         post: operations["createItem"];
         delete?: never;
@@ -393,7 +423,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/collections/{key}/items/reorder": {
+    "/v1/collections/{key}/items/reorder": {
         parameters: {
             query?: never;
             header?: never;
@@ -413,7 +443,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/collections/{key}/items/{id}": {
+    "/v1/collections/{key}/items/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -426,7 +456,7 @@ export interface paths {
         post?: never;
         /**
          * HARD delete an item — archive instead, normally
-         * @description Reference-counted: a 409 with details.recordCount while dataset records point at this item, unless force=true, which leaves those refs dangling (visible in GET /api/admin/health, audited as forced). ARCHIVING IS THE EVERYDAY PATH and has nothing to refuse.
+         * @description Reference-counted: a 409 with details.record_count while dataset records point at this item, unless force=true, which leaves those refs dangling (visible in GET /v1/admin/health, audited as forced). ARCHIVING IS THE EVERYDAY PATH and has nothing to refuse.
          */
         delete: operations["deleteItem"];
         options?: never;
@@ -438,7 +468,7 @@ export interface paths {
         patch: operations["updateItem"];
         trace?: never;
     };
-    "/api/client/collections/{key}/items/{id}/publish": {
+    "/v1/collections/{key}/items/{id}/publish": {
         parameters: {
             query?: never;
             header?: never;
@@ -449,7 +479,7 @@ export interface paths {
         put?: never;
         /**
          * Publish one item
-         * @description Copies draft over published per key with coalesce, flips status to published and stamps publishedAt, then fires the revalidation webhook. An empty required key is a 409 with details.missing. Publishing an ARCHIVED item brings it back — there is no separate un-archive endpoint.
+         * @description Copies draft over published per key with coalesce, flips status to published and stamps published_at, then fires the revalidation webhook. An empty required key is a 409 with details.missing. Publishing an ARCHIVED item brings it back — there is no separate un-archive endpoint.
          */
         post: operations["publishItem"];
         delete?: never;
@@ -458,7 +488,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/collections/{key}/items/{id}/archive": {
+    "/v1/collections/{key}/items/{id}/archive": {
         parameters: {
             query?: never;
             header?: never;
@@ -478,7 +508,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/assets/upload-token": {
+    "/v1/assets/upload-token": {
         parameters: {
             query?: never;
             header?: never;
@@ -498,7 +528,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/assets": {
+    "/v1/assets": {
         parameters: {
             query?: never;
             header?: never;
@@ -507,7 +537,7 @@ export interface paths {
         };
         /**
          * This site's image library, newest first
-         * @description No siteId parameter, unlike the admin twin — the key decides the site, so there is nothing here a caller could set to read another one. `references` is live: 0 means safe to delete.
+         * @description No `site_id` parameter, unlike the admin twin — the key decides the site, so there is nothing here a caller could set to read another one. `references` is live: 0 means safe to delete.
          */
         get: operations["listClientAssets"];
         put?: never;
@@ -522,7 +552,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/assets/{id}": {
+    "/v1/assets/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -542,7 +572,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/datasets": {
+    "/v1/datasets": {
         parameters: {
             query?: never;
             header?: never;
@@ -559,7 +589,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/datasets/{key}/records": {
+    "/v1/datasets/{key}/records": {
         parameters: {
             query?: never;
             header?: never;
@@ -568,12 +598,12 @@ export interface paths {
         };
         /**
          * Records, newest event first
-         * @description Ordered by occurredAt descending, not createdAt — a migrated ledger keeps its original dates, and ordering by when the webhook landed would put a back-fill at the top. SENSITIVE VALUES ARE WITHHELD ENTIRELY HERE; there is one door to them and it is the single-record read.
+         * @description Ordered by occurred_at descending, not created_at — a migrated ledger keeps its original dates, and ordering by when the webhook landed would put a back-fill at the top. SENSITIVE VALUES ARE WITHHELD ENTIRELY HERE; there is one door to them and it is the single-record read.
          */
         get: operations["listRecords"];
         put?: never;
         /**
-         * Insert a record — IDEMPOTENT on externalId
+         * Insert a record — IDEMPOTENT on external_id
          * @description THIS IS THE ONLY TIER THAT CREATES RECORDS. 201 created:true for a new row, 200 created:false for a replay. A REDELIVERED WEBHOOK IS A SUCCESS, NOT A 409 — an error would make a payment provider retry forever. Uniqueness is the (dataset_id, external_id) index's job, so two concurrent deliveries cannot race into two rows. Pass the provider's own id; a uuid generated per attempt defeats the mechanism. An unknown data key is a 400.
          */
         post: operations["insertRecord"];
@@ -583,7 +613,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/client/datasets/{key}/records/{id}": {
+    "/v1/datasets/{key}/records/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -606,12 +636,12 @@ export interface paths {
         head?: never;
         /**
          * Partially update a record
-         * @description data keys MERGE; null clears one. `required` is checked against the MERGED result, so a one-field correction is possible. externalId is absent from this body and is stripped if sent: changing the idempotency key would let a replay insert a second row for a payment that already counted.
+         * @description data keys MERGE; null clears one. `required` is checked against the MERGED result, so a one-field correction is possible. external_id is absent from this body and is stripped if sent: changing the idempotency key would let a replay insert a second row for a payment that already counted.
          */
         patch: operations["updateRecord"];
         trace?: never;
     };
-    "/api/client/datasets/{key}/aggregate": {
+    "/v1/datasets/{key}/aggregate": {
         parameters: {
             query?: never;
             header?: never;
@@ -620,7 +650,7 @@ export interface paths {
         };
         /**
          * Grouped counts and sums, authenticated
-         * @description The same parser and the same semantics as the public aggregate, with no publicAggregate gate — so a dataset's public aggregate can never answer a question its authenticated twin refuses. Answers ETag/If-None-Match with 304; the validator folds in the record count, so a delete moves it.
+         * @description The same parser and the same semantics as the public aggregate, with no public_aggregate gate — so a dataset's public aggregate can never answer a question its authenticated twin refuses. Answers ETag/If-None-Match with 304; the validator folds in the record count, so a delete moves it.
          */
         get: operations["getClientAggregate"];
         put?: never;
@@ -631,7 +661,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/me": {
+    "/v1/admin/me": {
         parameters: {
             query?: never;
             header?: never;
@@ -651,7 +681,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/health": {
+    "/v1/admin/health": {
         parameters: {
             query?: never;
             header?: never;
@@ -660,7 +690,12 @@ export interface paths {
         };
         /**
          * The operator status strip
-         * @description No scope required. Deeper than /api/health: it reports the conditions a human has to act on. The DB-unreachable branch answers 503 WITH THIS BODY, so a consumer that checks response.ok first will never see status degraded. danglingRefs is deliberately excluded from `status`, because ref policy store produces them on purpose.
+         * @description No scope required — a key must always be able to introspect. Deeper than /healthz, and since d013970 THE ONLY ENDPOINT THAT REPORTS DATABASE HEALTH — /healthz stopped querying, so every `db` alert belongs here. It queries on every call, so schedule a poll in minutes rather than seconds: Neon bills for the compute a poll keeps awake.
+         *     It reports the conditions a human has to act on, and EVERY COUNT HAS A DRILL-DOWN — orphan_assets → GET /v1/admin/assets/orphans · dangling_refs → GET /v1/admin/datasets/{id}/records · pending_deliveries and dead_lettered_deliveries → GET /v1/admin/webhook-deliveries?status=… · disabled_endpoints → GET /v1/admin/webhook-endpoints?enabled=false · sites_without_external_ref → GET /v1/admin/sites.
+         *
+         *     The four webhook counts bind the SAME exported predicate their list does, which is what the removed failed_revalidations got wrong: it and its drill-down were two independent queries over two tables with different windows, so they could disagree.
+         *
+         *     ALSO ALWAYS 200 — alert on `status`, never on the status code. dangling_refs and pending_deliveries are deliberately excluded from `status`: ref policy `store` produces the first on purpose, and with no cron a queued delivery is the ordinary state of a healthy queue, so either would pin a dashboard amber forever.
          */
         get: operations["getAdminHealth"];
         put?: never;
@@ -671,7 +706,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/admin-keys": {
+    "/v1/admin/admin-keys": {
         parameters: {
             query?: never;
             header?: never;
@@ -680,7 +715,7 @@ export interface paths {
         };
         /**
          * Every admin key, hashes excluded
-         * @description Scope: admin:manage.
+         * @description Scope: admin:manage. NOT PAGINATED — it returns every key, newest first, and takes no `limit` or `offset`. It used to advertise both; the handler never read them, so a caller that paged silently received the whole list on every request.
          */
         get: operations["listAdminKeys"];
         put?: never;
@@ -695,7 +730,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/admin-keys/{id}": {
+    "/v1/admin/admin-keys/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -719,7 +754,7 @@ export interface paths {
         patch: operations["updateAdminKey"];
         trace?: never;
     };
-    "/api/admin/sites": {
+    "/v1/admin/sites": {
         parameters: {
             query?: never;
             header?: never;
@@ -728,7 +763,7 @@ export interface paths {
         };
         /**
          * Sites, filterable
-         * @description Scope: sites:read. `externalRef` is indexed, so filtering by it is cheap.
+         * @description Scope: sites:read. `external_ref` is indexed, so filtering by it is cheap.
          */
         get: operations["listSites"];
         put?: never;
@@ -743,7 +778,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}": {
+    "/v1/admin/sites/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -766,12 +801,14 @@ export interface paths {
         head?: never;
         /**
          * Update a site
-         * @description Scope: sites:write. A body with no fields is a 400. `locales` must still contain `defaultLocale` — checked against the stored row when only one of the two is sent. Setting revalidateSecret to null clears it; active true reverses a soft delete.
+         * @description Scope: sites:write. A body with no fields is a 400. `locales` must still contain `default_locale` — checked against the stored row when only one of the two is sent. `active: true` reverses a soft delete.
+         *
+         *     The revalidation fields are no longer accepted here — see the body description below.
          */
         patch: operations["updateSite"];
         trace?: never;
     };
-    "/api/admin/sites/{id}/keys": {
+    "/v1/admin/sites/{id}/keys": {
         parameters: {
             query?: never;
             header?: never;
@@ -780,7 +817,7 @@ export interface paths {
         };
         /**
          * A site's keys, masked
-         * @description Scope: sites:read. Hashes are never returned; keyLast4 is how two keys are told apart.
+         * @description Scope: sites:read. Hashes are never returned; key_last4 is how two keys are told apart.
          */
         get: operations["listSiteKeys"];
         put?: never;
@@ -795,7 +832,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/keys/{keyId}/rotate": {
+    "/v1/admin/sites/{id}/keys/{keyId}/rotate": {
         parameters: {
             query?: never;
             header?: never;
@@ -806,7 +843,7 @@ export interface paths {
         put?: never;
         /**
          * Replace a key's secret, keeping the row
-         * @description Scope: sites:write. Same row, so the label, the audit history and every entry naming this key id survive; lastUsedAt resets and a revoked key becomes active again. THERE IS NO GRACE WINDOW — the old plaintext stops working the moment this returns, so deploy the new key to the consumer before or with the rotation.
+         * @description Scope: sites:write. Same row, so the label, the audit history and every entry naming this key id survive; last_used_at resets and a revoked key becomes active again. THERE IS NO GRACE WINDOW — the old plaintext stops working the moment this returns, so deploy the new key to the consumer before or with the rotation.
          */
         post: operations["rotateSiteKey"];
         delete?: never;
@@ -815,7 +852,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/keys/{keyId}": {
+    "/v1/admin/sites/{id}/keys/{keyId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -835,7 +872,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/pages": {
+    "/v1/admin/sites/{id}/pages": {
         parameters: {
             query?: never;
             header?: never;
@@ -859,7 +896,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/pages/reorder": {
+    "/v1/admin/sites/{id}/pages/reorder": {
         parameters: {
             query?: never;
             header?: never;
@@ -879,7 +916,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/pages/{id}": {
+    "/v1/admin/pages/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -907,7 +944,7 @@ export interface paths {
         patch: operations["updatePage"];
         trace?: never;
     };
-    "/api/admin/pages/{id}/sections": {
+    "/v1/admin/pages/{id}/sections": {
         parameters: {
             query?: never;
             header?: never;
@@ -922,7 +959,7 @@ export interface paths {
         put?: never;
         /**
          * Create a section
-         * @description Scope: sites:write. `key` "settings" is RESERVED — that section becomes the `settings` object on GET /api/content/site, and a site should carry exactly one. A duplicate key on the page is a 409.
+         * @description Scope: sites:write. `key` "settings" is RESERVED — that section becomes the `settings` object on GET /v1/public/site, and a site should carry exactly one. A duplicate key on the page is a 409.
          */
         post: operations["createSection"];
         delete?: never;
@@ -931,7 +968,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/pages/{id}/sections/reorder": {
+    "/v1/admin/pages/{id}/sections/reorder": {
         parameters: {
             query?: never;
             header?: never;
@@ -951,7 +988,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sections/{id}": {
+    "/v1/admin/sections/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -975,7 +1012,7 @@ export interface paths {
         patch: operations["updateSection"];
         trace?: never;
     };
-    "/api/admin/sections/{id}/fields": {
+    "/v1/admin/sections/{id}/fields": {
         parameters: {
             query?: never;
             header?: never;
@@ -990,7 +1027,7 @@ export interface paths {
         put?: never;
         /**
          * Create a field
-         * @description Scope: sites:write. itemSchema is REQUIRED for type list and REJECTED for every other type — a list with no schema has nothing to validate its entries against, and a schema on a scalar is meaningless. `type: "list"` inside an itemSchema is rejected: lists do not nest.
+         * @description Scope: sites:write. item_schema is REQUIRED for type list and REJECTED for every other type — a list with no schema has nothing to validate its entries against, and a schema on a scalar is meaningless. `type: "list"` inside an item_schema is rejected: lists do not nest.
          */
         post: operations["createField"];
         delete?: never;
@@ -999,7 +1036,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sections/{id}/fields/reorder": {
+    "/v1/admin/sections/{id}/fields/reorder": {
         parameters: {
             query?: never;
             header?: never;
@@ -1019,7 +1056,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/fields/{id}": {
+    "/v1/admin/fields/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1043,7 +1080,7 @@ export interface paths {
         patch: operations["updateField"];
         trace?: never;
     };
-    "/api/admin/sites/{id}/collections": {
+    "/v1/admin/sites/{id}/collections": {
         parameters: {
             query?: never;
             header?: never;
@@ -1058,7 +1095,7 @@ export interface paths {
         put?: never;
         /**
          * Create a collection
-         * @description Scope: sites:write. itemSchema is required and must hold 1–50 unique-keyed entries of scalar types. Site-scoped, not page-scoped: one collection can be rendered by several pages.
+         * @description Scope: sites:write. item_schema is required and must hold 1–50 unique-keyed entries of scalar types. Site-scoped, not page-scoped: one collection can be rendered by several pages.
          */
         post: operations["createCollection"];
         delete?: never;
@@ -1067,7 +1104,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/collections/{id}": {
+    "/v1/admin/collections/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1090,12 +1127,12 @@ export interface paths {
         head?: never;
         /**
          * Update a collection
-         * @description Scope: sites:write. Removing a key from itemSchema does NOT delete the values already stored under it — they simply stop being readable through the schema, and a re-added key finds them again.
+         * @description Scope: sites:write. Removing a key from item_schema does NOT delete the values already stored under it — they simply stop being readable through the schema, and a re-added key finds them again.
          */
         patch: operations["updateCollection"];
         trace?: never;
     };
-    "/api/admin/sites/{id}/assets/upload-token": {
+    "/v1/admin/sites/{id}/assets/upload-token": {
         parameters: {
             query?: never;
             header?: never;
@@ -1115,7 +1152,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/assets": {
+    "/v1/admin/sites/{id}/assets": {
         parameters: {
             query?: never;
             header?: never;
@@ -1135,7 +1172,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/assets": {
+    "/v1/admin/assets": {
         parameters: {
             query?: never;
             header?: never;
@@ -1144,7 +1181,7 @@ export interface paths {
         };
         /**
          * The image library, across every site or one
-         * @description Scope: assets:read. Omitting siteId lists EVERY site — this key is cross-tenant.
+         * @description Scope: assets:read. Omitting site_id lists EVERY site — this key is cross-tenant.
          */
         get: operations["listAdminAssets"];
         put?: never;
@@ -1155,7 +1192,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/assets/orphans": {
+    "/v1/admin/assets/orphans": {
         parameters: {
             query?: never;
             header?: never;
@@ -1164,7 +1201,7 @@ export interface paths {
         };
         /**
          * Assets nothing refers to
-         * @description Scope: assets:read. Shares its exact predicate with the orphanAssets count on GET /api/admin/health, so the number and this list are the same set by construction. The response echoes back the cutoff it applied, so a list can be matched to the count that prompted it. olderThan is in HOURS (default 24, so a just-uploaded image is not garbage); 0 reports everything unreferenced right now.
+         * @description Scope: assets:read. Shares its exact predicate with the orphan_assets count on GET /v1/admin/health, so the number and this list are the same set by construction. The response echoes back the cutoff it applied, so a list can be matched to the count that prompted it. older_than is in HOURS (default 24, so a just-uploaded image is not garbage); 0 reports everything unreferenced right now.
          */
         get: operations["listOrphanAssets"];
         put?: never;
@@ -1175,7 +1212,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/assets/{id}": {
+    "/v1/admin/assets/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1195,7 +1232,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/datasets": {
+    "/v1/admin/sites/{id}/datasets": {
         parameters: {
             query?: never;
             header?: never;
@@ -1210,7 +1247,7 @@ export interface paths {
         put?: never;
         /**
          * Provision a dataset
-         * @description Scope: datasets:write. A new kind of client data costs one call and NO DEPLOY. Cross-field rules, each a 400: summable only on a number field, sensitive may NEVER be groupable, and a ref.collection must be a collection that already exists on this site. Setting publicAggregate true makes every groupable field's values publicly enumerable through group keys.
+         * @description Scope: datasets:write. A new kind of client data costs one call and NO DEPLOY. Cross-field rules, each a 400: summable only on a number field, sensitive may NEVER be groupable, and a ref.collection must be a collection that already exists on this site. Setting public_aggregate true makes every groupable field's values publicly enumerable through group keys.
          */
         post: operations["createDataset"];
         delete?: never;
@@ -1219,7 +1256,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/datasets/{id}": {
+    "/v1/admin/datasets/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1242,12 +1279,12 @@ export interface paths {
         head?: never;
         /**
          * Update a dataset definition
-         * @description Scope: datasets:write. Existing records are NOT re-validated against a changed schema — tightening a rule affects future writes only. retentionDays null clears the window back to keep-forever.
+         * @description Scope: datasets:write. Existing records are NOT re-validated against a changed schema — tightening a rule affects future writes only. retention_days null clears the window back to keep-forever.
          */
         patch: operations["updateDataset"];
         trace?: never;
     };
-    "/api/admin/datasets/{id}/records": {
+    "/v1/admin/datasets/{id}/records": {
         parameters: {
             query?: never;
             header?: never;
@@ -1267,7 +1304,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/datasets/{id}/records/{recordId}": {
+    "/v1/admin/datasets/{id}/records/{recordId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1291,7 +1328,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/rendered/pages/{slug}": {
+    "/v1/admin/sites/{id}/rendered/pages/{slug}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1300,7 +1337,7 @@ export interface paths {
         };
         /**
          * A page document in either view, for any site
-         * @description Scope: content:read. The client-tier twin of GET /api/client/rendered/pages/{slug}.
+         * @description Scope: content:read. The client-tier twin of GET /v1/rendered/pages/{slug}.
          */
         get: operations["getAdminRenderedPage"];
         put?: never;
@@ -1311,7 +1348,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/pages/{slug}/values": {
+    "/v1/admin/sites/{id}/pages/{slug}/values": {
         parameters: {
             query?: never;
             header?: never;
@@ -1331,7 +1368,7 @@ export interface paths {
         patch: operations["setAdminDraftValues"];
         trace?: never;
     };
-    "/api/admin/sites/{id}/pages/{slug}/publish": {
+    "/v1/admin/sites/{id}/pages/{slug}/publish": {
         parameters: {
             query?: never;
             header?: never;
@@ -1351,7 +1388,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/pages/{slug}/revert": {
+    "/v1/admin/sites/{id}/pages/{slug}/revert": {
         parameters: {
             query?: never;
             header?: never;
@@ -1371,7 +1408,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/pages/{slug}/versions": {
+    "/v1/admin/sites/{id}/pages/{slug}/versions": {
         parameters: {
             query?: never;
             header?: never;
@@ -1391,7 +1428,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/pages/{slug}/versions/{version}": {
+    "/v1/admin/sites/{id}/pages/{slug}/versions/{version}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1411,7 +1448,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/pages/{slug}/versions/{version}/restore": {
+    "/v1/admin/sites/{id}/pages/{slug}/versions/{version}/restore": {
         parameters: {
             query?: never;
             header?: never;
@@ -1431,7 +1468,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/collections/{key}/items": {
+    "/v1/admin/sites/{id}/collections/{key}/items": {
         parameters: {
             query?: never;
             header?: never;
@@ -1455,7 +1492,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/collections/{key}/items/reorder": {
+    "/v1/admin/sites/{id}/collections/{key}/items/reorder": {
         parameters: {
             query?: never;
             header?: never;
@@ -1475,7 +1512,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/collections/{key}/items/{itemId}": {
+    "/v1/admin/sites/{id}/collections/{key}/items/{itemId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1503,7 +1540,7 @@ export interface paths {
         patch: operations["updateAdminItem"];
         trace?: never;
     };
-    "/api/admin/sites/{id}/collections/{key}/items/{itemId}/publish": {
+    "/v1/admin/sites/{id}/collections/{key}/items/{itemId}/publish": {
         parameters: {
             query?: never;
             header?: never;
@@ -1523,7 +1560,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/collections/{key}/items/{itemId}/archive": {
+    "/v1/admin/sites/{id}/collections/{key}/items/{itemId}/archive": {
         parameters: {
             query?: never;
             header?: never;
@@ -1543,7 +1580,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/export": {
+    "/v1/admin/sites/{id}/export": {
         parameters: {
             query?: never;
             header?: never;
@@ -1563,7 +1600,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/import": {
+    "/v1/admin/sites/{id}/import": {
         parameters: {
             query?: never;
             header?: never;
@@ -1583,7 +1620,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/sites/{id}/revalidate": {
+    "/v1/admin/sites/{id}/revalidate": {
         parameters: {
             query?: never;
             header?: never;
@@ -1593,17 +1630,299 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Re-fire the revalidation webhook by hand
-         * @description Scope: content:publish. Every field is optional; a bodyless POST re-sends "revalidate everything", which is what a receiver should read an absent slug as. `collection` is REQUIRED when type is collection_item. Use it after failedRevalidations moves on GET /api/admin/health.
+         * Invalidate a whole site now — emits site.revalidation_requested
+         * @description Scope: content:publish. Emits a `site.revalidation_requested` event, which is a NEW fact.
+         *
+         *     THIS ROUTE'S MEANING NARROWED. It used to serve both "re-send that failed delivery" and "invalidate everything", and that conflation was a defect: it wrote a NEW event_id every time, against a published contract telling receivers to dedupe on exactly that id — so a "re-fired" publish arrived as an event the receiver had never seen. To re-send a failed delivery use POST /v1/admin/webhook-deliveries/{id}/redeliver, which keeps the same X-Event-Id.
+         *
+         *     `slug` and `collection` are a NARROWING HINT carried as `data.site.scope`, not a target: the event is a fact about the site, and a receiver may invalidate everything regardless. Omit them and `scope` is null. No fabricated version is sent — the old route read the latest page_versions row, which made a hand-triggered call indistinguishable on the wire from a real publish.
+         *
+         *     A site with no endpoint is NO LONGER a 409; the event is recorded regardless, so the honest answer is `queued: 0`. Throttled to 10/min per site, rejected BEFORE anything is written.
          */
-        post: operations["refireRevalidation"];
+        post: operations["requestSiteRevalidation"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/audit": {
+    "/v1/admin/event-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The closed event catalogue, as data
+         * @description Scope: webhooks:read. THE HIGHEST-LEVERAGE ROUTE ON THIS SURFACE. Build a trigger picker from it, never from a hardcoded array — otherwise every checkbox list in a consuming admin must be edited in another repository whenever any service adds an event, which means it will be wrong, silently, and the symptom is an operator who cannot subscribe to an event that exists.
+         *
+         *     Served from the same in-code catalogue that validates `subscribed_events`, bounds what the emitter may send, and is asserted against the published conventions table — so the four cannot disagree. `webhook.ping` is reserved estate-wide, is in NO catalogue and is not subscribable.
+         */
+        get: operations["listEventTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every endpoint, across sites
+         * @description Scope: webhooks:read. `event_type` is the TRIGGER-FIRST view — "on page.published, call these two endpoints" — which is the question an operator actually has. It is this relation read from the other side and is derived on read; the inverse is never stored, because two truths about one relation disagree.
+         *
+         *     GOTCHA: the `event_type` filter is applied IN MEMORY, because `subscribed_events` is a jsonb array where null means "every type, including ones added later". So a page may come back SHORT of `limit` — recorded here rather than hidden, because a silently short page is how a client concludes it has reached the end.
+         */
+        get: operations["listWebhookEndpoints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/sites/{id}/webhook-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One site's endpoints
+         * @description Scope: webhooks:read. A 200 WITH AN EMPTY ARRAY when the site has none, never a 404 — over a collection, "receives no webhooks" is simply an empty collection, and 404ing it would make a client branch on a status to render a table with no rows. Not paginated: 20 is the ceiling.
+         */
+        get: operations["listSiteWebhookEndpoints"];
+        put?: never;
+        /**
+         * Add a destination — THE ONLY RESPONSE THAT SHOWS THE SIGNING SECRET
+         * @description Scope: webhooks:write.
+         *
+         *     CRITICAL: the response carries `signing_secret` and it is READABLE EXACTLY ONCE, here or from rotate-secret. Put it into the receiver's CONTENT_REVALIDATE_SECRET. Afterwards only secret_last4 and secret_fingerprint come back. A lost secret can only be ROTATED, never recovered — and rotating invalidates the old one immediately.
+         *
+         *     The whole `whsec_…` string IS the HMAC key, prefix included. Do not strip it; Svix-signed feeds do, and this is the opposite rule.
+         *
+         *     A site may hold 20 endpoints; the 21st is a 409 `code: endpoint_limit_reached`. There is no upsert — the site PATCH that used to set `revalidate_url` was REMOVED rather than redefined, because a route whose semantics silently changed is worse than one that rejects the field.
+         */
+        post: operations["createWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{publicId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One endpoint
+         * @description Scope: webhooks:read. The signing secret is never here.
+         */
+        get: operations["getWebhookEndpoint"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a destination
+         * @description Scope: webhooks:write. Takes its pending deliveries with it and LEAVES EVERY EVENT. An event is a fact about a publish that deleting a URL cannot un-happen, and an operator asking "what did we emit last Tuesday" must get the same answer before and after this call. That asymmetry is why events and deliveries are two tables.
+         */
+        delete: operations["deleteWebhookEndpoint"];
+        options?: never;
+        head?: never;
+        /**
+         * Change an endpoint's configuration
+         * @description Scope: webhooks:write.
+         *
+         *     A PATCH DOES NOT RE-ENABLE and does not clear consecutive_failures. Bundling "the destination is good now" into every field change meant that fixing a typo in a URL silently re-armed an endpoint auto-disabled a week earlier, and the operator had no idea. POST …/enable says that, and says only that.
+         *
+         *     The audit entry records WHICH FIELDS CHANGED, not their values — with one exception: include_record_values is audited BY VALUE, because "an operator turned donor values on" is precisely what has to be recoverable later.
+         */
+        patch: operations["patchWebhookEndpoint"];
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{publicId}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint new key material — returned ONCE
+         * @description Scope: webhooks:write. Returns the plaintext once, like a create. THE PREVIOUS SECRET STOPS WORKING IMMEDIATELY, which is why this is a route of its own rather than a flag on the patch: it must not be reachable by an operator who thought they were editing a URL.
+         *
+         *     Clears consecutive_failures and RE-ENABLES the endpoint — an operator rotating is about to hand the receiver a working secret, and leaving the counter one dead-letter from the threshold would disable it on its next hiccup.
+         *
+         *     THIS IS ALSO HOW THE MIGRATION COMPLETES. An endpoint carried over from the old sites.revalidate_url has no secret and is disabled; rotating mints one and enables it. Other endpoints of the same site are untouched — that is the entire point of per-endpoint secrets.
+         */
+        post: operations["rotateWebhookEndpointSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{publicId}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear a disable
+         * @description Scope: webhooks:write. Resets consecutive_failures as well as the flag — leaving the counter one dead-letter below the threshold would disable the endpoint again on its next hiccup, which reads to an operator as "the enable button does not work".
+         *
+         *     REFUSED WITH A 409 (`code: secret_missing`) while the endpoint has no signing secret, rather than enabling one that would fail every attempt. Rotating the secret is what enables such an endpoint, and it says so in disabled_reason.
+         */
+        post: operations["enableWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{publicId}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop delivering to an endpoint
+         * @description Scope: webhooks:write. THE CORRECT WAY to say "this endpoint should receive nothing" — which is why `subscribed_events: []` is a 400 rather than a synonym for it. A disabled endpoint keeps its URL, its secret and its history; an endpoint subscribed to nothing looks configured and is silently dead.
+         *
+         *     Always records a reason, defaulted rather than left null, so a non-null disabled_reason never has to be read as "auto-disabled, reason lost".
+         */
+        post: operations["disableWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-endpoints/{publicId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deliver a signed webhook.ping now, synchronously
+         * @description Scope: webhooks:write. USE THIS BEFORE ANYTHING IS LIVE, AND AFTER EVERY ROTATION. Without it the only way to prove a URL and a secret are right is to cause a real publish — and the operator configuring an endpoint is usually not the person who can publish on a live website. Every misconfiguration then surfaces as a dead-letter hours later, attached to a real publish that was ALSO lost.
+         *
+         *     Bypasses subscribed_events and the ladder, and writes NO EVENT ROW AND NO DELIVERY ROW: a probe is not a fact about a page, and counting a failed probe would put configuration noise in the number that means "a website was not told". It never touches consecutive_failures.
+         *
+         *     Shares the envelope, the renderer, the signature, the URL guard, the timeout, the redirect rule and the excerpt cap with production — a test button that exercises its own copy of the delivery path proves only that the copy works.
+         *
+         *     Answers 200 WHATEVER THE RECEIVER SAID; `ok` is the result. An endpoint with no secret is a 409 `code: secret_missing`.
+         */
+        post: operations["testWebhookEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The outbox — what we say we emitted, and exactly what we sent
+         * @description Scope: webhooks:read. REPLACES GET /v1/admin/revalidations. Answers the one question no other list can: "we say we emitted it — what exactly did we send?" The delivery list says what happened to it afterwards, and the two are separate because an event emitted for a site with no endpoint has NO delivery row and must still be findable.
+         *
+         *     EVERY EVENT IS HERE, including ones with no destination — and unlike the old outbox this write is INSIDE the publish transaction, so it is a reconcilable ledger rather than near-complete evidence. A rolled-back publish leaves no row; a committed one leaves exactly one, even if the process was killed before any HTTP attempt.
+         *
+         *     correlation_id is THE CROSS-SERVICE QUERY: one value returns everything one publish caused, here and against a sibling service's copy of this route.
+         *
+         *     GOTCHA: `payload` is what we STORED, not necessarily what a given endpoint RECEIVED. include_record_values is applied per endpoint at delivery time and contract_version renders per endpoint, so two receivers can legitimately have been sent different bytes for one row.
+         */
+        get: operations["listWebhookEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The delivery queue — the drill-down behind the health strip
+         * @description Scope: webhooks:read. Shares its predicates with the health counts BY CONSTRUCTION: `?status=dead_lettered` is the same condition dead_lettered_deliveries counts, because both bind one exported SQL fragment rather than two independently written queries. That is the fix the old failed_revalidations needed — it and its drill-down were separate queries over separate tables with different windows, so they could disagree.
+         *
+         *     `status` defaults to `all` DELIBERATELY: an operator arrives here from a health count, and defaulting to pending would show them a different set than the one they clicked.
+         */
+        get: operations["listWebhookDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/webhook-deliveries/{deliveryId}/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send that delivery again — SAME event id
+         * @description Scope: webhooks:write. THIS RESETS THE EXISTING ROW AND KEEPS THE EVENT ID.
+         *
+         *     `unique(event_id, endpoint_id)` makes a second row for one event IMPOSSIBLE TO INSERT, so "a new attempt with the same X-Event-Id" is enforced by the schema rather than by this handler remembering. The receiver is entitled to recognise the event and skip it — which is exactly what finally makes the documented dedupe key honest. Before this split, re-firing wrote a NEW event_id while the docs told receivers to dedupe on it, so a "re-fired" publish arrived as an event the receiver had never seen and was processed as new.
+         *
+         *     X-Delivery-Id IS regenerated, because it identifies one HTTP request and the receiver is about to get a different one. `attempt` goes back to 1, so a redelivered dead-letter gets the whole ladder again: an operator redelivering has usually just fixed something, and one attempt before dead-lettering again would waste the fix.
+         *
+         *     It DELIVERS INLINE and answers with the row re-read AFTER the attempt, so status is already delivered with the receiver response_status, or pending at attempt 2 with the error. It also IGNORES next_attempt_at, which is what makes it the tool for one delivery an operator is actively fixing; db:webhooks-drain is the tool for a backlog, and it honours the ladder. See website-api.md#delivery-guarantees.
+         *
+         *     Use POST /v1/admin/sites/{id}/revalidate instead when the intent is "invalidate everything", which is a genuinely new fact.
+         */
+        post: operations["redeliverWebhookDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/audit": {
         parameters: {
             query?: never;
             header?: never;
@@ -1612,7 +1931,7 @@ export interface paths {
         };
         /**
          * The append-only write trail
-         * @description Scope: audit:read. Newest first. There is deliberately no write and no delete endpoint. The targetType+targetId pair and action+date-window are index-served; filtering on anything else is a scan. metadata is an ALLOWLISTED summary per action — never a raw body, never a plaintext key, never a record's values.
+         * @description Scope: audit:read. Newest first. There is deliberately no write and no delete endpoint. The target_type+target_id pair and action+date-window are index-served; filtering on anything else is a scan. metadata is an ALLOWLISTED summary per action — never a raw body, never a plaintext key, never a record's values.
          */
         get: operations["listAudit"];
         put?: never;
@@ -1623,7 +1942,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/stats/overview": {
+    "/v1/admin/stats/overview": {
         parameters: {
             query?: never;
             header?: never;
@@ -1654,19 +1973,59 @@ export interface components {
          * @example donations
          */
         Slug: string;
-        Error: {
+        /** @description RFC 9457 Problem Details. EVERY failure on every surface has this shape and is served as `application/problem+json` — there is no `{error: …}` wrapper anywhere. */
+        Problem: {
             /**
-             * @description The contract. Branch on this, never on `message`.
+             * @description `urn:content-service:problem:<slug>`. THE CONTRACT — branch on this, never on `detail` or `title`.
              * @enum {string}
              */
-            code: "validation_error" | "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "payload_too_large" | "internal_error";
+            type: "urn:content-service:problem:validation" | "urn:content-service:problem:unauthorized" | "urn:content-service:problem:forbidden" | "urn:content-service:problem:not-found" | "urn:content-service:problem:conflict" | "urn:content-service:problem:payload-too-large" | "urn:content-service:problem:rate-limit" | "urn:content-service:problem:internal";
+            /**
+             * @description Summarises the HTTP STATUS, not the type — so a 409 reads "Conflict" whatever caused it. Nobody may branch on this.
+             * @example Bad Request
+             * @example Conflict
+             * @example Too Many Requests
+             */
+            title: string;
+            /**
+             * @example 400
+             * @example 409
+             * @example 429
+             */
+            status: number;
             /** @description For a human. Reworded freely — never parse it. */
-            message: string;
-            /** @description Present where it helps a caller act. Documented per endpoint; common keys are `unknownKeys`, `invalid`, `missing`, `locales`, `references`, `recordCount`, `unresolvableRefs`, `assetId`, `bytes`. */
+            detail: string;
+            /**
+             * @description The request PATH. Never a full URL and never with a query string, because the preview surface carries a signed token there.
+             * @example /v1/pages/home/values
+             */
+            instance: string;
+            /** @description The response's `X-Request-Id`. QUOTE IT IN A SUPPORT REQUEST — it joins this failure to the service's log lines and to any audit row the request wrote. */
+            request_id?: string;
+            /** @description 400 only. The machine-readable field errors; every problem in the request is reported at once, so one round trip is enough to fix all of them. */
+            errors?: {
+                /**
+                 * @description A JSON Pointer into the body, or `#/query/<name>` for a query parameter.
+                 * @example #/values
+                 * @example #/query/cursor
+                 */
+                pointer: string;
+                code: string;
+                detail: string;
+            }[];
+            /**
+             * @description A machine-branchable sub-case from a closed set, where one exists. Present on some 409s — notably `idempotency_key_reused`.
+             * @example idempotency_key_reused
+             */
+            code?: string;
+            /** @description 429 only. Seconds. MIRRORS THE `Retry-After` HEADER, which is set from this member so the two cannot disagree. */
+            retry_after?: number;
+            /**
+             * @description This service's diagnostics extension — not a house-rules member. Present where it genuinely helps a caller act. Every member is snake_case, at every depth, like any other JSON member name here (HR-12). Documented per endpoint; common ones are `unknown_keys`, `invalid`, `missing`, `locales`, `references`, `record_count`, `groupable`, `summable`, `unresolvable_refs`, `asset_id`, `bytes`, `removed`, `retyped`, `group_by`.
+             *
+             *     A tenant's OWN key is data and is never renamed. `unknown_keys` carries `"hero.titel"` and `invalid[].key` carries `amountForint` exactly as the caller sent them. The distinction is authorship: the member holding the list is ours, the strings inside it are theirs.
+             */
             details?: unknown;
-        };
-        ErrorResponse: {
-            error: components["schemas"]["Error"];
         };
         /**
          * @description Only `published` items reach the website. `archived` is the recommended way to remove one — it keeps its values and its dataset records, and publishing it again brings it back.
@@ -1707,7 +2066,7 @@ export interface components {
              * Format: uuid
              * @description Must name an asset of this site.
              */
-            assetId: string;
+            asset_id: string;
             /** @description Required. Use "" for a decorative image, so "I forgot" stays distinguishable. */
             alt: string;
         };
@@ -1721,13 +2080,13 @@ export interface components {
                 slug: components["schemas"]["Slug"];
                 title: string;
                 locale: string;
-                /** @description Null until the first publish — which is reachable only on the CLIENT tier's draft preview. On /api/content/* it is never null, because an unpublished page is a 404 there. One schema serves both tiers, hence the wider type. */
+                /** @description Null until the first publish — which is reachable only on the CLIENT tier's draft preview. On /v1/public/* it is never null, because an unpublished page is a 404 there. One schema serves both tiers, hence the wider type. */
                 version: number | null;
                 /**
                  * Format: date-time
                  * @description Same nullability rule as `version`.
                  */
-                publishedAt: string | null;
+                published_at: string | null;
             };
             /** @description Active sections only, in `position` order. */
             sections: {
@@ -1746,27 +2105,24 @@ export interface components {
             id: string;
             slug: components["schemas"]["Slug"];
             name: string;
-            defaultLocale: string;
+            default_locale: string;
             locales: string[];
             /** @description Exact `Origin` strings. Empty means no browser access at all. */
-            allowedOrigins?: string[];
-            /** Format: uri */
-            revalidateUrl?: string | null;
-            /** @description The secret itself is write-only and never returned. */
-            hasRevalidateSecret?: boolean;
-            externalRef?: string | null;
+            allowed_origins?: string[];
+            /** @description The site's id in the consuming admin, and the webhook envelope's account_id. A site without one cannot participate cross-service. NOTE: revalidate_url and has_revalidate_secret were REMOVED from this schema — a destination is a webhook endpoint now, because a site may have several. */
+            external_ref?: string | null;
             /** @description false ⇒ every key on this site answers 401. */
             active: boolean;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** Format: date-time */
-            updatedAt?: string;
+            updated_at?: string;
         };
-        /** @description The deliberately smaller shape `GET /api/content/site` serves — this payload may be fetched with a key that ships inside a browser bundle. */
+        /** @description The deliberately smaller shape `GET /v1/public/site` serves — this payload may be fetched with a key that ships inside a browser bundle. */
         PublicSite: {
             slug: components["schemas"]["Slug"];
             name: string;
-            defaultLocale: string;
+            default_locale: string;
             locales: string[];
             /** @description The locale these `settings` values are in. */
             locale: string;
@@ -1779,28 +2135,28 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            siteId: string;
+            site_id: string;
             /** @enum {string} */
             kind: "publishable" | "secret";
-            /** @description Becomes the audit actor and the `publishedBy` suffix. */
+            /** @description Becomes the audit actor and the `published_by` suffix. */
             label: string;
             /** @description Last 4 plaintext characters */
-            keyLast4: string;
+            key_last4: string;
             active: boolean;
             /**
              * Format: date-time
              * @description Refreshed at most every 5 minutes.
              */
-            lastUsedAt?: string | null;
+            last_used_at?: string | null;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
         };
         MintedSiteKey: components["schemas"]["SiteKey"] & {
             /**
              * @description THE PLAINTEXT, returned exactly once and never recoverable. Do not log it. A lost key can only be rotated.
              * @example csk_YOUR_SECRET_KEY
              */
-            apiKey: string;
+            api_key: string;
         };
         AdminKey: {
             /** Format: uuid */
@@ -1814,12 +2170,12 @@ export interface components {
              *       "203.0.113.7/32"
              *     ]
              */
-            allowedIps: string[];
+            allowed_ips: string[];
             active: boolean;
             /** Format: date-time */
-            lastUsedAt?: string | null;
+            last_used_at?: string | null;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
         };
         /**
          * @description `content:write` can stage every change and make none of it live; `content:publish` is the scope that reaches a visitor. `datasets:*` is structure, `records:*` may return PII.
@@ -1830,7 +2186,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            siteId: string;
+            site_id: string;
             slug: components["schemas"]["Slug"];
             title: string;
             description?: string | null;
@@ -1838,16 +2194,16 @@ export interface components {
             /** @description false ⇒ invisible to the website, still editable. */
             active: boolean;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** Format: date-time */
-            updatedAt?: string;
+            updated_at?: string;
         };
         Section: {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            pageId: string;
-            /** @description `settings` is RESERVED: that section becomes `settings` on `GET /api/content/site`. */
+            page_id: string;
+            /** @description `settings` is RESERVED: that section becomes `settings` on `GET /v1/public/site`. */
             key: components["schemas"]["Slug"];
             /** @description Deliberately not an enum — a new section type must not need a deploy. */
             type: components["schemas"]["Slug"];
@@ -1856,27 +2212,27 @@ export interface components {
             /** @description false ⇒ excluded from every document, still writable, and its `required` fields do not block a publish. */
             active: boolean;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** Format: date-time */
-            updatedAt?: string;
+            updated_at?: string;
         };
         Field: {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            sectionId: string;
+            section_id: string;
             key: components["schemas"]["Slug"];
             type: components["schemas"]["FieldType"];
             label?: string | null;
             /** @description Enforced at PUBLISH */
             required: boolean;
             /** @description Non-null only for `type: list`. */
-            itemSchema?: components["schemas"]["ItemSchema"] | null;
+            item_schema?: components["schemas"]["ItemSchema"] | null;
             position: number;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** Format: date-time */
-            updatedAt?: string;
+            updated_at?: string;
         };
         PageTree: components["schemas"]["Page"] & {
             sections: (components["schemas"]["Section"] & {
@@ -1886,21 +2242,21 @@ export interface components {
         VersionSummary: {
             version: number;
             note?: string | null;
-            /** @description `"<siteSlug>/<keyLabel>"`. */
-            publishedBy: string;
+            /** @description `"<siteSlug>/<key_label>"`. */
+            published_by: string;
             /** Format: date-time */
-            createdAt: string;
+            created_at: string;
         };
         Version: components["schemas"]["VersionSummary"] & {
-            /** @description Plus a `values` map of RAW, unresolved values — the only thing a restore can work from, because a resolved image URL cannot be stored in a value column. */
+            /** @description Plus a `values` map of RAW, unresolved values — the only thing a restore can work from, because a resolved image URL cannot be stored in a value column. An image here is {asset_id, alt}, the same shape a write takes, so a snapshot can be fed back to PATCH …/values unchanged. EVERY OTHER read resolves it to {url, alt, width, height}. */
             document: components["schemas"]["PageDocument"];
         };
         CollectionSummary: {
             key: components["schemas"]["Slug"];
             name: string;
-            itemSchema: components["schemas"]["ItemSchema"];
+            item_schema: components["schemas"]["ItemSchema"];
             position: number;
-            itemCounts: {
+            item_counts: {
                 draft: number;
                 published: number;
                 archived: number;
@@ -1910,31 +2266,31 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            siteId: string;
+            site_id: string;
             key: components["schemas"]["Slug"];
             name: string;
-            itemSchema: components["schemas"]["ItemSchema"];
+            item_schema: components["schemas"]["ItemSchema"];
             position: number;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** Format: date-time */
-            updatedAt?: string;
+            updated_at?: string;
         };
         /** @description The same shape on every tier — with `status` always `published` on the public one. */
         Item: {
             /** Format: uuid */
             id: string;
-            collectionKey: components["schemas"]["Slug"];
+            collection_key?: components["schemas"]["Slug"];
             /** @description Optional — only items addressable by URL need one. NULLs do not collide, so any number of slugless items may coexist. */
             slug: components["schemas"]["Slug"] | null;
             position: number;
             status: components["schemas"]["ItemStatus"];
             /** Format: date-time */
-            publishedAt?: string | null;
+            published_at?: string | null;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** Format: date-time */
-            updatedAt?: string;
+            updated_at?: string;
             /** @description Keyed by field key, validated against the collection's item schema. Nulls omitted. */
             values: {
                 [key: string]: unknown;
@@ -1944,7 +2300,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            siteId: string;
+            site_id: string;
             /**
              * @description Blob object key. Always inside `sites/<siteSlug>/`, and unique across the whole store.
              * @example sites/acme_foundation/hero-Xy7.jpg
@@ -1952,13 +2308,13 @@ export interface components {
             pathname: string;
             /** Format: uri */
             url: string;
-            contentType: components["schemas"]["ImageContentType"];
+            content_type: components["schemas"]["ImageContentType"];
             size: number;
             width?: number | null;
             height?: number | null;
-            uploadedBy: string;
+            uploaded_by: string;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** @description How many draft or published values point at this asset. 0 means safe to delete. */
             references: number;
         };
@@ -1967,15 +2323,18 @@ export interface components {
          * @enum {string}
          */
         ImageContentType: "image/jpeg" | "image/png" | "image/webp" | "image/avif";
-        /** @description One entry of a dataset's `recordSchema`. */
+        /** @description One entry of a dataset's `record_schema`. */
         RecordFieldSpec: {
             /**
              * @description camelCase IS allowed here, unlike every addressing key in this API: a record field is a JSON property of `data`, not an address.
              * @example amountForint
              */
             key: string;
-            /** @enum {string} */
-            type: "text" | "number" | "boolean" | "timestamp" | "ref";
+            /**
+             * @description `money` is SEPARATE FROM `number` on purpose. A money value is a decimal string of canonical MINOR UNITS and its definition must name a currency; a JSON number cannot hold a large HUF total exactly. No `richtext`, no `image`, no `list` and no nesting: a nested array cannot be aggregated or indexed.
+             * @enum {string}
+             */
+            type: "text" | "number" | "money" | "boolean" | "timestamp" | "ref";
             label?: string;
             /** @default false */
             required: boolean;
@@ -1985,7 +2344,7 @@ export interface components {
              */
             groupable: boolean;
             /**
-             * @description `number` fields only.
+             * @description `number` and `money` fields only; anything else is a 400.
              * @default false
              */
             summable: boolean;
@@ -1998,15 +2357,25 @@ export interface components {
              * @description `text` only.
              * @default 2000
              */
-            maxLength: number;
+            max_length: number;
+            /** @description `number` and `money` only. ON A `money` FIELD THIS IS IN MINOR UNITS, compared as BigInt so a bound above 2^53 still means what it says. */
             min?: number;
+            /** @description `number` and `money` only; in minor units on a `money` field. */
             max?: number;
+            /** @description `number` ONLY — declaring it on a `money` field is a 400, because minor units are integral by construction. */
             integer?: boolean;
+            /**
+             * @description ISO 4217, uppercase. REQUIRED ON A `money` FIELD unless `currency_field` is given, and forbidden on any other type. Exactly one of the two must be present: an amount with no currency is not an amount, and this is caught at definition time rather than at aggregate time. HUF HAS ZERO MINOR UNITS estate-wide, so "2500" HUF is 2500 Ft. The charset is checked rather than the code, so an unknown currency is accepted here but has no conversion defined.
+             * @example HUF
+             */
+            currency?: string;
+            /** @description Names a sibling `text` field carrying this amount's currency per record, for a dataset that takes more than one. Mutually exclusive with `currency`, and exactly one of the two is required on a `money` field. Summing such a field REQUIRES `?group_by=<currency_field>`, or the total would cross currencies. The validation messages name this wire spelling, so the string in the error is the string to look for in your payload. */
+            currency_field?: string;
             ref?: {
                 /** @description A collection that exists on this site. */
                 collection: components["schemas"]["Slug"];
                 /**
-                 * @description `store` skips the existence check entirely and is what a dataset recording MONEY must declare: a payment webhook must never fail because its target was deleted mid-checkout. The resulting dangling refs are counted in `GET /api/admin/health`.
+                 * @description `store` skips the existence check entirely and is what a dataset recording MONEY must declare: a payment webhook must never fail because its target was deleted mid-checkout. The resulting dangling refs are counted in `GET /v1/admin/health`.
                  * @default reject
                  * @enum {string}
                  */
@@ -2018,24 +2387,24 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            siteId: string;
+            site_id: string;
             key: components["schemas"]["Slug"];
             name: string;
-            recordSchema: components["schemas"]["RecordSchema"];
+            record_schema: components["schemas"]["RecordSchema"];
             /**
-             * @description Gates `GET /api/content/datasets/:key/aggregate`. Turning it on makes every `groupable` field's VALUES publicly enumerable through group keys.
+             * @description Gates `GET /v1/public/datasets/:key/aggregate`. Turning it on makes every `groupable` field's VALUES publicly enumerable through group keys.
              * @default false
              */
-            publicAggregate: boolean;
+            public_aggregate: boolean;
             /** @description null keeps everything forever. Enforced by a CLI, never a cron. */
-            retentionDays?: number | null;
+            retention_days?: number | null;
             position: number;
             /** @description Present on the list endpoints. */
-            recordCount?: number;
+            record_count?: number;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** Format: date-time */
-            updatedAt?: string;
+            updated_at?: string;
         };
         /**
          * @description Flat by construction — no nesting. Values are `text` (string), `number`, `boolean`, `timestamp` (ISO 8601, normalised to UTC on write) or `ref` (a collection item id). AN UNKNOWN KEY IS A 400, never stripped. Serialises to at most 8 KB.
@@ -2051,40 +2420,235 @@ export interface components {
         Record: {
             /** Format: uuid */
             id: string;
-            datasetKey: components["schemas"]["Slug"];
+            dataset_key: components["schemas"]["Slug"];
             /** @description The caller's own natural key — pass the payment provider's id. NOT patchable: the idempotency key must be stable. */
-            externalId: string | null;
+            external_id: string | null;
             data: components["schemas"]["RecordData"];
             /** @description `sensitive` keys that ARE set but not returned, so "withheld" and "never set" stay distinguishable. `[]` when sensitive values are included. */
             withheld: string[];
             /**
              * Format: date-time
-             * @description The EVENT time — what the list orders by and `from`/`to` filter on.
+             * @description The EVENT time — what the list orders by and `from`/`until` filter on.
              */
-            occurredAt: string;
+            occurred_at: string;
             /** Format: date-time */
-            createdAt?: string;
+            created_at?: string;
             /** Format: date-time */
-            updatedAt?: string;
+            updated_at?: string;
         };
         AggregateGroup: {
-            /** @description The group's value, always a string. `null` is the bucket for records MISSING the `groupBy` field — deliberately returned rather than dropped — and is also the single row you get when `groupBy` is omitted. */
+            /** @description The group's value, always a string. `null` is the bucket for records MISSING the `group_by` field — deliberately returned rather than dropped — and is also the single row you get when `group_by` is omitted. */
             key: string | null;
             count?: number;
-            /** @description One entry per `sum:<field>` metric. A group with no matching rows reports 0, not null. */
+            /** @description One entry per `sum:<field>` metric, KEYED BY THE DATASET'S OWN FIELD NAMES, which keep their spelling (`sum.amountForint` stays camelCase — tenant vocabulary is not an API member). A group with no matching rows reports 0, not null — for a `money` field that is `{"amount": "0", …}`, which is a legal sum even though "0" is not a legal stored value. */
             sum?: {
-                [key: string]: number;
+                [key: string]: number | components["schemas"]["MoneySum"];
             };
+        };
+        /** @description The sum of a `money` field. NEVER A JSON NUMBER: the total stays a string precisely because a large HUF total does not fit a double, and a donation total that is silently a float is the bug the `money` type exists to stop. Never bare either — an amount with no currency is not an amount. */
+        MoneySum: {
+            /**
+             * @description Decimal string of canonical minor units. Do NOT parse with Number(); format from the string or use BigInt. HUF has zero minor units, so "145000" HUF is 145 000 Ft.
+             * @example 145000
+             */
+            amount: string;
+            /**
+             * @description The field's fixed `currency`, or — when the field declares `currency_field` — the group key, which such a request is required to group by.
+             * @example HUF
+             */
+            currency: string;
+        };
+        /**
+         * @description One entry of the CLOSED, additive-only catalogue. It is the single source of the emitter's permitted types, the subscription validator's accepted set, the docs table and this endpoint — so the four cannot disagree.
+         *
+         *     Adding an entry needs NO contract_version bump, on the one condition the receiver docs state: an unrecognised event_type is ignored and answered 2xx.
+         */
+        EventTypeDescriptor: {
+            /** @enum {string} */
+            event_type: "page.published" | "collection_item.published" | "collection_item.archived" | "record.created" | "site.revalidation_requested";
+            /**
+             * @description The `data` key carrying the subject. ALWAYS equals the event type's prefix.
+             * @enum {string}
+             */
+            resource: "page" | "collection_item" | "record" | "site";
+            /**
+             * @description `transition` = a resource's status moved · `observation` = a row appeared and no status moved. THE ASYMMETRY BETWEEN THE TWO `published` EVENTS IS REAL: a collection item has a status column that moves, a page does not (a publish appends a version row and flips per-field published values).
+             * @enum {string}
+             */
+            kind: "transition" | "observation";
+            /** @description One sentence */
+            fires_when: string;
+            /**
+             * @description The status the primary resource reaches, when the participle names one. NULL ON EVERY OBSERVATION — and that is exactly what the status invariant reads: an event whose participle is not a member of its resource's status enum carries whatever status the resource actually holds.
+             * @enum {string|null}
+             */
+            target_status: "published" | "archived" | null;
+            contract_version: number;
+            /** @description Blocks that appear only behind an `include_*` flag. `["record.values"]` on record.created; empty on everything else. */
+            sensitive_blocks: string[];
+            /** @description Whether a sibling Lamido service acts on it today. True only for record.created, which email-service turns into an acknowledgement. */
+            cross_service: boolean;
+        };
+        /**
+         * @description A destination. MANY PER SITE (max 20) — this replaced two columns on `sites`, which meant "call these two URLs when a page publishes" had no representation at all.
+         *
+         *     The member set is IDENTICAL IN EVERY LAMIDO SERVICE. Do not expect a field here that is not in the others.
+         */
+        WebhookEndpoint: {
+            /**
+             * Format: uuid
+             * @description How every route addresses it. The row id is never on the wire.
+             */
+            public_id: string;
+            /** Format: uuid */
+            site_id: string;
+            /** Format: uri */
+            url: string;
+            /** @description The operator's note; what a list shows beside the URL. */
+            description?: string | null;
+            /** @description NULL MEANS EVERY TYPE, including ones added later — the default, and what nearly every site should use. An empty array is never stored: it is a 400 at every write. */
+            subscribed_events: string[] | null;
+            /** @description Pinned at creation. Absent from the PATCH. */
+            contract_version: number;
+            /** @description Whether record.created carries the record's field values. OFF BY DEFAULT (WH-11), and changing it is audited BY VALUE rather than by field name. */
+            include_record_values: boolean;
+            enabled: boolean;
+            /** @description Non-null ONLY when `enabled` is false — that is what this resource promises. Set by an operator's disable, by auto-disable after five consecutive dead-letters, or by the migration off the old per-site secret. */
+            disabled_reason?: string | null;
+            /** @description Dead-letters in a row. ANY 2xx resets it; at 5 the endpoint is disabled. It lives on the endpoint rather than the delivery because it is a property of the destination over time — on a per-event row it would reset with every new event and never reach the threshold. It only moves when a delivery dead-letters, which requires a drain. */
+            consecutive_failures: number;
+            /** @description Last 4 characters of the plaintext. Null on an endpoint that has no secret yet. */
+            secret_last4?: string | null;
+            /** @description A stable, non-reversible label for the secret — an HMAC under the KEK rather than a bare digest, so it cannot be compared against a rainbow table of candidate secrets. It exists so an operator can confirm a receiver holds the right secret WITHOUT either side sending the other the plaintext. */
+            secret_fingerprint?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description A create or rotate response. THE ONLY SHAPE IN THIS SERVICE THAT CARRIES KEY MATERIAL, and it carries it exactly twice in an endpoint's life: at creation, and at each rotation.
+         *
+         *     Wrapped rather than added as a sometimes-null field on the endpoint, so a client cannot accidentally build a UI that expects to read it back.
+         */
+        MintedEndpointSecret: {
+            endpoint: components["schemas"]["WebhookEndpoint"];
+            /** @description STORE IT NOW — it is not recoverable, and rotating is the only way to get a new one. THE WHOLE STRING INCLUDING THE `whsec_` PREFIX IS THE HMAC KEY: do not strip it. Svix-signed provider feeds strip theirs, which is the opposite rule, and the two must never share a verifier. */
+            signing_secret: string;
+        };
+        /** @description One row of the outbox. Written INSIDE the transaction that made the fact true, so a rolled-back publish leaves none and a committed one leaves exactly one — even if the process died before any HTTP attempt. */
+        WebhookEvent: {
+            /**
+             * Format: uuid
+             * @description Sent as `X-Event-Id`. STABLE ACROSS EVERY RETRY AND EVERY OPERATOR REDELIVERY — the receiver's dedupe key.
+             */
+            event_id: string;
+            event_type: string;
+            /** Format: uuid */
+            site_id: string;
+            /** @description The consuming admin's account id — `sites.external_ref` as it stood inside the emitting transaction. Null for a site nobody has paired, which can still receive its own events but cannot participate cross-service. */
+            account_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Stable across a whole causal chain, and EQUAL TO event_id on everything this service emits — a pure emitter has no inbound chain to copy. Written rather than left null so "everything in this chain" is one indexed query with no special case for the root.
+             */
+            correlation_id: string;
+            /**
+             * Format: uuid
+             * @description Always null here. NEVER absent.
+             */
+            causation_id: string | null;
+            /** @description Always 0 here. */
+            hop: number;
+            /** Format: uuid */
+            page_id?: string | null;
+            /** Format: uuid */
+            item_id?: string | null;
+            /** Format: uuid */
+            record_id?: string | null;
+            /**
+             * @description The delivered body, built once and NEVER RE-SERIALISED — re-serialising changes whitespace and number formatting, which changes the signature, which means a receiver that stored the first body cannot verify the second.
+             *
+             *     GOTCHA: this is what we STORED, not necessarily what a given endpoint RECEIVED. include_record_values is applied per endpoint at delivery time and contract_version renders per endpoint.
+             */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** @description Joins the row to the log lines of the write that emitted it. */
+            request_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /**
+         * @description The delivery of one event to one endpoint, across however many attempts it takes. ONE ROW, MUTATED PER ATTEMPT — not a row per attempt, which is what lets the partial index BE the due queue rather than a filter over history.
+         *
+         *     `unique(event_id, endpoint_id)` means a redelivery RESETS this row and can never insert a second one.
+         */
+        WebhookDelivery: {
+            /**
+             * Format: uuid
+             * @description Sent as `X-Delivery-Id`. UNIQUE PER HTTP ATTEMPT — regenerated on every retry and on every redelivery, so deduping on it dedupes nothing.
+             */
+            delivery_id: string;
+            /**
+             * Format: uuid
+             * @description The dedupe key. Unchanged by a redelivery.
+             */
+            event_id: string;
+            event_type: string;
+            /**
+             * @description `pending` until it is either `delivered` (any 2xx) or `dead_lettered` (the ladder is exhausted, and a website was never told). NOTE — rungs 3-8 advance only when an operator runs `db:webhooks-drain`; there is no cron. So a failed delivery rests at `pending` with `attempt: 3` until somebody drains. See website-api.md#delivery-guarantees.
+             * @enum {string}
+             */
+            status: "pending" | "delivered" | "dead_lettered";
+            /** @description The attempt currently pending, 1-based. Indexes the backoff ladder and decides when it is exhausted. Incremented as an attempt is SCHEDULED, so a pending row says which attempt is about to happen. Reaches 3 from the two inline attempts; beyond that only a drain moves it. */
+            attempt: number;
+            /**
+             * Format: date-time
+             * @description When this attempt becomes ELIGIBLE. A FLOOR, NOT A SCHEDULE: nothing polls it, so it is the earliest a drain could take the row rather than when it will. POST /v1/admin/webhook-deliveries/{id}/redeliver deliberately ignores it. See website-api.md#delivery-guarantees.
+             */
+            next_attempt_at: string;
+            /** @description The LATEST attempt only. */
+            response_status?: number | null;
+            /** @description Up to 500 bytes, TRUNCATED WHILE READING rather than buffered and then trimmed — a receiver answering with a 10 MB HTML error page must not be able to make our memory its problem. */
+            response_body_excerpt?: string | null;
+            /** @description `timeout` · `redirect_not_followed` (a 30x is a failure and is NEVER followed) · `url_rejected: …` (the delivery-time SSRF check refused it and NO REQUEST WAS MADE) · `HTTP <status>` · or a transport failure. */
+            error?: string | null;
+            /** Format: uuid */
+            endpoint_public_id?: string;
+            /** Format: uuid */
+            site_id?: string;
+            request_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description What `POST …/test` found, returned synchronously. The probe writes NO event row and NO delivery row, and never touches consecutive_failures. */
+        WebhookPingOutcome: {
+            /**
+             * Format: uuid
+             * @description On the wire, so an operator can find it in the receiver's log.
+             */
+            event_id: string;
+            /** @description Whether the receiver answered 2xx — the same rule every real delivery uses. */
+            ok: boolean;
+            response_status: number | null;
+            /** @description Round trip, including the URL guard's DNS lookup. */
+            latency_ms: number;
+            response_body_excerpt: string | null;
+            /** @description Transport failure or the guard's refusal. Null when an answer arrived. */
+            error: string | null;
         };
         AuditEntry: {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            actorType: "admin_key" | "client_key" | "system";
+            actor_type: "admin_key" | "client_key" | "system";
             /** Format: uuid */
-            actorId?: string | null;
+            actor_id?: string | null;
             /** @description Denormalised */
-            actorLabel: string;
+            actor_label: string;
             /**
              * @example site.create
              * @example page.publish
@@ -2093,48 +2657,56 @@ export interface components {
              */
             action: string;
             /** @enum {string} */
-            targetType: "site" | "site_key" | "page" | "section" | "field" | "collection" | "collection_item" | "asset" | "dataset" | "record" | "admin_key";
-            targetId?: string | null;
-            /** @description An ALLOWLISTED summary per action — never a raw request body, never a plaintext key, never a record's values. Patches record the changed field NAMES only. */
+            target_type: "site" | "site_key" | "page" | "section" | "field" | "collection" | "collection_item" | "asset" | "dataset" | "record" | "admin_key";
+            target_id?: string | null;
+            /** @description An ALLOWLISTED summary per action — never a raw request body, never a plaintext key, never a record's values. Patches record the changed field NAMES only. Its members are snake_case like every other member on this API; ten blocks carried camelCase until bdafb64, so a row written before that keeps its original spelling — audit_log is append-only and is not rewritten. */
             metadata?: {
                 [key: string]: unknown;
             };
             ip?: string | null;
             /** Format: date-time */
-            createdAt: string;
+            created_at: string;
         };
+        /** @description LIVENESS ONLY, and the whole body — `{"status":"ok"}`. `ok` is the only value the endpoint can answer, because it reads nothing that could be unhealthy. The `db` and `code` members were REMOVED at d013970 and are not stubbed: a client reading `body.db` gets undefined. Database health is AdminHealth, on GET /v1/admin/health. */
         Health: {
             /** @enum {string} */
-            status: "ok" | "degraded";
-            /** @enum {string} */
-            db: "ok" | "unreachable";
-            /** @description The driver's error code when the database is unreachable. Never a connection string. */
-            code?: string;
+            status: "ok";
         };
+        /** @description NOTE: `failed_revalidations` was REMOVED. It counted `audit_log` rows over a rolling 24 hours while its own drill-down selected `publish_events` with no window at all — two independent queries that nothing made agree, so a count and its list could disagree. Every webhook count above is `count(*)` over the SAME exported predicate its drill-down binds, and none of them is windowed. */
         AdminHealth: {
             /**
-             * @description `attention` when a page has unpublished drafts OR a revalidation failed in the last 24 hours. `danglingRefs` deliberately does not affect it.
+             * @description `attention` when a page has unpublished drafts, a delivery dead-lettered, an endpoint is disabled, OR an endpoint has no signing secret. `dangling_refs` and `pending_deliveries` deliberately do NOT affect it — the first is an expected consequence of `ref.policy: store`, the second was reasoned as the ordinary state of a healthy queue on a service with no cron, so either would pin the dashboard amber forever. CAUTION — since the queue only moves when an operator drains it, a queue nobody drains looks exactly like a healthy quiet afternoon. Alert on `pending_deliveries` separately from `status`. See website-api.md#delivery-guarantees.
              * @enum {string}
              */
             status: "ok" | "attention" | "degraded";
             /** @enum {string} */
             db: "ok" | "unreachable";
             /** @description false breaks every upload. */
-            blobConfigured?: boolean;
+            blob_configured?: boolean;
             sites?: number;
-            pagesWithUnpublishedDrafts?: number;
-            /** @description Shares its exact predicate with `GET /api/admin/assets/orphans`. */
-            orphanAssets?: number;
+            pages_with_unpublished_drafts?: number;
+            /** @description Shares its exact predicate with `GET /v1/admin/assets/orphans`. */
+            orphan_assets?: number;
             /** @default 24 */
-            orphanAssetsOlderThanHours: number;
-            /** @description In the last 24 hours. A website is serving stale content. */
-            failedRevalidations?: number;
+            orphan_assets_older_than_hours: number;
             /** @description Records whose `ref` names a collection item that no longer exists. */
-            danglingRefs?: number;
+            dangling_refs?: number;
+            /** @description Deliveries queued at any rung of the ladder. Drill-down `GET /v1/admin/webhook-deliveries?status=pending`. NOT windowed, and not part of `status`. A RISING VALUE USUALLY MEANS NOBODY IS DRAINING — the queue only moves when an operator runs `db:webhooks-drain`. Drain first, then read what is left; a backlog that clears was unattended rather than faulty. See website-api.md#delivery-guarantees. */
+            pending_deliveries?: number;
+            /** @description The ladder was exhausted, so a website was never told. Drill-down `GET /v1/admin/webhook-deliveries?status=dead_lettered`. Reached only via a drain, since that is what advances the ladder to its end. A non-zero value is a real receiver fault. */
+            dead_lettered_deliveries?: number;
+            /** @description Destinations receiving nothing, by an operator or by auto-disable. Drill-down `GET /v1/admin/webhook-endpoints?enabled=false`; read `disabled_reason` on the row. */
+            disabled_endpoints?: number;
+            /** @description Endpoints that cannot be signed for at all. THE MIGRATION PROGRESS BAR — every endpoint carried over from the old `sites.revalidate_url` starts here and leaves as its secret is rotated. Reaching zero is the definition of that cutover finishing. */
+            endpoints_without_secret?: number;
+            /** @description Enabled AND unsignable — a state that must never exist. NON-ZERO IS A BUG IN THE SERVICE rather than a half-done configuration: the migration creates such endpoints disabled, `enable` refuses while the secret is missing, and rotating is the only thing that sets one enabled. Counted anyway, because an invariant nothing checks is one nobody notices breaking. */
+            enabled_endpoints_without_secret?: number;
+            /** @description Active sites nobody has paired. Not an error — their own receivers work — but they emit `account_id: null` and so cannot participate cross-service. */
+            sites_without_external_ref?: number;
         };
         /**
          * @description A whole site as one document — what `GET …/export` returns and `POST …/import` accepts. Values are keyed by locale: `values: { hu: { draft: …, published: … } }`.
-         *     CRITICAL: on a merge, for every section and field the document MENTIONS, an omitted key is a WRITTEN NULL — `label ?? null`, `position ?? 0`, `itemSchema ?? null`. So a values-only companion document destroys the structure it was meant to fill. Keep structure and values in ONE document, and omit `values` entirely to leave stored values untouched (`values: {hu: {draft: null}}` CLEARS them). Import writes DRAFTS ONLY and never publishes — but the next publish of a page carries everything it wrote live.
+         *     CRITICAL: on a merge, for every section and field the document MENTIONS, an omitted key is a WRITTEN NULL — `label ?? null`, `position ?? 0`, `item_schema ?? null`. So a values-only companion document destroys the structure it was meant to fill. Keep structure and values in ONE document, and omit `values` entirely to leave stored values untouched (`values: {hu: {draft: null}}` CLEARS them). Import writes DRAFTS ONLY and never publishes — but the next publish of a page carries everything it wrote live.
          */
         ImportDocument: {
             site?: {
@@ -2162,63 +2734,92 @@ export interface components {
             };
             content?: never;
         };
-        /** @description `validation_error` or `bad_request`. Every problem in the request is reported at once — read `details`. */
+        /** @description Problem type `validation`. Every problem in the request is reported at once — read `errors` and `details`. DO NOT RETRY. */
         BadRequest: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
-                "application/json": components["schemas"]["ErrorResponse"];
+                "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description `unauthorized`. Missing, malformed, unknown or revoked key — or a deactivated site. All of these share one message on purpose: a distinguishable answer would make the API a key-validity oracle. Do not retry. */
+        /** @description Problem type `unauthorized`. Missing, malformed, unknown or revoked key — or a deactivated site. All of these share one message on purpose: a distinguishable answer would make the API a key-validity oracle. DO NOT RETRY; check the credential. */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
-                "application/json": components["schemas"]["ErrorResponse"];
+                "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description `forbidden`. The credential is valid and is being used in the wrong place: a `cpk_` key on a write tier, `?view=` on the read tier, a missing admin scope, an admin key from a disallowed address, or an asset pathname outside the site's prefix. */
+        /** @description Problem type `forbidden`. The credential is valid and is being used in the wrong place: a `cpk_` key on a write tier, `?view=` on the read tier, a missing admin scope, an admin key from a disallowed address, an asset pathname outside the site's prefix — or the BROWSER TRIPWIRE, which rejects any request to `/v1/*` or `/v1/admin/*` carrying `Origin` or `Sec-Fetch-Dest` BEFORE authentication runs. Never applied to `/v1/public/*`. A plain Node `fetch` is unaffected; until 2026-08-09 the check read `Sec-Fetch-Mode: cors`. */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
-                "application/json": components["schemas"]["ErrorResponse"];
+                "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description `not_found`. Also the answer for a resource that belongs to ANOTHER site, and — on the public tier — for content that is unpublished, inactive, draft or archived. */
+        /** @description Problem type `not-found`. Also the answer for a resource that belongs to ANOTHER site, and — on the public tier — for content that is unpublished, inactive, draft or archived. A 403 would confirm the resource exists, so cross-tenant existence must read as absence. */
         NotFound: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
-                "application/json": components["schemas"]["ErrorResponse"];
+                "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description `conflict`. See `details` for the cause. */
+        /** @description Problem type `rate-limit`, carrying `Retry-After`. All four throttles in this service FAIL OPEN — a counter outage allows the request — so never rely on the service to stop a runaway loop of yours. */
+        TooManyRequests: {
+            headers: {
+                /** @description Seconds to wait before retrying. */
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Problem type `conflict`. See `details` for the cause, and `code` where a branchable sub-case exists. A lost publish race IS retryable after reloading; nothing else here is. */
         Conflict: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
-                "application/json": components["schemas"]["ErrorResponse"];
+                "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description `payload_too_large`. A record's `data` serialises to more than 8 KB. */
+        /** @description Problem type `payload-too-large`. A record's `data` serialises to more than 8 KB; `details.bytes` and `details.limit` say by how much. */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
-                "application/json": components["schemas"]["ErrorResponse"];
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Problem type `rate-limit`. One of the four throttles was spent: 20 failed authentications per client IP per minute, 60 dataset aggregates per SITE per minute, or 10 manual revalidations per SITE per minute. Carries `Retry-After` and the mirroring `retry_after` member. Safe to retry after that many seconds. All three FAIL OPEN, so a counter outage allows the request rather than rejecting it. */
+        RateLimited: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Problem type `internal`. A stack trace or driver message never reaches the body — that is how connection strings leak. Retry ONCE, with the same `Idempotency-Key` if the call had one, then report the `request_id`. */
+        InternalError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
             };
         };
     };
     parameters: {
-        /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+        /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
         localeQuery: string;
         /** @description Out of range is a 400, never a clamp. */
         limitQuery: number;
@@ -2238,17 +2839,19 @@ export interface components {
         resourceId: string;
         /** @description The site. On the admin tier the site is in the path; on the client tier it is the key. */
         siteIdPath: string;
+        /** @description A webhook endpoint's `public_id`, NEVER its row id. An object an operator points at from a UI that spans five services keeps its internal key internal (HR-9). */
+        endpointPublicIdPath: string;
         keyIdPath: string;
         /** @description Named `itemId` rather than `id` because `:id` is already the site. */
         itemIdPath: string;
         recordIdPath: string;
-        /** @description `draft` falls back to the published value for any untouched field, and answers `no-store`. Only on the write tiers — on `/api/content/*` any `?view=` other than `published` is a 403. */
+        /** @description `draft` falls back to the published value for any untouched field, and answers `no-store`. Only on the write tiers — on `/v1/public/*` any `?view=` other than `published` is a 403. */
         viewQuery: "draft" | "published";
         /** @description Defaults to `draft` here, unlike the public tier which serves published only. */
         itemViewQuery: "draft" | "published";
         /** @description Omitted returns every status. */
         itemStatusQuery: components["schemas"]["ItemStatus"];
-        /** @description Skips the reference check. Leaves dangling references, which surface in `danglingRefs` on `GET /api/admin/health` and are audited as `forced`. */
+        /** @description Skips the reference check. Leaves dangling references, which surface in `dangling_refs` on `GET /v1/admin/health` and are audited as `forced`. */
         forceQuery: "true" | "false";
         /** @description Required once the delete would destroy editor-entered values, which a version restore cannot bring back — a restore writes into the draft of a field that still has to exist. */
         confirmQuery: "true" | "false";
@@ -2256,10 +2859,16 @@ export interface components {
         includeSensitiveQuery: "sensitive";
         /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
         eqQuery: string[];
-        /** @description Inclusive lower bound on `occurredAt`. `from` after `to` is a 400. */
+        /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
         fromQuery: string;
-        /** @description Inclusive upper bound on `occurredAt`. */
-        toQuery: string;
+        /** @description EXCLUSIVE upper bound, so `from=D&until=D+1` covers a day exactly once. Named `until` rather than `to` deliberately: `to` reads inclusive to nearly everyone. */
+        untilQuery: string;
+        /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+        cursorQuery: string;
+        /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+        keysetLimitQuery: number;
+        /** @description Optional. Makes a retry a REPLAY rather than a second operation: the original result comes back as 200 with an `Idempotent-Replay: true` response header. The same key with a different body is a 409 carrying `code: idempotency_key_reused`. The body hash is over canonical JSON (object keys sorted, array order preserved), and the key is scoped to the resource it acts on. Free-form and trimmed. */
+        idempotencyKeyHeader: string;
     };
     requestBodies: never;
     headers: never;
@@ -2267,6 +2876,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getLandingPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -2276,17 +2905,8 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Healthy. */
+            /** @description Alive. `{"status":"ok"}` — the only body this endpoint can produce. There is no degraded response and no `db` or `code` member. */
             200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Health"];
-                };
-            };
-            /** @description The database is unreachable. The body is still JSON. */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2299,7 +2919,7 @@ export interface operations {
     getPublicSite: {
         parameters: {
             query?: {
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
             };
             header?: {
@@ -2317,9 +2937,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["PublicSite"];
-                    };
+                    "application/json": components["schemas"]["PublicSite"];
                 };
             };
             304: components["responses"]["NotModified"];
@@ -2352,8 +2970,12 @@ export interface operations {
                             title: string;
                             version: number;
                             /** Format: date-time */
-                            publishedAt: string;
+                            published_at: string;
                         }[];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -2365,7 +2987,7 @@ export interface operations {
     getPublishedPage: {
         parameters: {
             query?: {
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
             };
             header?: {
@@ -2385,9 +3007,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["PageDocument"];
-                    };
+                    "application/json": components["schemas"]["PageDocument"];
                 };
             };
             304: components["responses"]["NotModified"];
@@ -2400,7 +3020,7 @@ export interface operations {
     listPublishedItems: {
         parameters: {
             query?: {
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
                 /** @description Out of range is a 400, never a clamp. */
                 limit?: components["parameters"]["limitQuery"];
@@ -2425,6 +3045,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Item"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
                         total: number;
                         limit: number;
                         offset: number;
@@ -2441,7 +3063,7 @@ export interface operations {
     getPublishedItem: {
         parameters: {
             query?: {
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
             };
             header?: {
@@ -2463,9 +3085,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             304: components["responses"]["NotModified"];
@@ -2479,15 +3099,15 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description A field the dataset declared `groupable`. Omitted gives ONE row with a null key holding whole-dataset totals, which exists even over zero records. */
-                groupBy?: string;
+                group_by?: string;
                 /** @description Comma-separated `count` and/or `sum:<field>`. Max 3 sum metrics; each field must be declared summable. */
                 metrics?: string;
                 /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
                 eq?: components["parameters"]["eqQuery"];
-                /** @description Inclusive lower bound on `occurredAt`. `from` after `to` is a 400. */
+                /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
-                /** @description Inclusive upper bound on `occurredAt`. */
-                to?: components["parameters"]["toQuery"];
+                /** @description EXCLUSIVE upper bound, so `from=D&until=D+1` covers a day exactly once. Named `until` rather than `to` deliberately: `to` reads inclusive to nearly everyone. */
+                until?: components["parameters"]["untilQuery"];
                 /** @description 1–1000 here, because a group is a much smaller row than a page document. */
                 limit?: components["parameters"]["aggregateLimitQuery"];
                 offset?: components["parameters"]["offsetQuery"];
@@ -2511,7 +3131,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["AggregateGroup"][];
-                        /** @description The DISTINCT GROUP count */
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description The DISTINCT GROUP count, including the null group. Exact on every request, but cheaper in one page: at offset 0 a page shorter than `limit` cannot have been truncated, so the count comes from the returned rows. A full page or a non-zero offset costs a SECOND aggregate over `records`. Ask with a `limit` above your expected group count — that is what the 1000 ceiling is for. */
                         total: number;
                         limit: number;
                         offset: number;
@@ -2523,6 +3145,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getClientMe: {
@@ -2541,10 +3164,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            site: components["schemas"]["Site"];
-                            key: components["schemas"]["SiteKey"];
-                        };
+                        site: components["schemas"]["Site"];
+                        key: components["schemas"]["SiteKey"];
                     };
                 };
             };
@@ -2569,6 +3190,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Page"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -2593,9 +3218,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["PageTree"];
-                    };
+                    "application/json": components["schemas"]["PageTree"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -2615,7 +3238,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description Omitted means the site's defaultLocale. */
+                    /** @description Omitted means the site's default_locale. */
                     locale?: string;
                     /** @description Keys are "<sectionKey>.<fieldKey>". A null value discards the DRAFT for that field; send "" to publish an empty value. More than 500 keys means using the admin import endpoint instead. */
                     values: {
@@ -2631,9 +3254,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["PageDocument"];
-                    };
+                    "application/json": components["schemas"]["PageDocument"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -2645,7 +3266,10 @@ export interface operations {
     publishPage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional. Makes a retry a REPLAY rather than a second operation: the original result comes back as 200 with an `Idempotent-Replay: true` response header. The same key with a different body is a 409 carrying `code: idempotency_key_reused`. The body hash is over canonical JSON (object keys sorted, array order preserved), and the key is scoped to the resource it acts on. Free-form and trimmed. */
+                "Idempotency-Key"?: components["parameters"]["idempotencyKeyHeader"];
+            };
             path: {
                 slug: components["parameters"]["pageSlug"];
             };
@@ -2662,22 +3286,22 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Published. */
+            /** @description Published — or REPLAYED, if an `Idempotency-Key` matched an earlier publish of this page. A replay returns the ORIGINAL version, writes nothing, and fires no second revalidation webhook. */
             200: {
                 headers: {
+                    /** @description Present only on a replay. Nothing was published by this call. */
+                    "Idempotent-Replay"?: "true";
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            version: number;
-                            note?: string | null;
-                            publishedBy: string;
-                            /** Format: date-time */
-                            createdAt: string;
-                            locales: string[];
-                            document: components["schemas"]["PageDocument"];
-                        };
+                        version: number;
+                        note?: string | null;
+                        published_by: string;
+                        /** Format: date-time */
+                        created_at: string;
+                        locales: string[];
+                        document: components["schemas"]["PageDocument"];
                     };
                 };
             };
@@ -2713,10 +3337,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            locales: string[];
-                            document: components["schemas"]["PageDocument"];
-                        };
+                        locales: string[];
+                        document: components["schemas"]["PageDocument"];
                     };
                 };
             };
@@ -2749,6 +3371,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["VersionSummary"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
                         total: number;
                         limit: number;
                         offset: number;
@@ -2780,9 +3404,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Version"];
-                    };
+                    "application/json": components["schemas"]["Version"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -2817,11 +3439,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            restored: string[];
-                            skipped: string[];
-                            document: components["schemas"]["PageDocument"];
-                        };
+                        restored: string[];
+                        skipped: string[];
+                        document: components["schemas"]["PageDocument"];
                     };
                 };
             };
@@ -2834,9 +3454,9 @@ export interface operations {
     getRenderedPage: {
         parameters: {
             query?: {
-                /** @description `draft` falls back to the published value for any untouched field, and answers `no-store`. Only on the write tiers — on `/api/content/*` any `?view=` other than `published` is a 403. */
+                /** @description `draft` falls back to the published value for any untouched field, and answers `no-store`. Only on the write tiers — on `/v1/public/*` any `?view=` other than `published` is a 403. */
                 view?: components["parameters"]["viewQuery"];
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
             };
             header?: never;
@@ -2853,9 +3473,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["PageDocument"];
-                    };
+                    "application/json": components["schemas"]["PageDocument"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -2881,6 +3499,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["CollectionSummary"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -2895,7 +3517,7 @@ export interface operations {
                 status?: components["parameters"]["itemStatusQuery"];
                 /** @description Defaults to `draft` here, unlike the public tier which serves published only. */
                 view?: components["parameters"]["itemViewQuery"];
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
                 /** @description Out of range is a 400, never a clamp. */
                 limit?: components["parameters"]["limitQuery"];
@@ -2917,6 +3539,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Item"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
                         total: number;
                         limit: number;
                         offset: number;
@@ -2958,9 +3582,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -2994,10 +3616,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            collectionKey?: components["schemas"]["Slug"];
-                            ids?: string[];
-                        };
+                        collection_key?: components["schemas"]["Slug"];
+                        ids?: string[];
                     };
                 };
             };
@@ -3012,7 +3632,7 @@ export interface operations {
             query?: {
                 /** @description Defaults to `draft` here, unlike the public tier which serves published only. */
                 view?: components["parameters"]["itemViewQuery"];
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
             };
             header?: never;
@@ -3030,9 +3650,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3044,7 +3662,7 @@ export interface operations {
     deleteItem: {
         parameters: {
             query?: {
-                /** @description Skips the reference check. Leaves dangling references, which surface in `danglingRefs` on `GET /api/admin/health` and are audited as `forced`. */
+                /** @description Skips the reference check. Leaves dangling references, which surface in `dangling_refs` on `GET /v1/admin/health` and are audited as `forced`. */
                 force?: components["parameters"]["forceQuery"];
             };
             header?: never;
@@ -3063,12 +3681,10 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            /** Format: uuid */
-                            id?: string;
-                            deleted?: boolean;
-                            forced?: boolean;
-                        };
+                        /** Format: uuid */
+                        id?: string;
+                        deleted?: boolean;
+                        forced?: boolean;
                     };
                 };
             };
@@ -3108,9 +3724,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3144,9 +3758,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3174,9 +3786,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -3196,7 +3806,7 @@ export interface operations {
                 "application/json": {
                     /** @description A filename, not a path. Sanitised server-side regardless: directory components are dropped and the name is reduced to [a-z0-9._-]. */
                     filename: string;
-                    contentType: components["schemas"]["ImageContentType"];
+                    content_type: components["schemas"]["ImageContentType"];
                 };
             };
         };
@@ -3208,14 +3818,12 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            token: string;
-                            /** @description The pathname asked for */
-                            pathname: string;
-                            allowedContentTypes: components["schemas"]["ImageContentType"][];
-                            /** @example 15728640 */
-                            maximumSizeInBytes: number;
-                        };
+                        token: string;
+                        /** @description The pathname asked for */
+                        pathname: string;
+                        allowed_content_types: components["schemas"]["ImageContentType"][];
+                        /** @example 15728640 */
+                        maximum_size_in_bytes: number;
                     };
                 };
             };
@@ -3227,9 +3835,10 @@ export interface operations {
     listClientAssets: {
         parameters: {
             query?: {
-                /** @description Out of range is a 400, never a clamp. */
-                limit?: components["parameters"]["limitQuery"];
-                offset?: components["parameters"]["offsetQuery"];
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
             };
             header?: never;
             path?: never;
@@ -3245,9 +3854,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Asset"][];
-                        total: number;
-                        limit: number;
-                        offset: number;
+                        /** @description Opaque cursor for the next page, or null on the last (or only) page. ALWAYS present — null, never absent, so one pager terminates correctly everywhere. These lists carry NO total: counting a filtered, unbounded table on every page is not cheap, and the pager terminates on this field instead. */
+                        next_cursor: string | null;
                     };
                 };
             };
@@ -3273,7 +3881,7 @@ export interface operations {
                      * @description Must be a Vercel Blob URL.
                      */
                     url: string;
-                    contentType: components["schemas"]["ImageContentType"];
+                    content_type: components["schemas"]["ImageContentType"];
                     /** @description 0 is a 400 — a zero-byte image is a failed upload, and registering one hides that. */
                     size: number;
                     width?: number;
@@ -3288,9 +3896,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Asset"];
-                    };
+                    "application/json": components["schemas"]["Asset"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3310,19 +3916,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted. blobDeleted false means the object survived and the GC CLI will sweep it. */
+            /** @description Deleted. blob_deleted false means the object survived and the GC CLI will sweep it. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            /** Format: uuid */
-                            id?: string;
-                            deleted?: boolean;
-                            blobDeleted?: boolean;
-                        };
+                        /** Format: uuid */
+                        id?: string;
+                        deleted?: boolean;
+                        blob_deleted?: boolean;
                     };
                 };
             };
@@ -3349,6 +3953,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Dataset"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -3361,13 +3969,14 @@ export interface operations {
             query?: {
                 /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
                 eq?: components["parameters"]["eqQuery"];
-                /** @description Inclusive lower bound on `occurredAt`. `from` after `to` is a 400. */
+                /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
-                /** @description Inclusive upper bound on `occurredAt`. */
-                to?: components["parameters"]["toQuery"];
-                /** @description Out of range is a 400, never a clamp. */
-                limit?: components["parameters"]["limitQuery"];
-                offset?: components["parameters"]["offsetQuery"];
+                /** @description EXCLUSIVE upper bound, so `from=D&until=D+1` covers a day exactly once. Named `until` rather than `to` deliberately: `to` reads inclusive to nearly everyone. */
+                until?: components["parameters"]["untilQuery"];
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
             };
             header?: never;
             path: {
@@ -3385,9 +3994,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Record"][];
-                        total: number;
-                        limit: number;
-                        offset: number;
+                        /** @description Opaque cursor for the next page, or null on the last (or only) page. ALWAYS present — null, never absent, so one pager terminates correctly everywhere. These lists carry NO total: counting a filtered, unbounded table on every page is not cheap, and the pager terminates on this field instead. */
+                        next_cursor: string | null;
                     };
                 };
             };
@@ -3400,7 +4008,10 @@ export interface operations {
     insertRecord: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional. Makes a retry a REPLAY rather than a second operation: the original result comes back as 200 with an `Idempotent-Replay: true` response header. The same key with a different body is a 409 carrying `code: idempotency_key_reused`. The body hash is over canonical JSON (object keys sorted, array order preserved), and the key is scoped to the resource it acts on. Free-form and trimmed. */
+                "Idempotency-Key"?: components["parameters"]["idempotencyKeyHeader"];
+            };
             path: {
                 key: components["parameters"]["datasetKey"];
             };
@@ -3409,25 +4020,26 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    externalId?: string;
+                    external_id?: string;
                     /**
                      * Format: date-time
                      * @description The EVENT time. Omitted means now — a live webhook rather than a back-fill.
                      */
-                    occurredAt?: string;
+                    occurred_at?: string;
                     data: components["schemas"]["RecordData"];
                 };
             };
         };
         responses: {
-            /** @description A replay — the record already existed. Not an error. */
+            /** @description A replay — the conflict target already existed. NOT AN ERROR: the caller wanted the record to exist and it does, and a 409 here would make a payment provider retry forever. The stored record is returned UNCHANGED; a differing body is not applied. */
             200: {
                 headers: {
+                    /** @description Present only on a replay. Branch on this, or on `created`. */
+                    "Idempotent-Replay"?: "true";
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Record"];
+                    "application/json": components["schemas"]["Record"] & {
                         /** @constant */
                         created: false;
                     };
@@ -3439,9 +4051,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Record"];
-                        /** @constant */
+                    "application/json": components["schemas"]["Record"] & {
+                        /**
+                         * @description Rides BESIDE the record, not wrapping it: the resource is the body, and `created` is metadata about what this call did. Note the record's own payload member is also called `data` — that is the record's data, not an envelope.
+                         * @constant
+                         */
                         created: true;
                     };
                 };
@@ -3450,6 +4064,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description The same `Idempotency-Key` was used with a different request body — `code: idempotency_key_reused`. Only reachable when a key was supplied: an `external_id` replay is a redelivered webhook and stays a 200. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             413: components["responses"]["PayloadTooLarge"];
         };
     };
@@ -3474,9 +4097,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Record"];
-                    };
+                    "application/json": components["schemas"]["Record"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3504,11 +4125,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            /** Format: uuid */
-                            id?: string;
-                            deleted?: boolean;
-                        };
+                        /** Format: uuid */
+                        id?: string;
+                        deleted?: boolean;
                     };
                 };
             };
@@ -3531,7 +4150,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** Format: date-time */
-                    occurredAt?: string;
+                    occurred_at?: string;
                     data?: components["schemas"]["RecordData"];
                 };
             };
@@ -3543,9 +4162,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Record"];
-                    };
+                    "application/json": components["schemas"]["Record"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3559,15 +4176,15 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description A field the dataset declared groupable. Omitted gives one null-key row of totals. */
-                groupBy?: string;
+                group_by?: string;
                 /** @description Comma-separated count and/or sum:<field>. Max 3 sum metrics. */
                 metrics?: string;
                 /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
                 eq?: components["parameters"]["eqQuery"];
-                /** @description Inclusive lower bound on `occurredAt`. `from` after `to` is a 400. */
+                /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
-                /** @description Inclusive upper bound on `occurredAt`. */
-                to?: components["parameters"]["toQuery"];
+                /** @description EXCLUSIVE upper bound, so `from=D&until=D+1` covers a day exactly once. Named `until` rather than `to` deliberately: `to` reads inclusive to nearly everyone. */
+                until?: components["parameters"]["untilQuery"];
                 /** @description 1–1000 here, because a group is a much smaller row than a page document. */
                 limit?: components["parameters"]["aggregateLimitQuery"];
                 offset?: components["parameters"]["offsetQuery"];
@@ -3591,6 +4208,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["AggregateGroup"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
                         total: number;
                         limit: number;
                         offset: number;
@@ -3602,6 +4221,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getAdminMe: {
@@ -3619,9 +4239,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminKey"];
-                    };
+                    "application/json": components["schemas"]["AdminKey"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -3637,38 +4255,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Reachable. */
+            /** @description `status` is ok | attention | degraded. WHEN THE DATABASE IS UNREACHABLE THE BODY IS SHORT — `{status: "degraded", db: "unreachable", blob_configured}` and nothing else, because the counts are the queries that failed. Code for absent keys, not for zeroes. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminHealth"];
-                    };
+                    "application/json": components["schemas"]["AdminHealth"];
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description The database is unreachable. Still a JSON body. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data?: components["schemas"]["AdminHealth"];
-                    };
-                };
-            };
+            403: components["responses"]["Forbidden"];
         };
     };
     listAdminKeys: {
         parameters: {
-            query?: {
-                /** @description Out of range is a 400, never a clamp. */
-                limit?: components["parameters"]["limitQuery"];
-                offset?: components["parameters"]["offsetQuery"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -3683,9 +4285,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["AdminKey"][];
-                        total?: number;
-                        limit?: number;
-                        offset?: number;
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -3715,7 +4318,7 @@ export interface operations {
                      * @description CIDRs. Empty means unrestricted, which is correct for rotating egress IPs.
                      * @default []
                      */
-                    allowedIps?: string[];
+                    allowed_ips?: string[];
                 };
             };
         };
@@ -3726,11 +4329,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminKey"] & {
-                            /** @example cad_YOUR_ADMIN_KEY */
-                            apiKey?: string;
-                        };
+                    "application/json": components["schemas"]["AdminKey"] & {
+                        /** @example cad_YOUR_ADMIN_KEY */
+                        api_key?: string;
                     };
                 };
             };
@@ -3756,9 +4357,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminKey"];
-                    };
+                    "application/json": components["schemas"]["AdminKey"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -3780,7 +4379,7 @@ export interface operations {
                 "application/json": {
                     label?: string;
                     scopes?: components["schemas"]["AdminScope"][];
-                    allowedIps?: string[];
+                    allowed_ips?: string[];
                     active?: boolean;
                 };
             };
@@ -3792,9 +4391,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["AdminKey"];
-                    };
+                    "application/json": components["schemas"]["AdminKey"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3809,7 +4406,7 @@ export interface operations {
                 /** @description Free-text match on slug and name. */
                 q?: string;
                 active?: "true" | "false";
-                externalRef?: string;
+                external_ref?: string;
                 /** @description Out of range is a 400, never a clamp. */
                 limit?: components["parameters"]["limitQuery"];
                 offset?: components["parameters"]["offsetQuery"];
@@ -3828,6 +4425,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Site"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
                         total: number;
                         limit: number;
                         offset: number;
@@ -3852,21 +4451,22 @@ export interface operations {
                     slug: components["schemas"]["Slug"];
                     name: string;
                     /** @default hu */
-                    defaultLocale?: string;
-                    /** @description Defaults to [defaultLocale], and MUST contain it. */
+                    default_locale?: string;
+                    /** @description Defaults to [default_locale], and MUST contain it. */
                     locales?: string[];
                     /**
                      * @description Origins, not URLs — scheme, host, optional port. No path, no trailing slash, no wildcard; compared with ===. Empty means no browser access.
                      * @default []
                      */
-                    allowedOrigins?: string[];
-                    /** Format: uri */
-                    revalidateUrl?: string;
-                    /** @description WRITE-ONLY — returned only as hasRevalidateSecret. Must equal the consumer's CONTENT_REVALIDATE_SECRET. A URL with no secret is counted as a failed delivery rather than sent unsigned. */
-                    revalidateSecret?: string;
-                    externalRef?: string;
+                    allowed_origins?: string[];
+                    /**
+                     * @description The site's id in your own admin, and the webhook envelope's account_id.
+                     *
+                     *     NOTE: revalidate_url and revalidate_secret were REMOVED from this body. A site may have several destinations, so one is created through POST /v1/admin/sites/{id}/webhook-endpoints — which is also the only response that ever shows a signing secret, and the secret is now generated by the service rather than chosen by the caller.
+                     */
+                    external_ref?: string;
                     /** @description Defaults to the slug. */
-                    keyLabel?: string;
+                    key_label?: string;
                 };
             };
         };
@@ -3877,10 +4477,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Site"] & {
-                            keys: components["schemas"]["MintedSiteKey"][];
-                        };
+                    "application/json": components["schemas"]["Site"] & {
+                        keys: components["schemas"]["MintedSiteKey"][];
                     };
                 };
             };
@@ -3908,12 +4506,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Site"] & {
-                            keys?: components["schemas"]["SiteKey"][];
-                            counts?: {
-                                [key: string]: number;
-                            };
+                    "application/json": components["schemas"]["Site"] & {
+                        keys?: components["schemas"]["SiteKey"][];
+                        counts?: {
+                            [key: string]: number;
                         };
                     };
                 };
@@ -3943,12 +4539,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Site"] | {
-                            /** Format: uuid */
-                            id?: string;
-                            deleted?: boolean;
-                        };
+                    "application/json": components["schemas"]["Site"] | {
+                        /** Format: uuid */
+                        id?: string;
+                        deleted?: boolean;
                     };
                 };
             };
@@ -3973,13 +4567,10 @@ export interface operations {
             content: {
                 "application/json": {
                     name?: string;
-                    defaultLocale?: string;
+                    default_locale?: string;
                     locales?: string[];
-                    allowedOrigins?: string[];
-                    /** Format: uri */
-                    revalidateUrl?: string | null;
-                    revalidateSecret?: string | null;
-                    externalRef?: string | null;
+                    allowed_origins?: string[];
+                    external_ref?: string | null;
                     active?: boolean;
                 };
             };
@@ -3991,9 +4582,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Site"];
-                    };
+                    "application/json": components["schemas"]["Site"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4025,6 +4614,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["SiteKey"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -4060,9 +4653,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["MintedSiteKey"];
-                    };
+                    "application/json": components["schemas"]["MintedSiteKey"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4090,9 +4681,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["MintedSiteKey"];
-                    };
+                    "application/json": components["schemas"]["MintedSiteKey"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -4119,9 +4708,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["SiteKey"];
-                    };
+                    "application/json": components["schemas"]["SiteKey"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -4152,6 +4739,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Page"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -4188,9 +4779,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Page"];
-                    };
+                    "application/json": components["schemas"]["Page"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4252,9 +4841,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["PageTree"];
-                    };
+                    "application/json": components["schemas"]["PageTree"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -4321,9 +4908,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Page"];
-                    };
+                    "application/json": components["schemas"]["Page"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4352,6 +4937,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Section"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -4387,9 +4976,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Section"];
-                    };
+                    "application/json": components["schemas"]["Section"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4492,9 +5079,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Section"];
-                    };
+                    "application/json": components["schemas"]["Section"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4523,6 +5108,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Field"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -4551,7 +5140,7 @@ export interface operations {
                      * @default false
                      */
                     required?: boolean;
-                    itemSchema?: components["schemas"]["ItemSchema"];
+                    item_schema?: components["schemas"]["ItemSchema"];
                     position?: number;
                 };
             };
@@ -4563,9 +5152,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Field"];
-                    };
+                    "application/json": components["schemas"]["Field"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4656,7 +5243,7 @@ export interface operations {
                     key?: components["schemas"]["Slug"];
                     label?: string | null;
                     required?: boolean;
-                    itemSchema?: components["schemas"]["ItemSchema"];
+                    item_schema?: components["schemas"]["ItemSchema"];
                     position?: number;
                 };
             };
@@ -4668,9 +5255,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Field"];
-                    };
+                    "application/json": components["schemas"]["Field"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4700,6 +5285,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Collection"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -4723,7 +5312,7 @@ export interface operations {
                 "application/json": {
                     key: components["schemas"]["Slug"];
                     name: string;
-                    itemSchema: components["schemas"]["ItemSchema"];
+                    item_schema: components["schemas"]["ItemSchema"];
                     position?: number;
                 };
             };
@@ -4735,9 +5324,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Collection"];
-                    };
+                    "application/json": components["schemas"]["Collection"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4764,9 +5351,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Collection"];
-                    };
+                    "application/json": components["schemas"]["Collection"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -4820,7 +5405,7 @@ export interface operations {
                 "application/json": {
                     key?: components["schemas"]["Slug"];
                     name?: string;
-                    itemSchema?: components["schemas"]["ItemSchema"];
+                    item_schema?: components["schemas"]["ItemSchema"];
                     position?: number;
                 };
             };
@@ -4832,9 +5417,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Collection"];
-                    };
+                    "application/json": components["schemas"]["Collection"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4858,7 +5441,7 @@ export interface operations {
             content: {
                 "application/json": {
                     filename: string;
-                    contentType: components["schemas"]["ImageContentType"];
+                    content_type: components["schemas"]["ImageContentType"];
                 };
             };
         };
@@ -4896,7 +5479,7 @@ export interface operations {
                     pathname: string;
                     /** Format: uri */
                     url: string;
-                    contentType: components["schemas"]["ImageContentType"];
+                    content_type: components["schemas"]["ImageContentType"];
                     size: number;
                     width?: number;
                     height?: number;
@@ -4910,9 +5493,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Asset"];
-                    };
+                    "application/json": components["schemas"]["Asset"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4925,10 +5506,11 @@ export interface operations {
     listAdminAssets: {
         parameters: {
             query?: {
-                siteId?: string;
-                /** @description Out of range is a 400, never a clamp. */
-                limit?: components["parameters"]["limitQuery"];
-                offset?: components["parameters"]["offsetQuery"];
+                site_id?: string;
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
             };
             header?: never;
             path?: never;
@@ -4944,9 +5526,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Asset"][];
-                        total: number;
-                        limit: number;
-                        offset: number;
+                        /** @description Opaque cursor for the next page, or null on the last (or only) page. ALWAYS present — null, never absent, so one pager terminates correctly everywhere. These lists carry NO total: counting a filtered, unbounded table on every page is not cheap, and the pager terminates on this field instead. */
+                        next_cursor: string | null;
                     };
                 };
             };
@@ -4958,11 +5539,12 @@ export interface operations {
     listOrphanAssets: {
         parameters: {
             query?: {
-                siteId?: string;
-                olderThan?: number;
-                /** @description Out of range is a 400, never a clamp. */
-                limit?: components["parameters"]["limitQuery"];
-                offset?: components["parameters"]["offsetQuery"];
+                site_id?: string;
+                older_than?: number;
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
             };
             header?: never;
             path?: never;
@@ -4978,11 +5560,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Asset"][];
-                        total: number;
-                        limit: number;
-                        offset: number;
+                        /** @description Opaque cursor for the next page, or null on the last (or only) page. ALWAYS present — null, never absent, so one pager terminates correctly everywhere. These lists carry NO total: counting a filtered, unbounded table on every page is not cheap, and the pager terminates on this field instead. */
+                        next_cursor: string | null;
                         /** Format: date-time */
-                        olderThan?: string;
+                        older_than?: string;
                     };
                 };
             };
@@ -4994,7 +5575,7 @@ export interface operations {
     deleteAdminAsset: {
         parameters: {
             query?: {
-                /** @description Skips the reference check. Leaves dangling references, which surface in `danglingRefs` on `GET /api/admin/health` and are audited as `forced`. */
+                /** @description Skips the reference check. Leaves dangling references, which surface in `dangling_refs` on `GET /v1/admin/health` and are audited as `forced`. */
                 force?: components["parameters"]["forceQuery"];
             };
             header?: never;
@@ -5043,6 +5624,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Dataset"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
+                        /** @description Row count, always present. Equals `data.length` here, because this list is not paginated and returns every row. */
+                        total: number;
                     };
                 };
             };
@@ -5066,10 +5651,10 @@ export interface operations {
                 "application/json": {
                     key: components["schemas"]["Slug"];
                     name: string;
-                    recordSchema: components["schemas"]["RecordSchema"];
+                    record_schema: components["schemas"]["RecordSchema"];
                     /** @default false */
-                    publicAggregate?: boolean;
-                    retentionDays?: number | null;
+                    public_aggregate?: boolean;
+                    retention_days?: number | null;
                     position?: number;
                 };
             };
@@ -5081,9 +5666,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Dataset"];
-                    };
+                    "application/json": components["schemas"]["Dataset"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5110,9 +5693,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Dataset"];
-                    };
+                    "application/json": components["schemas"]["Dataset"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -5166,9 +5747,9 @@ export interface operations {
                 "application/json": {
                     key?: components["schemas"]["Slug"];
                     name?: string;
-                    recordSchema?: components["schemas"]["RecordSchema"];
-                    publicAggregate?: boolean;
-                    retentionDays?: number | null;
+                    record_schema?: components["schemas"]["RecordSchema"];
+                    public_aggregate?: boolean;
+                    retention_days?: number | null;
                     position?: number;
                 };
             };
@@ -5180,9 +5761,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Dataset"];
-                    };
+                    "application/json": components["schemas"]["Dataset"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5197,13 +5776,14 @@ export interface operations {
             query?: {
                 /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
                 eq?: components["parameters"]["eqQuery"];
-                /** @description Inclusive lower bound on `occurredAt`. `from` after `to` is a 400. */
+                /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
-                /** @description Inclusive upper bound on `occurredAt`. */
-                to?: components["parameters"]["toQuery"];
-                /** @description Out of range is a 400, never a clamp. */
-                limit?: components["parameters"]["limitQuery"];
-                offset?: components["parameters"]["offsetQuery"];
+                /** @description EXCLUSIVE upper bound, so `from=D&until=D+1` covers a day exactly once. Named `until` rather than `to` deliberately: `to` reads inclusive to nearly everyone. */
+                until?: components["parameters"]["untilQuery"];
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
             };
             header?: never;
             path: {
@@ -5221,9 +5801,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Record"][];
-                        total: number;
-                        limit: number;
-                        offset: number;
+                        /** @description Opaque cursor for the next page, or null on the last (or only) page. ALWAYS present — null, never absent, so one pager terminates correctly everywhere. These lists carry NO total: counting a filtered, unbounded table on every page is not cheap, and the pager terminates on this field instead. */
+                        next_cursor: string | null;
                     };
                 };
             };
@@ -5254,9 +5833,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Record"];
-                    };
+                    "application/json": components["schemas"]["Record"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5296,9 +5873,9 @@ export interface operations {
     getAdminRenderedPage: {
         parameters: {
             query?: {
-                /** @description `draft` falls back to the published value for any untouched field, and answers `no-store`. Only on the write tiers — on `/api/content/*` any `?view=` other than `published` is a 403. */
+                /** @description `draft` falls back to the published value for any untouched field, and answers `no-store`. Only on the write tiers — on `/v1/public/*` any `?view=` other than `published` is a 403. */
                 view?: components["parameters"]["viewQuery"];
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
             };
             header?: never;
@@ -5317,9 +5894,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["PageDocument"];
-                    };
+                    "application/json": components["schemas"]["PageDocument"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5356,9 +5931,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["PageDocument"];
-                    };
+                    "application/json": components["schemas"]["PageDocument"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5370,7 +5943,10 @@ export interface operations {
     publishAdminPage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional. Makes a retry a REPLAY rather than a second operation: the original result comes back as 200 with an `Idempotent-Replay: true` response header. The same key with a different body is a 409 carrying `code: idempotency_key_reused`. The body hash is over canonical JSON (object keys sorted, array order preserved), and the key is scoped to the resource it acts on. Free-form and trimmed. */
+                "Idempotency-Key"?: components["parameters"]["idempotencyKeyHeader"];
+            };
             path: {
                 /** @description The site. On the admin tier the site is in the path; on the client tier it is the key. */
                 id: components["parameters"]["siteIdPath"];
@@ -5387,14 +5963,22 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Published. */
+            /** @description Published — or REPLAYED, if an `Idempotency-Key` matched an earlier publish of this page. Identical to the client-tier twin: the original version, nothing written, no second webhook. Same body shape as `publishPage`. */
             200: {
                 headers: {
+                    /** @description Present only on a replay. Nothing was published by this call. */
+                    "Idempotent-Replay"?: "true";
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data?: Record<string, never>;
+                        version: number;
+                        note?: string | null;
+                        published_by: string;
+                        /** Format: date-time */
+                        created_at: string;
+                        locales: string[];
+                        document: components["schemas"]["PageDocument"];
                     };
                 };
             };
@@ -5466,6 +6050,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["VersionSummary"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
                         total: number;
                         limit: number;
                         offset: number;
@@ -5499,9 +6085,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Version"];
-                    };
+                    "application/json": components["schemas"]["Version"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5555,7 +6139,7 @@ export interface operations {
                 status?: components["parameters"]["itemStatusQuery"];
                 /** @description Defaults to `draft` here, unlike the public tier which serves published only. */
                 view?: components["parameters"]["itemViewQuery"];
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
                 /** @description Out of range is a 400, never a clamp. */
                 limit?: components["parameters"]["limitQuery"];
@@ -5579,6 +6163,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["Item"][];
+                        /** @description ALWAYS PRESENT AND ALWAYS NULL on this list, which does not use cursors. The key is here so that one pager reads `body.next_cursor` on every list in the service and gets null rather than undefined — see conventions.md §3. */
+                        next_cursor: null;
                         total: number;
                         limit: number;
                         offset: number;
@@ -5621,9 +6207,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5674,7 +6258,7 @@ export interface operations {
             query?: {
                 /** @description Defaults to `draft` here, unlike the public tier which serves published only. */
                 view?: components["parameters"]["itemViewQuery"];
-                /** @description Omitted means the site's `defaultLocale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
+                /** @description Omitted means the site's `default_locale`. A locale the site does not publish is a 400 whose `details.locales` lists the ones it does. There is no fallback chain. */
                 locale?: components["parameters"]["localeQuery"];
             };
             header?: never;
@@ -5695,9 +6279,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5709,7 +6291,7 @@ export interface operations {
     deleteAdminItem: {
         parameters: {
             query?: {
-                /** @description Skips the reference check. Leaves dangling references, which surface in `danglingRefs` on `GET /api/admin/health` and are audited as `forced`. */
+                /** @description Skips the reference check. Leaves dangling references, which surface in `dangling_refs` on `GET /v1/admin/health` and are audited as `forced`. */
                 force?: components["parameters"]["forceQuery"];
             };
             header?: never;
@@ -5774,9 +6356,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5813,9 +6393,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5846,9 +6424,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["Item"];
-                    };
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -5874,9 +6450,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        data: components["schemas"]["ImportDocument"];
-                    };
+                    "application/json": components["schemas"]["ImportDocument"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -5922,7 +6496,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
-    refireRevalidation: {
+    requestSiteRevalidation: {
         parameters: {
             query?: never;
             header?: never;
@@ -5946,14 +6520,223 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The delivery outcome — delivered, skipped, status, attempts, reason. */
+            /** @description The event was recorded and queued. `queued: 0` is a normal answer. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data?: Record<string, never>;
+                        /**
+                         * Format: uuid
+                         * @description The X-Event-Id every receiver will see.
+                         */
+                        event_id: string;
+                        /** @description How many endpoints it was queued for. ZERO is normal, not an error. */
+                        queued: number;
+                        /** @description What the operator narrowed to, or null for the whole site. */
+                        scope: {
+                            /** @enum {string} */
+                            type?: "page" | "collection_item";
+                            slug?: string | null;
+                            collection?: string | null;
+                        } | null;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listEventTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The five event types this service emits. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["EventTypeDescriptor"][];
+                        /** @description Always present, always null here — the set is small and static. */
+                        next_cursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listWebhookEndpoints: {
+        parameters: {
+            query?: {
+                enabled?: "true" | "false";
+                event_type?: string;
+                site_id?: string;
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Endpoints, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookEndpoint"][];
+                        next_cursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listSiteWebhookEndpoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The site. On the admin tier the site is in the path; on the client tier it is the key. */
+                id: components["parameters"]["siteIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This site's endpoints, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookEndpoint"][];
+                        next_cursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The site. On the admin tier the site is in the path; on the client tier it is the key. */
+                id: components["parameters"]["siteIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: uri
+                     * @description HTTPS ONLY, port 443, no credentials, no fragment, and every resolved A/AAAA record must be a public address. Validated here AND again at every delivery, because DNS can be re-pointed in between. An unresolvable host FAILS CLOSED.
+                     */
+                    url: string;
+                    description?: string | null;
+                    /** @description null (the default) means EVERY type in the catalogue, including ones added later. AN EMPTY ARRAY IS A 400, never "none" — "subscribed to nothing" and "not configured" are different states, and a configured destination that silently receives no traffic is indistinguishable from a broken one. Use disable instead. */
+                    subscribed_events?: string[] | null;
+                    /** @description Pinned at creation and deliberately ABSENT from the PATCH: moving a live endpoint between envelope versions changes the bytes its receiver verifies, which is a new endpoint rather than an edit. Defaults to the latest. */
+                    contract_version?: number;
+                    /**
+                     * @description Whether record.created carries the record's field VALUES. OFF BY DEFAULT — a record on a donor dataset is a name, an email address, an amount and a message from a real person, and a webhook body lands in the receiver's request log, their log drain, any proxy between us, and a support ticket. Turning it on writes an audit row naming the acting key; turning it off writes another.
+                     * @default false
+                     */
+                    include_record_values?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The endpoint, plus the plaintext secret ONCE. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedEndpointSecret"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A webhook endpoint's `public_id`, NEVER its row id. An object an operator points at from a UI that spans five services keeps its internal key internal (HR-9). */
+                publicId: components["parameters"]["endpointPublicIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A webhook endpoint's `public_id`, NEVER its row id. An object an operator points at from a UI that spans five services keeps its internal key internal (HR-9). */
+                publicId: components["parameters"]["endpointPublicIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Confirmation, plus how many queued deliveries went with it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        public_id: string;
+                        deleted: boolean;
                     };
                 };
             };
@@ -5963,22 +6746,289 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    patchWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A webhook endpoint's `public_id`, NEVER its row id. An object an operator points at from a UI that spans five services keeps its internal key internal (HR-9). */
+                publicId: components["parameters"]["endpointPublicIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uri */
+                    url?: string;
+                    description?: string | null;
+                    subscribed_events?: string[] | null;
+                    include_record_values?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The endpoint as it now stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    rotateWebhookEndpointSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A webhook endpoint's `public_id`, NEVER its row id. An object an operator points at from a UI that spans five services keeps its internal key internal (HR-9). */
+                publicId: components["parameters"]["endpointPublicIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint, plus the new plaintext secret ONCE. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedEndpointSecret"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    enableWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A webhook endpoint's `public_id`, NEVER its row id. An object an operator points at from a UI that spans five services keeps its internal key internal (HR-9). */
+                publicId: components["parameters"]["endpointPublicIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint, enabled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    disableWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A webhook endpoint's `public_id`, NEVER its row id. An object an operator points at from a UI that spans five services keeps its internal key internal (HR-9). */
+                publicId: components["parameters"]["endpointPublicIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The endpoint, disabled, with a reason. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    testWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A webhook endpoint's `public_id`, NEVER its row id. An object an operator points at from a UI that spans five services keeps its internal key internal (HR-9). */
+                publicId: components["parameters"]["endpointPublicIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the probe found. 200 even when the receiver refused. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookPingOutcome"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listWebhookEvents: {
+        parameters: {
+            query?: {
+                site_id?: string;
+                event_type?: string;
+                /** @description Everything one causal chain produced, across every service that carries the id. */
+                correlation_id?: string;
+                /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
+                from?: components["parameters"]["fromQuery"];
+                /** @description EXCLUSIVE upper bound, so `from=D&until=D+1` covers a day exactly once. Named `until` rather than `to` deliberately: `to` reads inclusive to nearly everyone. */
+                until?: components["parameters"]["untilQuery"];
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Events, newest first. NO total. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookEvent"][];
+                        next_cursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listWebhookDeliveries: {
+        parameters: {
+            query?: {
+                status?: "all" | "pending" | "delivered" | "dead_lettered";
+                /** @description An endpoint's public_id. */
+                endpoint?: string;
+                event_type?: string;
+                site_id?: string;
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deliveries, newest first. NO total. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["WebhookDelivery"][];
+                        next_cursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    redeliverWebhookDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The delivery_id from the delivery list — NOT the event id. */
+                deliveryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The delivery, reset to pending with a new delivery_id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDelivery"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The endpoint is disabled (`code: endpoint_disabled`) or has no signing secret (`code: secret_missing`) — either would make the redelivery fail on arrival. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     listAudit: {
         parameters: {
             query?: {
                 /** @description Both writing tiers land in one trail, so "which tier did this" is a real filter. */
-                actorType?: "admin_key" | "client_key" | "system";
-                actorId?: string;
+                actor_type?: "admin_key" | "client_key" | "system";
+                actor_id?: string;
                 action?: string;
-                targetType?: "site" | "site_key" | "page" | "section" | "field" | "collection" | "collection_item" | "asset" | "dataset" | "record" | "admin_key";
-                targetId?: string;
-                /** @description Inclusive lower bound on `occurredAt`. `from` after `to` is a 400. */
+                target_type?: "site" | "site_key" | "page" | "section" | "field" | "collection" | "collection_item" | "asset" | "dataset" | "record" | "admin_key";
+                target_id?: string;
+                /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
-                /** @description Inclusive upper bound on `occurredAt`. */
-                to?: components["parameters"]["toQuery"];
-                /** @description Out of range is a 400, never a clamp. */
-                limit?: components["parameters"]["limitQuery"];
-                offset?: components["parameters"]["offsetQuery"];
+                /** @description EXCLUSIVE upper bound, so `from=D&until=D+1` covers a day exactly once. Named `until` rather than `to` deliberately: `to` reads inclusive to nearly everyone. */
+                until?: components["parameters"]["untilQuery"];
+                /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
+                limit?: components["parameters"]["keysetLimitQuery"];
+                /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
+                cursor?: components["parameters"]["cursorQuery"];
             };
             header?: never;
             path?: never;
@@ -5994,9 +7044,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["AuditEntry"][];
-                        total: number;
-                        limit: number;
-                        offset: number;
+                        /** @description Opaque cursor for the next page, or null on the last (or only) page. ALWAYS present — null, never absent, so one pager terminates correctly everywhere. These lists carry NO total: counting a filtered, unbounded table on every page is not cheap, and the pager terminates on this field instead. */
+                        next_cursor: string | null;
                     };
                 };
             };
@@ -6023,9 +7072,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: {
-                            [key: string]: number;
-                        };
+                        [key: string]: number;
                     };
                 };
             };

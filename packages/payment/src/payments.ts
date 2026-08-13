@@ -70,7 +70,7 @@ export interface PaymentMethods {
   /**
    * Force a re-read of the PSP's state.
    *
-   * @throws {@link ./errors.js | PaymentApiError} with `retryAfterSeconds` on a `429`.
+   * @throws {@link ./errors.js | PaymentApiError} with `retryAfter` on a `429`.
    * @remarks
    * **This is reconciliation, not polling.** Throttled to one call per payment per 5 seconds; a second
    * call inside the window is a `429` that makes **no** provider call. `last_refreshed_at` is written
