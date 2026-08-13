@@ -141,28 +141,20 @@ npm run dev
 
 ### 4 · Wire it up here
 
-Create `.env.live` in this repository. It is untracked — `.env.*` is in `.gitignore` — and it must stay
-that way. **Do not paste these values into a chat, a commit message, or an issue.**
+Copy the template and fill it in:
 
-```ini
-# .env.live — real credentials for a scratch tenant. Never committed.
-
-CONTENT_SERVICE_BASE_URL=http://localhost:3000
-CONTENT_SERVICE_SECRET_KEY=csk_...
-CONTENT_SERVICE_PUBLISHABLE_KEY=cpk_...        # optional, enables one more case
-CONTENT_SERVICE_SCRATCH_SLUG=                  # optional, enables the round-trip case
-
-INVOICE_SERVICE_BASE_URL=http://localhost:3001
-INVOICE_SERVICE_CLIENT_KEY=isk_...
-INVOICE_SERVICE_PROVIDER_CONFIG_ID=            # optional, only for the replay case
-
-PAYMENT_SERVICE_URL=http://localhost:3002
-PAYMENT_SERVICE_KEY=pmk_...
-
-# Off by default. Turn on only when every target above is a scratch database you are
-# willing to leave rows in. This is what enables the create/refresh cases.
-LIVE_ALLOW_WRITES=false
+```sh
+cp .env.live.example .env.live
 ```
+
+`.env.live` is untracked — `.gitignore` ignores `.env.*`, and `.env.live.example` is the single
+exception it re-includes. It must stay that way. **Do not paste a filled-in value into a chat, a commit
+message, or an issue.** If one leaks, rotate it; deleting the message does not recall the copy in
+someone's notification e-mail.
+
+[`.env.live.example`](../.env.live.example) documents every variable, which of them are optional and
+what each one gates. It also carries `NPM_TOKEN`, which this suite does not read — it is there so one
+file describes everything a release needs.
 
 The three services all default to port 3000, so run them on different ports (`vercel dev --listen 3001`)
 or one at a time — the suite runs files serially and skips any service that is not configured.

@@ -1,4 +1,4 @@
-# @lamido/telemetry
+# @lazslov/telemetry
 
 Estate telemetry for the Lamido services. One shared implementation of the
 [observability house rules](https://github.com/lazslov/knowledge-base) (OB-1…OB-15):
@@ -21,7 +21,7 @@ Estate telemetry for the Lamido services. One shared implementation of the
 ## Usage
 
 ```ts
-import { createTelemetry } from "@lamido/telemetry";
+import { createTelemetry } from "@lazslov/telemetry";
 
 const telemetry = createTelemetry({ service: "payment-service", env: "production" });
 export const { logger, alert, flush } = telemetry;

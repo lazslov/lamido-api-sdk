@@ -4,6 +4,10 @@ node_modules/
 dist/
 .env
 .env.*
+# The one exception, and it carries placeholders only. Re-included rather than named
+# something outside the pattern, so that a file which looks like an env file is still
+# covered by the rule above until it is explicitly let through.
+!.env.live.example
 
 # A Next build's output, in examples/next-site.
 .next/

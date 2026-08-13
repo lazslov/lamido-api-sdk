@@ -1,5 +1,5 @@
 /**
- * @lamido/telemetry — the estate's shared logging, shipping and alerting layer.
+ * @lazslov/telemetry — the estate's shared logging, shipping and alerting layer.
  *
  * Implements the observability house rules (`standards/observability-house-rules.md`,
  * OB-1…OB-15): one canonical log envelope on stdout, an additive batched sink, alerts
