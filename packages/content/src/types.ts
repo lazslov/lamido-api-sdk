@@ -66,42 +66,14 @@ export type AggregateGroup = Schemas["AggregateGroup"];
  * A dataset record. Written by a site's backend at runtime, never by an editor.
  *
  * @remarks
- * **The service's own documentation contradicts itself about this resource's identity.**
- * `client-api.md` states a RULE — *"a record is identified by `public_id`, not `id`… it has no
- * `id` member at all"* — and its example carries `public_id`. The OpenAPI schema declares `id`
- * and no `public_id`.
+ * Identified by `public_id`, a UUIDv7. **There is no `id` member**, and the internal primary key
+ * is not addressable anywhere on the API — records are one of the two tables that grow without
+ * bound, so this is what their keyset cursor is built from.
  *
- * Both are declared here, both optional, until the service settles it. Reading whichever one
- * happens to be absent would otherwise be `undefined` at runtime with no type error — and the id
- * is what every later call to this record needs. Use {@link recordId} rather than either field.
+ * The path parameter is nevertheless spelled `/v1/datasets/:key/records/:id`. Pass the
+ * `public_id` into it.
  */
-export type DatasetRecord = Omit<Schemas["Record"], "id"> & {
-  /** Present per the OpenAPI schema. */
-  readonly id?: string;
-  /** Present per `client-api.md`'s rule and its example. */
-  readonly public_id?: string;
-};
-
-/**
- * The id of a record, whichever member carries it.
- *
- * @param record - A record from any read.
- * @returns The id.
- * @throws `TypeError` when neither member is present, which would mean the contract moved again.
- * @remarks
- * Exists only because the service's documentation disagrees with its own schema — see
- * {@link DatasetRecord}. Once that is settled this collapses to a field read, and the change is a
- * deprecation rather than a break.
- */
-export function recordId(record: DatasetRecord): string {
-  const id = record.public_id ?? record.id;
-  if (id === undefined) {
-    throw new TypeError(
-      "a dataset record carried neither public_id nor id — the content-service contract has moved",
-    );
-  }
-  return id;
-}
+export type DatasetRecord = Schemas["Record"];
 
 /** A record's payload: flat, and its keys are camelCase-legal unlike every addressing key. */
 export type RecordData = Schemas["RecordData"];
@@ -110,36 +82,11 @@ export type RecordData = Schemas["RecordData"];
  * A registered image. `references: 0` means it is safe to delete.
  *
  * @remarks
- * Carries the same documented-versus-schema identity contradiction as {@link DatasetRecord}:
- * `client-api.md` rules that *"an asset is identified by `public_id`, not `id`… there is no `id`
- * member on an asset object at all"*, and the OpenAPI schema declares `id`. Use {@link assetId}.
+ * Identified by `public_id`, like {@link DatasetRecord} and unlike every other resource in this
+ * service. Assets and records are the two tables that grow without bound, so they are the two
+ * that carry a `public_id` for a keyset cursor to be built from. **There is no `id` member.**
  */
-export type ContentAsset = Omit<Schemas["Asset"], "id"> & {
-  /** Present per the OpenAPI schema. */
-  readonly id?: string;
-  /** Present per `client-api.md`'s rule and its example. */
-  readonly public_id?: string;
-};
-
-/**
- * The id of an asset, whichever member carries it.
- *
- * @param asset - An asset from any read.
- * @returns The id, which is what the `/v1/assets/:id` path parameter takes.
- * @throws `TypeError` when neither member is present.
- * @remarks
- * See {@link ContentAsset}. Note that the path parameter is spelled `:id` under either reading —
- * the service documents that too.
- */
-export function assetId(asset: ContentAsset): string {
-  const id = asset.public_id ?? asset.id;
-  if (id === undefined) {
-    throw new TypeError(
-      "an asset carried neither public_id nor id — the content-service contract has moved",
-    );
-  }
-  return id;
-}
+export type ContentAsset = Schemas["Asset"];
 
 /** The four image types the service accepts. SVG is deliberately excluded. */
 export type ImageContentType = Schemas["ImageContentType"];

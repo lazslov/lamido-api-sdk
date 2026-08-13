@@ -2,7 +2,7 @@
 
 ## 1.0.0
 
-Verified against knowledge base `54fd521`: content-service `ecf20fd`, invoice-service `3aa099f`,
+Verified against knowledge base `0e3cce0`: content-service `ecf20fd`, invoice-service `3aa099f`,
 payment-service `4e3a0a5`.
 
 ### Major Changes
@@ -54,9 +54,8 @@ payment-service `4e3a0a5`.
     `nextCursor`. `to` became `until` and is **exclusive** where `to` was inclusive.
   - `getHealth` reads `/healthz`, which is liveness only and always answers `200`. The degraded-body
     smuggling is gone with the degraded response. Database health is admin-tier now.
-  - `assetId` and `recordId` are new. The service's prose and its schema disagree about whether
-    those resources carry `id` or `public_id`; both are declared optional and these read whichever
-    arrived.
+  - **Assets and records are keyed by `public_id`, not `id`.** They are the two tables that grow
+    without bound, so they are the two that carry one. Every other resource still uses `id`.
 
   ## invoice
 

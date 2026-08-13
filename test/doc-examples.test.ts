@@ -317,7 +317,6 @@ const itemSpec = spec(
 
 const recordSpec = spec(
   {
-    id: true,
     public_id: true,
     dataset_key: true,
     external_id: true,
@@ -328,6 +327,7 @@ const recordSpec = spec(
     updated_at: true,
   } satisfies AllKeys<DatasetRecord>,
   {
+    public_id: true,
     dataset_key: true,
     external_id: true,
     data: true,
@@ -338,9 +338,6 @@ const recordSpec = spec(
 
 const assetSpec = spec(
   {
-    // Both identity members, because the service's prose and its schema disagree about which
-    // one an asset carries. See ContentAsset in packages/content/src/types.ts.
-    id: true,
     public_id: true,
     site_id: true,
     pathname: true,
@@ -354,7 +351,7 @@ const assetSpec = spec(
     references: true,
   } satisfies AllKeys<ContentAsset>,
   {
-    // Neither identity member is required, because neither is guaranteed present.
+    public_id: true,
     site_id: true,
     pathname: true,
     url: true,

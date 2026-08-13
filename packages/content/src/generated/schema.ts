@@ -2297,8 +2297,11 @@ export interface components {
             };
         };
         Asset: {
-            /** Format: uuid */
-            id: string;
+            /**
+             * Format: uuid
+             * @description UUIDv7. THE ONLY IDENTITY AN ASSET HAS — there is no `id` member, so `body.id` is undefined. The internal primary key is never on the wire, which is what lets the admin list's keyset cursor be built from this. The path parameter is nevertheless spelled `/v1/assets/:id`; pass the `public_id` into it. See client-api.md.
+             */
+            public_id: string;
             /** Format: uuid */
             site_id: string;
             /**
@@ -2418,8 +2421,11 @@ export interface components {
             [key: string]: string | number | boolean | null;
         };
         Record: {
-            /** Format: uuid */
-            id: string;
+            /**
+             * Format: uuid
+             * @description UUIDv7. THE ONLY IDENTITY A RECORD HAS — like an asset, there is no `id` member and the internal primary key is not addressable anywhere on the API. Records grow without bound, so this is what the keyset cursor is built from. The path parameter is spelled `/v1/datasets/:key/records/:id`; pass the `public_id` into it. See client-api.md.
+             */
+            public_id: string;
             dataset_key: components["schemas"]["Slug"];
             /** @description The caller's own natural key — pass the payment provider's id. NOT patchable: the idempotency key must be stable. */
             external_id: string | null;
@@ -3924,7 +3930,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** Format: uuid */
-                        id?: string;
+                        public_id?: string;
                         deleted?: boolean;
                         blob_deleted?: boolean;
                     };
@@ -4126,7 +4132,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** Format: uuid */
-                        id?: string;
+                        public_id?: string;
                         deleted?: boolean;
                     };
                 };

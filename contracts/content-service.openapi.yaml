@@ -975,9 +975,16 @@ components:
 
     Asset:
       type: object
-      required: [id, site_id, pathname, url, content_type, size, uploaded_by, references]
+      required: [public_id, site_id, pathname, url, content_type, size, uploaded_by, references]
       properties:
-        id: { type: string, format: uuid }
+        public_id:
+          type: string
+          format: uuid
+          description: >
+            UUIDv7. THE ONLY IDENTITY AN ASSET HAS — there is no `id` member, so `body.id` is
+            undefined. The internal primary key is never on the wire, which is what lets the admin
+            list's keyset cursor be built from this. The path parameter is nevertheless spelled
+            `/v1/assets/:id`; pass the `public_id` into it. See client-api.md.
         site_id: { type: string, format: uuid }
         pathname:
           type: string
@@ -1136,9 +1143,16 @@ components:
 
     Record:
       type: object
-      required: [id, dataset_key, external_id, data, withheld, occurred_at]
+      required: [public_id, dataset_key, external_id, data, withheld, occurred_at]
       properties:
-        id: { type: string, format: uuid }
+        public_id:
+          type: string
+          format: uuid
+          description: >
+            UUIDv7. THE ONLY IDENTITY A RECORD HAS — like an asset, there is no `id` member and the
+            internal primary key is not addressable anywhere on the API. Records grow without
+            bound, so this is what the keyset cursor is built from. The path parameter is spelled
+            `/v1/datasets/:key/records/:id`; pass the `public_id` into it. See client-api.md.
         dataset_key: { $ref: '#/components/schemas/Slug' }
         external_id:
           type: [string, 'null']
@@ -2678,7 +2692,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  id: { type: string, format: uuid }
+                  public_id: { type: string, format: uuid }
                   deleted: { type: boolean }
                   blob_deleted: { type: boolean }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -2919,7 +2933,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  id: { type: string, format: uuid }
+                  public_id: { type: string, format: uuid }
                   deleted: { type: boolean }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }

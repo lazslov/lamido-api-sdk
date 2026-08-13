@@ -2,7 +2,7 @@
 
 ## 0.2.0
 
-Verified against knowledge base `54fd521`: content-service `ecf20fd`, invoice-service `3aa099f`,
+Verified against knowledge base `0e3cce0`: content-service `ecf20fd`, invoice-service `3aa099f`,
 payment-service `4e3a0a5`.
 
 ### Minor Changes
