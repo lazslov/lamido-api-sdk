@@ -1496,6 +1496,41 @@ export interface components {
              *     Code doing `errors.fieldErrors[name]` now reads `undefined` rather than throwing.
              */
             errors?: components["schemas"]["ProblemFieldError"][];
+            /**
+             * @description The machine-branchable sub-case, where `(type, status)` alone cannot identify the
+             *     failure. **Every one of these is `type: conflict`**, which is why the pair has to be
+             *     read together — the first eight on a `422`, `endpoint_limit_reached` on a `409`.
+             *
+             *     Absent on every other problem. A `422` always carries one.
+             * @enum {string}
+             */
+            code?: "payment_not_refundable" | "currency_mismatch" | "refund_target_unknown" | "refund_exceeds_remaining" | "not_releasable" | "known_to_provider" | "already_attached" | "endpoint_disabled" | "endpoint_limit_reached";
+            /**
+             * @description Seconds to wait. On **every** `429`, and nothing else. Always equal to the
+             *     `Retry-After` header, which is derived from this member rather than set beside it —
+             *     so the two cannot disagree.
+             * @example 5
+             */
+            retry_after?: number;
+            /**
+             * @description A short, **non-secret** description of what the PSP said, on a `502`. Read it before
+             *     retrying: the failure is theirs, and nothing on this side changed.
+             * @example Barion: the payment window has closed
+             */
+            provider_error?: string;
+            /**
+             * @description The valid webhook event types, on the `400` that rejects an unknown one. Serves the
+             *     same list as the event catalogue, so a caller can correct the request without
+             *     reading the documentation.
+             * @example [
+             *       "payment.succeeded",
+             *       "payment.failed",
+             *       "refund.succeeded"
+             *     ]
+             */
+            supported_events?: string[];
+            /** @description The cap that was reached, on the `endpoint_limit_reached` conflict. */
+            limit?: number;
         } & {
             [key: string]: unknown;
         };

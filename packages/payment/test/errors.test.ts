@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PaymentApiError, parsePaymentError } from "../src/errors.js";
+import { PaymentApiError, type PaymentConflictCode, parsePaymentError } from "../src/errors.js";
 
 /** One problem response, as the transport hands it to the parser. */
 function context(
@@ -90,6 +90,44 @@ describe("parsePaymentError", () => {
     expect(
       parsePaymentError(context(422, problem(422, conflict, { code: "invented" }))).code,
     ).toBeUndefined();
+  });
+
+  it("recognises every code the contract declares, and nothing else", () => {
+    // The runtime allow-list and the generated union have to agree: a code the service adds
+    // upstream must not be silently dropped on the floor by the parser that widened its type.
+    // The annotation is the compile-time half — a code missing here is a type error.
+    const declared: readonly PaymentConflictCode[] = [
+      "payment_not_refundable",
+      "currency_mismatch",
+      "refund_target_unknown",
+      "refund_exceeds_remaining",
+      "not_releasable",
+      "known_to_provider",
+      "already_attached",
+      "endpoint_disabled",
+      "endpoint_limit_reached",
+    ];
+
+    for (const code of declared) {
+      const status = code === "endpoint_limit_reached" ? 409 : 422;
+      const error = parsePaymentError(context(status, problem(status, conflict, { code })));
+      expect(error.code, `${code} was not recognised`).toBe(code);
+    }
+  });
+
+  it("separates the one conflict code that is a 409, not a 422", () => {
+    // Eight are wrong-state 422s, which a state change can clear. Reaching the webhook-endpoint
+    // cap is a 409: no retry clears it, and a caller keying off `retryable` must see the
+    // difference even though both carry `type: conflict`.
+    const capped = parsePaymentError(
+      context(409, problem(409, conflict, { code: "endpoint_limit_reached", limit: 5 })),
+    );
+    expect(capped.retryable).toBe(false);
+
+    const wrongState = parsePaymentError(
+      context(422, problem(422, conflict, { code: "payment_not_refundable" })),
+    );
+    expect(wrongState.retryable).toBe(true);
   });
 });
 

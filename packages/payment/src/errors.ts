@@ -16,6 +16,7 @@
  */
 
 import { type ErrorContext, LamidoApiError, readProblem } from "@lazslov/api-core";
+import type { components } from "./generated/schema.js";
 import {
   classifyProviderOutcome,
   isProviderOutcomeRetryable,
@@ -27,27 +28,32 @@ import {
 export const serviceName = "payment-service";
 
 /**
- * The `code` extension member on a 422 — the values a caller actually switches on.
+ * The `code` extension member — the values a caller actually switches on.
  *
  * @remarks
- * Carried on core's `code`, which now holds exactly this: the machine-branchable sub-case where a
+ * An alias of the generated contract rather than a hand-written union, now that the specification
+ * declares it. A code added upstream then breaks the build instead of drifting quietly past.
+ *
+ * Carried on core's `code`, which holds exactly this: the machine-branchable sub-case where a
  * `(type, status)` pair alone cannot identify the failure. It used to be spelled `conflictCode`
  * here to avoid colliding with core's `code`, which then held the problem type; core holds the
  * slug in `type` now, so the two have merged and the alias is gone.
+ *
+ * Every value is `type: conflict`. Eight are `422` — the payment's or the refund's state forbids
+ * the call, and a state can change. `endpoint_limit_reached` is a **`409`**: the merchant is at
+ * its webhook-endpoint cap, which no retry clears. That asymmetry is why the pair has to be read
+ * together.
+ *
+ * - `payment_not_refundable` — the payment has not succeeded, or its status moved while the refund
+ *   was being reserved.
+ * - `currency_mismatch` — `currency` is not the payment's. The field is an assertion, not an
+ *   instruction.
+ * - `refund_target_unknown` — the PSP-side transaction cannot yet be identified. Refresh the
+ *   payment, then retry.
+ * - `refund_exceeds_remaining` — the amount would take the payment past what is left. Re-read the
+ *   refunds and recompute.
  */
-export type PaymentConflictCode =
-  /** The payment has not succeeded, or its status moved while the refund was being reserved. */
-  | "payment_not_refundable"
-  /** `currency` is not the payment's. The field is an assertion, not an instruction. */
-  | "currency_mismatch"
-  /** The PSP-side transaction cannot yet be identified. Refresh the payment, then retry. */
-  | "refund_target_unknown"
-  /** The amount would take the payment past what is left. Re-read the refunds and recompute. */
-  | "refund_exceeds_remaining"
-  | "not_releasable"
-  | "known_to_provider"
-  | "already_attached"
-  | "endpoint_disabled";
+export type PaymentConflictCode = NonNullable<components["schemas"]["Problem"]["code"]>;
 
 /** Everything {@link PaymentApiError} carries beyond core's fields. */
 type PaymentErrorInit = ConstructorParameters<typeof LamidoApiError>[0] & {
@@ -128,7 +134,13 @@ export class PaymentApiError extends LamidoApiError {
   }
 }
 
-/** Every conflict code the service documents. */
+/**
+ * Every conflict code the service documents.
+ *
+ * @remarks
+ * The runtime half of {@link PaymentConflictCode}: a `code` the service does not document came
+ * from a proxy, not from the service. Kept in step with the generated union by a test.
+ */
 const conflictCodes = new Set<PaymentConflictCode>([
   "payment_not_refundable",
   "currency_mismatch",
@@ -138,6 +150,7 @@ const conflictCodes = new Set<PaymentConflictCode>([
   "known_to_provider",
   "already_attached",
   "endpoint_disabled",
+  "endpoint_limit_reached",
 ]);
 
 /**

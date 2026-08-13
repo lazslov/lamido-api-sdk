@@ -236,8 +236,8 @@ describe("assets", () => {
   it("maps a resolved image URL back to its asset id", async () => {
     const stub = fetchStub([
       listResponse([
-        { id: "a1", url: "https://blob.example.com/one.jpg" },
-        { id: "b2", url: "https://blob.example.com/two.jpg" },
+        { public_id: "a1", url: "https://blob.example.com/one.jpg" },
+        { public_id: "b2", url: "https://blob.example.com/two.jpg" },
       ]),
     ]);
     await expect(
@@ -250,10 +250,10 @@ describe("assets", () => {
     // against one would never terminate — and one that stopped on a short page would miss the
     // match. Only `next_cursor` says whether there is more.
     const stub = fetchStub([
-      listResponse([{ id: "a1", url: "https://blob.example.com/one.jpg" }], {
+      listResponse([{ public_id: "a1", url: "https://blob.example.com/one.jpg" }], {
         next_cursor: "page2",
       }),
-      listResponse([{ id: "b2", url: "https://blob.example.com/two.jpg" }]),
+      listResponse([{ public_id: "b2", url: "https://blob.example.com/two.jpg" }]),
     ]);
     await expect(
       contentClient(stub).getAssetIdByUrl("https://blob.example.com/two.jpg"),

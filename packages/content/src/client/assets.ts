@@ -25,7 +25,6 @@ import type {
   ImageContentType,
   UploadToken,
 } from "../types.js";
-import { assetId } from "../types.js";
 
 /** What step 1 asks for. */
 export interface UploadTokenRequest extends RequestOptions {
@@ -184,7 +183,7 @@ export function bindAssetMethods(cfg: ResolvedConfig): AssetMethods {
         do {
           const page = await methods.listAssets({ ...options, limit: pageSize, cursor });
           const found = page.items.find((asset) => asset.url === url);
-          if (found) return assetId(found);
+          if (found) return found.public_id;
           cursor = page.nextCursor ?? undefined;
         } while (cursor !== undefined);
         return null;

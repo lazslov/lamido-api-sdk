@@ -99,7 +99,6 @@ export type {
   UploadToken,
   VersionSummary,
 } from "./types.js";
-export { assetId, recordId } from "./types.js";
 export {
   type ContentEvent,
   type ContentEventTenant,
