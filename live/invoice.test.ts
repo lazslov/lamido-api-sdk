@@ -20,9 +20,9 @@ import {
  * @remarks
  * **Nothing here issues a real invoice.** A successful create has side effects at szamlazz.hu or
  * Billingo and is reported to NAV — there is no undo but a storno, which is itself a real document. So
- * the create cases stop at the failures that happen **before** the provider is called: a bad
- * `provider_config_id` prefix is one, and it is exactly the case that proves the SDK's local validation
- * matches the service rather than being a stricter invention.
+ * the create cases stop at the failures that happen **before** the provider is called, and in fact
+ * before the idempotency key is reserved: a `provider_config_id` the client may not use is one, and it
+ * proves the guard the SDK cannot check for itself, because only an operator can allow-list a config.
  *
  * The one case that can create a row is behind `LIVE_ALLOW_WRITES` **and** needs a provider sandbox
  * configured on the tenant; see `docs/live-testing.md`.
@@ -35,10 +35,16 @@ describe.skipIf(!invoiceTarget.ready)("invoice-service live", () => {
       apiKey: invoiceTarget.keys.client,
     });
 
-  it("answers a bare {status:'ok'} with no data wrapper", async () => {
+  it("answers an unwrapped health body that reports the database separately", async () => {
     // One of the three documented envelope exceptions, and the reason core's ReadMode is explicit per
     // call: a shared unwrap(body.data) applied here returns undefined.
-    expect(await client().getHealth()).toEqual({ status: "ok" });
+    const health = await client().getHealth();
+
+    // `db` is the half a monitor must read. The route always answers 200 while the process is alive,
+    // so an unreachable database arrives as `{ status: "degraded", db: "unreachable" }` at 200 — and
+    // a check that stops at response.ok reports a healthy service over a dead database.
+    expect(health.status).toBe("ok");
+    expect(health.db).toBe("ok");
   });
 
   it("returns NO total on the invoice list, and pages by cursor", async () => {
@@ -60,13 +66,26 @@ describe.skipIf(!invoiceTarget.ready)("invoice-service live", () => {
     expect(error.type).toBe("validation");
   });
 
-  it("rejects a provider_config_id whose prefix does not match the provider", async () => {
-    // The SDK refuses this locally, before any request — so the point of the live case is the
-    // *converse*: that the service still refuses it too. Asserted by sending a body the SDK accepts,
-    // with a config id whose characters are legal and whose prefix is the wrong provider's.
+  it("refuses a provider_config_id the client is not allowed to use, before writing anything", async () => {
+    // The guard order documented on `POST /v1/invoices` decides what this case can observe:
+    //
+    //   5. config allow-listed              → 403
+    //   6. config-id prefix matches provider → 400 provider_config_mismatch
+    //   8. reserve the key — from here on the key IS consumed
+    //
+    // Step 5 runs first, so an id that is not on the client's `allowed_provider_configs` never
+    // reaches step 6. The prefix rule is therefore not observable here without an allow-listed id
+    // carrying the other provider's prefix, which no tenant should be asked to hold. The SDK's half
+    // of that rule is proved locally instead — see packages/invoice/test/validate.test.ts.
+    //
+    // What this case proves is the guard the SDK cannot check: only an operator can allow-list a
+    // config, so the service's refusal is the only source of truth. The prefix here matches the
+    // provider on purpose, so the body passes the SDK's own validation and the request really goes
+    // out. The id names nothing, so the refusal lands at step 5 — before step 8, which is why the
+    // idempotency key survives and this case can run again tomorrow.
     const body: CreateInvoiceInput = {
       provider: "billingo",
-      provider_config_id: "szamlazz_sdk_live_probe",
+      provider_config_id: "billingo_sdk_live_unlisted_probe",
       partner: {
         name: "SDK Live Probe",
         address: { postal_code: "1011", city: "Budapest", address: "Fő utca 1" },
@@ -76,13 +95,11 @@ describe.skipIf(!invoiceTarget.ready)("invoice-service live", () => {
     };
 
     const error = await failure<InvoiceApiError>(() =>
-      client().createInvoice(body, derivedIdempotencyKey("sdk-live-probe-bad-prefix", 1)),
+      client().createInvoice(body, derivedIdempotencyKey("sdk-live-probe-unlisted-config", 1)),
     );
 
-    // Raised before the row is inserted, which is also why this key is not consumed and the case can
-    // run again tomorrow.
-    expect(error.status).toBe(400);
-    expect(error.type).toBe("validation");
+    expect(error.status).toBe(403);
+    expect(error.type).toBe("forbidden");
   });
 
   it("answers 404 for an invoice this key cannot see, and does not map it to null", async () => {

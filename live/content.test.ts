@@ -1,6 +1,7 @@
 import { type ContentApiError, createContentClient, createWebsiteClient } from "@lazslov/content";
 import { describe, expect, it } from "vitest";
 import {
+  allowWrites,
   contentPublishableKey,
   contentScratchSlug,
   contentTarget,
@@ -74,7 +75,9 @@ describe.skipIf(!contentTarget.ready)(`content-service live`, () => {
     const error = await failure<ContentApiError>(() => publishable.getMe());
     expect([401, 403]).toContain(error.status);
   });
-  it.skipIf(!contentScratchSlug)(
+  // A PATCH is a write, so it needs the same opt-in every other write here needs. Patching a value
+  // back unchanged still writes a draft revision, and the target may be a page somebody is editing.
+  it.skipIf(!allowWrites || !contentScratchSlug)(
     "round-trips a value unchanged, proving the shape without publishing",
     async () => {
       // Read, PATCH back identically, read again. Nothing is published, so nothing goes live — and the

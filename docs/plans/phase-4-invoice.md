@@ -48,9 +48,13 @@ into a legible construction-time error.
 | `cancelInvoice(id)` | `POST /api/invoices/:id/cancel` | `data` — returns `stornoNumber`, §6 |
 | `getHealth()` | `GET /api/health` | `raw` — **no `data` wrapper**, unauthenticated |
 
-`getHealth` is one of the three documented envelope exceptions and answers a bare
-`{"status":"ok"}`. A shared unwrapper applied to it returns `undefined`, which is why
+`getHealth` is one of the three documented envelope exceptions and answers an unwrapped
+`{"status":"ok","db":"ok"}`. A shared unwrapper applied to it returns `undefined`, which is why
 [core's `ReadMode`](phase-2-api-core.md#4-the-three-read-paths) is explicit per call.
+
+The route always answers `200` while the process is alive, so an unreachable database arrives as
+`{"status":"degraded","db":"unreachable","code":"…"}` — also at `200`. Read `db`; a check that
+stops at `response.ok` reports a healthy service over a dead database.
 
 ---
 
@@ -259,7 +263,7 @@ No `./next` subpath, no `./fields`. One entry point.
 - [ ] `isoDate("2026-13-45")` and `isoDate("25/07/2026")` both throw locally, before any request.
 - [ ] `listInvoices(...).total` is a type error; `listAllInvoices()` terminates on a short page with no `total` present.
 - [ ] `getInvoicePdf` returns bytes and a filename; the cancelled-invoice case surfaces as a named error.
-- [ ] `getHealth()` returns `{ status: "ok" }` and is not run through a `data` unwrapper.
+- [ ] `getHealth()` returns `{ status: "ok", db: "ok" }` and is not run through a `data` unwrapper.
 - [ ] `grossAmount` is `number | null` and no exported helper converts it to or from payment's minor-unit string.
 - [ ] No `mode` is set on any request. Grep-asserted.
 - [ ] `provider_error` is `retryable: true`, and its doc comment states the new-key rule for creates.

@@ -110,7 +110,7 @@ Deviations from the plans and the reasoning behind them are in
       with no `total`
 - [x] `getInvoicePdf` returns bytes and a filename; the cancelled-invoice case is a named error
       *(`InvoiceNotDownloadableError`, on `/download-link` too — it shares the state requirement)*
-- [x] `getHealth()` returns `{ status: "ok" }` and is not run through a `data` unwrapper
+- [x] `getHealth()` returns `{ status: "ok", db: "ok" }` and is not run through a `data` unwrapper
 - [x] `grossAmount` is `number | null`, with no helper converting to payment's minor-unit string
 - [x] No `mode` is set on any request — grep-asserted
 - [x] `provider_error` is `retryable: true`, and its doc comment states the new-key rule
