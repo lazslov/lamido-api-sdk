@@ -4,7 +4,7 @@ Consumer SDK for content-service — pages, sections and collections for content
 the application data a client site would otherwise need a database for, and images on the
 CDN.
 
-**Status: phase 6.** Both consumer tiers, the field-descriptor layer on `@lazslov/content/fields`,
+**What ships in it:** both consumer tiers, the field-descriptor layer on `@lazslov/content/fields`,
 and the Next.js App Router adapter on `@lazslov/content/next` — three cache modes, the revalidation
 route handler and the server-action error shape.
 

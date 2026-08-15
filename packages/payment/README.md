@@ -3,7 +3,7 @@
 Consumer SDK for payment-service — Stripe and Barion behind one uniform merchant-tier API,
 using each merchant's own PSP credentials.
 
-**Status: phase 6.** All seven merchant endpoints, the money type, RFC 7807 triage, webhook
+**What ships in it:** all seven merchant endpoints, the money type, RFC 7807 triage, webhook
 verification, the reconciliation backstop, and the webhook route handler on
 `@lazslov/payment/next`.
 

@@ -145,7 +145,7 @@ Phase 3 is complete: `@lazslov/content` ships both consumer tiers, the field-des
 
 ## Phase 4 decisions, and where they deviate from the plan
 
-Phase 4 is complete: `@lazslov/invoice` ships the six client-tier endpoints plus `/api/health`, the
+Phase 4 is complete: `@lazslov/invoice` ships the six client-tier endpoints plus `/healthz`, the
 `IsoDate` type, the outbound checks and the `stornoNumber` split.
 
 - **`InvoiceNotDownloadableError` is an exported subclass**, which the plan's Public API surface block
@@ -371,8 +371,9 @@ push. [live-testing.md](live-testing.md) is the operator checklist for the first
 
 ## Phase 8 decisions, and where they deviate from the plan
 
-Phase 8's machinery is built. Nothing is published: the four criteria that need an npm account, a
-token or a registry round trip cannot be met from here.
+Phase 8 is complete. `v1.0.0` published on 2026-08-15 — five packages, each with an npm provenance
+attestation. The decisions below are in the order they were made; the ones the *release itself*
+forced are collected at the end, under "What publishing actually taught us".
 
 - **The scope is `@lazslov`, not `@lamido`.** The plan assumed a `@lamido` npm organisation would be
   created. Two facts closed that off. The registry already resolves `@lamido` to *something*:
@@ -407,6 +408,11 @@ token or a registry round trip cannot be met from here.
   plan says publishing core separately exists to avoid. With `"minor"`, a core patch ships alone and
   reaches consumers through the `^` range; a core **minor** still bumps the three, because `^0.1.0`
   does not admit `0.2.0` in 0.x semver.
+
+  **That last clause expired at `1.0.0`.** `^1.0.0` *does* admit `1.1.0`, so a core minor now reaches
+  consumers without the three service packages moving. The setting still keeps their declared floor
+  honest, which is a weaker reason than the one it was chosen for — see
+  [.changeset/README.md](../.changeset/README.md).
 - **`CHANGELOG.md` ships inside the tarball**, so `"files"` and the tarball audit's expectation both
   grew a fourth entry. The plan's stated goal — a consumer can answer "which version of the contract
   does my installed SDK believe in?" without reading the SDK's git history — is only true if the file
@@ -449,8 +455,34 @@ token or a registry round trip cannot be met from here.
   none; invoice-service and payment-service never claimed to ship a client, and payment's only SDK
   mentions are about Stripe's. Its second row is already satisfied too: both env-var names the plan
   marked *proposed* (`CONTENT_SERVICE_PUBLISHABLE_KEY`, `INVOICE_SERVICE_CLIENT_KEY`) are already in
-  the knowledge base. The row names the **repository**, not an npm package, because nothing is
-  published yet — the commit message says so, and flags the second pass.
+  the knowledge base. The row names the **repository**, not an npm package, because nothing was
+  published at the time — the commit message says so, and flags the second pass. **That second pass
+  is now owed:** the packages exist on npm, so the row can name `@lazslov/content` directly.
+
+### What publishing actually taught us
+
+Four things the plan could not have known, each found by the release rather than by review.
+
+- **npm provenance requires a public repository.** The attestation names a public source, so
+  `--provenance` cannot succeed from a private repo. Separately, GitHub does not offer environment
+  protection rules — the required reviewer — on a private repository below a paid plan; the API
+  answers `422` naming the billing plan. One change satisfied both: the repository went public. Before
+  that, every blob in every commit was scanned with the repo's own leak guard plus third-party
+  credential patterns. Nothing but deliberate test fixtures.
+- **`packageDirs` was a hand-maintained list, and it silently excluded a published package.**
+  `@lazslov/telemetry` shipped through `audit:tarballs`, `deps:audit` and three shape suites without
+  being inspected by any of them, because they iterate that list while `pnpm publish -r` walks the
+  workspace. `check:leaks`, `publint` and `attw` did cover it — they walk the workspace too. **The
+  lesson generalises: any gate driven by a hand-written list of packages will eventually disagree
+  with the one that publishes them.**
+- **`0.x` is the wrong floor for a package meant to be shared across the estate.** Below `1.0.0` a
+  caret range does not cross a minor, so every rule `@lazslov/telemetry` gained would have cost each
+  consuming service a bump of its own. See [CONTRIBUTING.md § Versioning](../CONTRIBUTING.md#versioning).
+- **The live suite's base URLs are the one setting that differs between a laptop and the release.**
+  `.env.live` gets filled for local work, and `push-release-secrets.sh` copies it verbatim to the
+  `release` environment — where `localhost` cannot resolve. The first `v1.0.0` tag failed on
+  `ECONNREFUSED 127.0.0.1:3302`. Nothing published, because the live suite runs before the publish
+  step, which is the ordering the workflow exists to guarantee.
 
 ## Build tooling: the tsdown configs are `.mjs`
 

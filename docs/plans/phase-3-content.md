@@ -50,7 +50,7 @@ Env var names, from
 | `getSite({ locale })` | `GET /api/content/site` | site chrome; the reserved `settings` section lives on a page, which is why a page publish can change this |
 | `getCollection(key, { locale, limit, offset })` | `GET /api/content/collections/:key` | |
 | `getDatasetAggregate(key, params)` | `GET /api/content/datasets/:key/aggregate` | opt-in public; `limit` 1–1000, default 100 |
-| `getHealth()` | `GET /api/health` | the only unauthenticated endpoint |
+| `getHealth()` | `GET /healthz` | the only unauthenticated endpoint |
 
 `getHealth` must read the **body** on a 503, not just `response.ok`: the service answers
 `503` *with* `{"status":"degraded","db":"unreachable","code":"…"}`, and

@@ -46,7 +46,7 @@ into a legible construction-time error.
 | `getInvoicePdf(id)` | `GET /api/invoices/:id/pdf` | **`bytes`** |
 | `createDownloadLink(id)` | `GET /api/invoices/:id/download-link` | `data` |
 | `cancelInvoice(id)` | `POST /api/invoices/:id/cancel` | `data` — returns `stornoNumber`, §6 |
-| `getHealth()` | `GET /api/health` | `raw` — **no `data` wrapper**, unauthenticated |
+| `getHealth()` | `GET /healthz` | `raw` — **no `data` wrapper**, unauthenticated |
 
 `getHealth` is one of the three documented envelope exceptions and answers an unwrapped
 `{"status":"ok","db":"ok"}`. A shared unwrapper applied to it returns `undefined`, which is why
@@ -257,7 +257,7 @@ No `./next` subpath, no `./fields`. One entry point.
 
 ## Exit criteria
 
-- [ ] All six client-tier endpoints plus `/api/health` are callable; no admin endpoint exists.
+- [ ] All six client-tier endpoints plus `/healthz` are callable; no admin endpoint exists.
 - [ ] `createInvoice` reports `replayed: true` on a 200 and `false` on a 201, and there is no overload that omits the idempotency key.
 - [ ] `invoice.stornoNumber` from `getInvoice` is a **compile error**; from `cancelInvoice` it type-checks.
 - [ ] `isoDate("2026-13-45")` and `isoDate("25/07/2026")` both throw locally, before any request.

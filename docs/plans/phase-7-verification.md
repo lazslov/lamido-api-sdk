@@ -189,7 +189,7 @@ request succeeds.
 > value back unchanged to prove a shape — that costs nothing.*
 
 **invoice-service**
-- `GET /api/health` answers a bare `{"status":"ok"}` with no `data` wrapper.
+- `GET /healthz` answers a bare `{"status":"ok"}` with no `data` wrapper.
 - `GET /api/invoices` returns **no `total`** — the assertion that keeps the paginator honest.
 - An unpaginated admin-free list omits `limit`/`offset` entirely rather than sending `null`.
 - A malformed `providerConfigId` prefix is a `400 bad_request`.

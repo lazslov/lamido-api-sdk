@@ -3,7 +3,7 @@
 Consumer SDK for invoice-service — Hungarian invoices through szamlazz.hu and Billingo, with the
 provider chosen per request.
 
-**Status: phase 4.** All six client-tier endpoints plus `/healthz`. There is no `./next`
+**What ships in it:** all six client-tier endpoints plus `/healthz`. There is no `./next`
 subpath and there never will be: this service has no webhooks, so there is nothing for a route
 handler to receive.
 

@@ -3,25 +3,32 @@
 [![CI](https://github.com/lazslov/lamido-api-sdk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lazslov/lamido-api-sdk/actions/workflows/ci.yml?query=branch%3Amain)
 
 A consumer-side TypeScript SDK for the three services documented in the `knowledge-base`
-repository, published to npm as four packages and installed into client-website projects.
+repository, published to npm as five packages and installed into client-website projects.
 
-| Package | What it is |
-|---|---|
-| `@lazslov/api-core` | transport, errors, HMAC verification, paging — shared, depends on nothing |
-| `@lazslov/content` | content-service: pages, sections, collections, datasets, assets |
-| `@lazslov/invoice` | invoice-service: Hungarian invoicing |
-| `@lazslov/payment` | payment-service: Stripe and Barion behind one merchant API |
+| Package | Version | What it is |
+|---|---|---|
+| `@lazslov/api-core` | `1.0.0` | transport, errors, HMAC verification, paging — shared, depends on nothing |
+| `@lazslov/content` | `1.0.0` | content-service: pages, sections, collections, datasets, assets |
+| `@lazslov/invoice` | `1.0.0` | invoice-service: Hungarian invoicing |
+| `@lazslov/payment` | `1.0.0` | payment-service: Stripe and Barion behind one merchant API |
+| `@lazslov/telemetry` | `1.0.0` | the estate's log envelope, batched sink, alert channel and request middleware |
 
-The build plan, and the reasoning behind four packages rather than one, is in
-[docs/plans/](docs/plans/). **Every build phase — 1 through 6 — is complete:** the repository builds,
-tests and audits four publishable packages, `@lazslov/api-core` carries the transport, error base,
-configuration, HMAC verifier, paginator and idempotency plumbing the three service packages share, all
-three service surfaces are implemented, and the Next.js App Router adapters ship on
-`@lazslov/content/next` and `@lazslov/payment/next`. Phase 8's release machinery is built too —
-changesets, a tag-triggered release workflow and the weekly contract-drift job. **Nothing is
-published yet:** what remains needs a sandbox tenant (phase 7) and an npm account (phase 8). Live
-status per phase is in [docs/plans/PROGRESS.md](docs/plans/PROGRESS.md); how to release, and what must
-be true first, is in [CONTRIBUTING.md](CONTRIBUTING.md).
+`@lazslov/telemetry` is the odd one out: it is consumed by the **services**, not by a client site,
+and it depends on the other four not at all. It lives here because it is published from the same
+release, under the same provenance.
+
+The build plan, and the reasoning behind several packages rather than one, is in
+[docs/plans/](docs/plans/). **All eight phases are complete.** `@lazslov/api-core` carries the
+transport, error base, configuration, HMAC verifier, paginator and idempotency plumbing the three
+service packages share; all three service surfaces are implemented; and the Next.js App Router
+adapters ship on `@lazslov/content/next` and `@lazslov/payment/next`.
+
+**Published 2026-08-15 — `v1.0.0`, all five packages, each with an npm provenance attestation.** A
+tag matching `v*` is the only thing that publishes: the workflow runs the full gate, a
+generated-types check and the live contract suite against real tenants before it ships anything, and
+waits on a required reviewer first. Live status per phase is in
+[docs/plans/PROGRESS.md](docs/plans/PROGRESS.md); how to cut the next release is in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Working on it
 

@@ -86,11 +86,14 @@ Each package's `CHANGELOG.md` entry names the knowledge-base commit and all thre
 `source_commit`, copied from [contracts/CONTRACTS.json](contracts/CONTRACTS.json):
 
 ```md
-## 0.2.0
+## 1.0.0
 
-Verified against knowledge base `0bca8b0`: content-service `d7b5c46`, invoice-service `f5af0dc`,
-payment-service `586eede`.
+Verified against knowledge base `5191225`: content-service `ecf20fd`, invoice-service `3aa099f`,
+payment-service `62a1799`.
 ```
+
+That is the real line from the `1.0.0` release, not a sketch — copy the shape, and take the values
+from `CONTRACTS.json` as it stands when you release.
 
 `changeset version` writes a bare heading, so **add the line by hand** after running it.
 `test/changelog-provenance.test.ts` fails until you do. The changelog ships inside the tarball,
@@ -107,7 +110,7 @@ pnpm release:version         # applies the changesets: bumps versions, writes ch
 pnpm verify
 pnpm release:dry-run         # five tarballs, core first
 git commit && git push       # through a pull request, as always
-git tag v0.2.0 && git push --tags
+git tag v1.1.0 && git push --tags   # any v* tag; never move one that has published
 ```
 
 The tag is what publishes. [`.github/workflows/release.yml`](.github/workflows/release.yml) then
@@ -126,29 +129,42 @@ The **first** release needs no changeset of its own: all five `@lazslov/*` packa
 nothing left to apply. Tagging `v1.0.0` is the whole step. Every release after that follows the
 flow above.
 
-### Before the first publish
+### Before the first publish — all done, kept as the standing account checklist
 
-None of this can be done from the repository, and all of it must be true before a tag is pushed.
+**This was completed for `v1.0.0` on 2026-08-15.** It stays here because every item is also what a
+*replacement* maintainer, a rotated token or a fresh sandbox has to satisfy — and because two of
+them were discovered the hard way, noted inline.
 
-- [ ] **`npm whoami` says `lazslov`.** `@lazslov` is a *user* scope, not an organisation — the
+- [x] **`npm whoami` says `lazslov`.** `@lazslov` is a *user* scope, not an organisation — the
       maintainer's own npm username — so there is no organisation to create and no membership to
       grant. A free account publishes as many public packages under its own scope as it likes;
       only *private* packages need a paid plan, and none of these are private. That is the whole
       of the account setup.
-- [ ] **2FA on the npm account**, with a granular automation token as the CI path.
-- [ ] **A granular access token** with publish permission on the five `@lazslov/*` packages,
+- [x] **2FA on the npm account**, with a granular **automation** token as the CI path. The token
+      kind matters: a *Publish* token prompts for 2FA, and a workflow cannot answer a prompt.
+- [x] **A granular access token** with publish permission on the five `@lazslov/*` packages,
       stored as the `NPM_TOKEN` secret of the `release` GitHub environment. Never in a committed
       `.npmrc` — [.npmrc](.npmrc) exists to hold the registry URL and nothing else.
-- [ ] **The `release` environment exists** and has a required reviewer. Publishing is the one
+- [x] **The `release` environment exists** and has a required reviewer. Publishing is the one
       irreversible action this repository can take; a human approving it is proportionate.
-- [ ] **The live-suite secrets are in that environment** — base URL and key for all three
+
+      Two things this turned out to require. Environment protection rules need **GitHub Pro or
+      above on a private repository** — the API answers `422` naming the billing plan. And npm
+      provenance needs a **public** repository, because the attestation names a public source. So
+      the repository went public, which satisfied both at once.
+- [x] **The live-suite secrets are in that environment** — base URL and key for all three
       services. Base URLs are secrets here too: no deployment host belongs in this repository.
 
       Fill in [`.env.live.example`](.env.live.example) once, then
       `./scripts/push-release-secrets.sh` sets every one of them from it. Values go to
       `gh secret set` on stdin, so none reaches the process table or the shell history, and the
       script prints names only. Re-running it is how a single value is rotated.
-- [ ] **Sandbox tenants are provisioned.** [docs/live-testing.md](docs/live-testing.md) is the
+
+      > **The URLs must be reachable from a GitHub runner.** `.env.live` is usually filled for
+      > local work, and a `localhost` base URL fails every live case with `ECONNREFUSED` — loudly,
+      > because the suite still counts the service as *configured*. The first `v1.0.0` tag failed
+      > exactly here. Nothing published: the live suite runs before the publish step.
+- [x] **Sandbox tenants are provisioned.** [docs/live-testing.md](docs/live-testing.md) is the
       checklist, including which calls are safe to point at a live tenant and which are not.
 
 `--access public` is not optional: a scoped package defaults to *private*, and the failure on

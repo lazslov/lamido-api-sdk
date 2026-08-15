@@ -83,7 +83,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - This is a pnpm workspace, so `test/` exists at two levels and Vitest collects both:
   - `packages/<pkg>/test/**/*.test.ts` for a package's own behaviour, next to its `src/`;
   - `test/**/*.test.ts` at the root for repository-level concerns — the guardrails in
-    `scripts/lib/`, and invariants compared *across* the four packages.
+    `scripts/lib/`, and invariants compared *across* the published packages. That set is
+    `packageDirs` in `scripts/lib/paths.ts` — add a package there when you add one, or it
+    publishes through gates that never inspect it.
 - `pnpm verify` is the full gate: lint, leak guard, type-check, test, build, tarball audit.
 
 ## 6. Answer in Simplified Technical English

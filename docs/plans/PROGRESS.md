@@ -3,25 +3,25 @@
 Live status of the eight phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are:** every build phase — 1 through 6 — is complete, and phase 8's machinery is built:
-changesets on independent versioning, a tag-triggered release workflow that cannot skip a gate, the
-weekly drift job, and a shipped `CHANGELOG.md` per package naming the contract it was verified against.
-`pnpm verify` is green (780 unit tests, 21 Node 20.19 baseline tests, 9 consumer smoke checks, `publint` +
-`attw` on all four packages and all four subpaths, four clean tarballs, zero transitive runtime
-dependencies) — **and so is CI**, on all four jobs, as of run
-[`30631999335`](https://github.com/lazslov/lamido-api-sdk/actions/runs/30631999335) on `main`.
-**Nothing is published.**
+**Where we are: published.** `v1.0.0` shipped on 2026-08-15 — all five packages at `1.0.0`, each
+carrying an npm provenance attestation. `pnpm verify` is green (891 unit tests, 23 Node 20.19
+baseline tests, consumer smoke checks, `publint` + `attw` on all five packages and every subpath,
+five clean tarballs, zero transitive runtime dependencies), and so is CI on `main`.
 
-**What's next:** everything that can be done inside this repository is done. What remains is
-**account-side and outside it** — an npm token, sandbox credentials, and a Vercel deployment.
-[CONTRIBUTING.md](../../CONTRIBUTING.md#before-the-first-publish) is the pre-publish checklist;
-[../live-testing.md](../live-testing.md) is the sandbox one.
+Every phase is complete. The release ran the full gate, the generated-types check and the live
+contract suite against real tenants before publishing anything, behind a required reviewer.
+
+**What's next:** nothing is outstanding for the release itself. The open items are the ones in
+[Carried-forward items](#carried-forward-items) below — chiefly that the weekly drift job still
+needs a `KNOWLEDGE_BASE_TOKEN` before it can open an issue, and that `payment-service`, which now
+depends on `@lazslov/telemetry`, has no CI to notice when that breaks.
 
 > **The packages are `@lazslov/*`, not `@lamido/*`.** The plan assumed a `@lamido` organisation would
 > be created; the registry already resolves `@lamido` to an account that may not be ours, and the
 > maintainer publishes from a personal account. A user scope needs no organisation and no paid plan,
-> so all four were renamed — before a publish, which is the only time that rename is cheap. `Lamido`
-> stays where it names the **project**: the repository, `LAMIDO_KB_PATH`, and the services themselves.
+> so every package was renamed — before a publish, which is the only time that rename is cheap.
+> `Lamido` stays where it names the **project**: the repository, `LAMIDO_KB_PATH`, and the services
+> themselves.
 
 | # | Phase | State |
 |---|---|---|
@@ -31,7 +31,7 @@ dependencies) — **and so is CI**, on all four jobs, as of run
 | 4 | [`@lazslov/invoice`](phase-4-invoice.md) | ✅ done |
 | 5 | [`@lazslov/payment`](phase-5-payment.md) | ✅ done |
 | 6 | [Framework adapters](phase-6-next-adapters.md) | ✅ done |
-| 7 | [Verification](phase-7-verification.md) | 🟡 built, partly unproven |
+| 7 | [Verification](phase-7-verification.md) | 🟡 one criterion open — `x-vercel-cache: HIT` needs a deployed site |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | ✅ published — all five packages at `1.0.0`, with provenance |
 
 Deviations from the plans and the reasoning behind them are in
@@ -99,7 +99,7 @@ Deviations from the plans and the reasoning behind them are in
 
 ## ✅ Phase 4 — `@lazslov/invoice`
 
-- [x] All six client-tier endpoints plus `/api/health` callable; no admin endpoint
+- [x] All six client-tier endpoints plus `/healthz` callable; no admin endpoint
 - [x] `createInvoice` reports `replayed: true` on a 200 and `false` on a 201, with no overload
       that omits the idempotency key
 - [x] `invoice.stornoNumber` is a compile error from `getInvoice`, type-checks from `cancelInvoice`
@@ -165,20 +165,21 @@ Deviations from the plans and the reasoning behind them are in
 > half,** which its §5 already owns. Confirmed with the user rather than assumed; the reasoning is in
 > [../ai-context.md](../ai-context.md).
 
-## 🟡 Phase 7 — Verification *(built; three criteria blocked outside this repository)*
+## 🟡 Phase 7 — Verification *(built; one criterion still needs a deployment)*
 
 Its §5 also carried phase 6's two fixture-project criteria, and both are now met: `examples/node-script`
 proves the packages resolve through the `require` condition with an empty environment, and
 `examples/next-site` is a real App Router app rendering through mode A with the revalidation route and a
 server action.
 
-**What cannot be finished here, and why:** the live suite needs sandbox credentials for three services;
-`x-vercel-cache: HIT` needs a deployment. ("CI green" needed a push, and is now done.) The first two have a checklist in
-[../live-testing.md](../live-testing.md) — the short version is that the *contract* suite runs fine
-against services on `localhost`, and only the caching claim genuinely needs Vercel.
+**What is left, and why:** only `x-vercel-cache: HIT`, which needs a deployed Next site because that
+header is produced by Vercel's edge and by nothing else. The live suite is no longer among the gaps —
+see below. [../live-testing.md](../live-testing.md) is the checklist, including the part that bit us:
+the *contract* suite runs fine against `localhost` while developing, but the release runs it from a
+GitHub runner, which cannot reach a laptop.
 
-- [x] Unit suite covers every exported function in all four packages; the four credential-leak
-      tests pass in each *(727 tests, subpaths included)*
+- [x] Unit suite covers every exported function in all five packages; the four credential-leak
+      tests pass in each *(891 tests, subpaths included)*
 - [x] HMAC fixtures pass under Node 20.19, Node 22, and a stripped environment with no
       `node:crypto`, `Buffer` or `process` *(satisfied in phase 2 — see the correction there: the
       Node 18 half of the original criterion was never true)*
@@ -190,12 +191,14 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
 - [x] Type-level tests pass, including every "must be a compile error" case *(each is a
       `@ts-expect-error`, so `pnpm typecheck` is what runs them; plus the three error unions'
       exhaustive `switch` in `test/error-codes.test.ts`)*
-- [x] `audit-tarballs` passes on all four packages, and its negative tests prove it still
+- [x] `audit-tarballs` passes on all five packages, and its negative tests prove it still
       detects each forbidden pattern *(`test/audit-detects.test.ts` plants each one and asserts it is
       caught, then asserts a clean package still passes)*
-- [ ] `pnpm test:live` passes against sandbox/dev tenants for all three services — **written, never
-      run.** 22 cases across the three services, gated on env and skipping loudly with none set. Needs
-      a provisioned sandbox: [../live-testing.md](../live-testing.md) is the checklist.
+- [x] `pnpm test:live` passes against sandbox/dev tenants for all three services — **run, and it
+      gated the release.** It passed inside the `v1.0.0` workflow, with `LIVE_REQUIRE_CONFIGURED=true`
+      so an unconfigured service would have failed rather than skipped. It also earned its keep first
+      time: the initial tag died here on `ECONNREFUSED 127.0.0.1:3302`, because the environment's base
+      URLs still named `localhost`. Nothing published — the suite runs before the publish step.
 - [x] Both example projects build, and both build with an empty environment *(`examples/node-script`
       runs in `pnpm verify`; `examples/next-site` builds in CI, and its `/` comes out prerendered —
       asserted from the build's own prerender manifest, not by grepping output)*

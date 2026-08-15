@@ -157,7 +157,7 @@ That rule is the reason `read` is an explicit parameter on every call rather tha
 export type ReadMode =
   | { kind: "data" }                 // unwrap `data`, discard nothing else exists
   | { kind: "envelope" }             // return `{ data, ...siblings }` whole
-  | { kind: "raw" }                  // the parsed body untouched — payment, and /api/health
+  | { kind: "raw" }                  // the parsed body untouched — payment, and /healthz
   | { kind: "bytes" }                // ArrayBuffer + content-type — invoice PDFs
   | { kind: "none" };                // 204, and a webhook ack
 ```
