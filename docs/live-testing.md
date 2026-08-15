@@ -20,8 +20,9 @@ which is exactly why it shouts.
 
 ## What actually needs deploying to Vercel, and what does not
 
-Short answer: **almost nothing.** Three of the four things you might want to test run fine against a
-service on `localhost`.
+Short answer: **almost nothing, while you are developing.** Most of what you might want to test runs
+fine against a service on `localhost`. The release is the exception — the second row, kept next to
+the first because the two differ only in where the suite runs from.
 
 | What you want to verify | Needs a Vercel deployment? | Why |
 | --- | --- | --- |

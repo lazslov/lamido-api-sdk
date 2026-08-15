@@ -112,7 +112,7 @@ jobs:
           name: dist
           path: packages
 
-      # Three of the four built entry points import `@lazslov/api-core` as a bare specifier, so Node
+      # Three of the five built entry points import `@lazslov/api-core` as a bare specifier, so Node
       # needs somewhere to resolve it — and this job deliberately runs no `pnpm install`, because
       # pnpm 11 refuses to start below Node 22.13 and this matrix goes down to 20.19. Hand-linking
       # the workspace is enough precisely because no published package has a runtime dependency,

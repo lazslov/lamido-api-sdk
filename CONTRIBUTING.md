@@ -41,9 +41,9 @@ second project. The `0.x` half did not survive contact with the estate:
 
 **below `1.0.0`, a caret range does not cross a minor.** `^0.2.0` refuses `0.3.0`. So every minor
 of `@lazslov/api-core` or `@lazslov/telemetry` would cost each service package, and each client
-site, a bump of its own. For packages whose entire purpose is that four consumers share one
+site, a bump of its own. For packages whose entire purpose is that every consumer shares one
 transport and one log envelope, that turns the routine case — a rule added, a verdict narrowed —
-into four pull requests, and drift into the path of least resistance. `1.0.0` is what lets a patch
+into a pull request per consumer, and drift into the path of least resistance. `1.0.0` is what lets a patch
 or a minor reach a consumer through `pnpm update`, which is the same reason
 [api-core is never pinned](#lazslovapi-core-is-never-pinned).
 

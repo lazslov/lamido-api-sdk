@@ -43,7 +43,7 @@ in `plans/phase-1-foundations.md`.
 - **Build runs `tsdown --config-loader tsx`.** The shared options in `tsdown.base.ts` are
   imported through a NodeNext `.js` specifier, which tsdown's default native config loader
   cannot resolve.
-- **TypeScript is pinned to 5.9, not 7.** Declaration emit for four published packages is not
+- **TypeScript is pinned to 5.9, not 7.** Declaration emit for five published packages is not
   the place to be first onto the native rewrite. Revisit once `rolldown-plugin-dts` states
   support.
 - **Dev tooling beyond the plan's list:** `tsx` (runs the `.ts` scripts on Node 20, which has
@@ -81,7 +81,7 @@ Phase 2 is complete: `@lazslov/api-core` exports the eight primitives its plan l
   start below Node 22.13, so the 20.19 matrix leg runs with no install at all.
   `packages/*/test/node-baseline.mjs` runs against `dist/` on 20.19 and 22, which also means what is
   checked there is the artifact a consumer installs, not the source. *(Open follow-up: with the floor
-  inside Vitest's range, these four hand-written files could collapse into a Vitest project pointed
+  inside Vitest's range, these five hand-written files could collapse into a Vitest project pointed
   at `dist/` if the matrix ever gets an install step.)*
 - **The HMAC fixtures were generated with `node:crypto`**, deliberately a different
   implementation from the `crypto.subtle` one under test. `test/fixtures/hmac/generate.mjs`
@@ -396,7 +396,7 @@ forced are collected at the end, under "What publishing actually taught us".
   runtime-baseline matrix proves 20.19/22 against `dist/` — that job runs `node --test`
   directly and never touches pnpm, which is why the pnpm floor never reached it.
 - **The runtime-baseline job has to link the workspace by hand.** Running no `pnpm install` is the
-  point of that job — pnpm 11 cannot start on the 20.19 leg of the matrix — but three of the four
+  point of that job — pnpm 11 cannot start on the 20.19 leg of the matrix — but three of the five
   built entry points import `@lazslov/api-core` as a bare specifier, so with no `node_modules` in the
   tree Node resolved nothing and `content`/`invoice`/`payment` failed with `ERR_MODULE_NOT_FOUND`
   while `api-core`, which imports nothing, passed. A `node_modules/@lazslov/*` symlink per package
@@ -491,7 +491,7 @@ Phase 1 chose `tsdown --config-loader tsx` because tsdown's native loader cannot
 Node 24**: tsx's CJS hook fails to read `node:fs?tsx-namespace=…`, so `pnpm build` died before
 compiling anything.
 
-`tsdown.base.ts` and the four `tsdown.config.ts` files are therefore now `.mjs`, and the build
+`tsdown.base.ts` and the five `tsdown.config.ts` files are therefore now `.mjs`, and the build
 scripts are plain `tsdown`. Both files are loadable by Node itself on **every** version that builds
 this repository, which a `.ts` config is not: it needs either Node's own type stripping (22.18+, so
 not the Node 20 CI runs on) or a loader hook. The `@type` JSDoc on `sharedOptions` keeps the editor
@@ -511,7 +511,7 @@ Two related workspace-resolution notes, both needed the moment a service package
 
 ## Settled
 
-- **Licence: MIT, `Copyright (c) 2026 Lamido`.** Confirmed 2026-07-30. Applies to all four
+- **Licence: MIT, `Copyright (c) 2026 Lamido`.** Confirmed 2026-07-30. Applies to all five
   packages; the same `LICENSE` file sits at the root and in each package.
 - **npm scope: `@lazslov`.** Confirmed 2026-07-31 — the maintainer's own npm username, on a free
   personal account. See the phase 8 note for why not `@lamido`, and for what kept the `Lamido` name.
@@ -539,7 +539,7 @@ Two related workspace-resolution notes, both needed the moment a service package
   rather than needing an edit per run. **It renders only for a viewer who can see the repository** —
   the badge lives on `github.com` behind the same access check as the code, and an anonymous request
   for it 404s while the remote is private. That is fine where it sits (anyone reading the README can
-  see the repo) and is the reason the badge is *not* in the four package READMEs, which ship to npm
+  see the repo) and is the reason the badge is *not* in the five package READMEs, which ship to npm
   and would show a broken image there. It starts working everywhere the moment the remote goes public.
 
   Two things worth carrying forward. **The `examples:import` guard does not run in CI** — the step is

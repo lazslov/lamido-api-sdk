@@ -20,11 +20,19 @@ lazslov/lamido-api-sdk             (new repo — pnpm workspace)
 ├── packages/api-core   → @lazslov/api-core    transport, errors, HMAC, paging
 ├── packages/content    → @lazslov/content     website + client tiers
 ├── packages/invoice    → @lazslov/invoice     client tier
-└── packages/payment    → @lazslov/payment     merchant tier
+├── packages/payment    → @lazslov/payment     merchant tier
+└── packages/telemetry  → @lazslov/telemetry   added later — see below
 ```
 
 Each service package depends on `@lazslov/api-core` and on **nothing else**. Core depends on
 nothing. See [phase-1](phase-1-foundations.md) for the dependency policy.
+
+> **A fifth package joined after this decision, and it is not a consumer SDK.**
+> `@lazslov/telemetry` is the estate's shared log envelope, sink, alert channel and request
+> middleware — consumed by the **services**, not by a client site, and depending on none of the
+> four above. It lives here because it ships from the same release, under the same provenance and
+> the same gates, not because it belongs to the same dependency graph. The reasoning below is
+> about the four consumer packages; it applies to telemetry only where it happens to.
 
 ### Why not one package
 
