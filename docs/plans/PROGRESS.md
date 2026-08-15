@@ -32,7 +32,7 @@ dependencies) — **and so is CI**, on all four jobs, as of run
 | 5 | [`@lazslov/payment`](phase-5-payment.md) | ✅ done |
 | 6 | [Framework adapters](phase-6-next-adapters.md) | ✅ done |
 | 7 | [Verification](phase-7-verification.md) | 🟡 built, partly unproven |
-| 8 | [Release & drift](phase-8-release-and-drift.md) | 🟡 built; publishing blocked outside the repo |
+| 8 | [Release & drift](phase-8-release-and-drift.md) | ✅ published — all five packages at `1.0.0`, with provenance |
 
 Deviations from the plans and the reasoning behind them are in
 [../ai-context.md](../ai-context.md).
@@ -208,29 +208,36 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
       along with every other gate. See the carried-forward note below for the three toolchain faults
       between here and the first green run.
 
-## 🟡 Phase 8 — Release & drift *(machinery built; publishing blocked outside the repository)*
+## ✅ Phase 8 — Release & drift *(published 2026-08-15 — `v1.0.0`, all five packages)*
 
-- [ ] The npm scope exists and is ours; 2FA on; automation token in GitHub Actions secrets and in
-      no file — **the scope half is settled.** No organisation is needed: the packages are
-      `@lazslov/*`, the maintainer's own npm username, and a free account publishes unlimited public
-      packages under its own scope. What is left is 2FA and a granular token in the `release`
-      environment — see
-      [CONTRIBUTING.md § Before the first publish](../../CONTRIBUTING.md#before-the-first-publish).
+- [x] The npm scope exists and is ours; 2FA on; automation token in GitHub Actions secrets and in
+      no file — **done.** No organisation was needed: the packages are `@lazslov/*`, the maintainer's
+      own npm username. The token is an **Automation** token on the `release` environment, which is
+      the kind that matters: a Publish token prompts for 2FA and a workflow cannot answer it.
 - [x] Changesets configured for independent versioning; breaking-change table in `CONTRIBUTING.md`
       *(`linked`/`fixed` empty, `access: public`, `privatePackages: false` so `examples/*` are never
       versioned, and `updateInternalDependencies: "minor"` so a core **patch** reaches consumers
       through the caret range without re-releasing three service packages)*
-- [x] A dry-run release produces exactly four tarballs with the expected file lists —
-      `pnpm release:dry-run` emits exactly four, core first; `pnpm audit:tarballs` is what checks the
-      contents, against a fixed expectation rather than against each manifest's own `"files"`
+- [x] A dry-run release produces the expected tarballs with the expected file lists —
+      `pnpm release:dry-run` emits **five**, core first; `pnpm audit:tarballs` is what checks the
+      contents, against a fixed expectation rather than against each manifest's own `"files"`.
+      It was four until `@lazslov/telemetry` was added to `packageDirs`, which is the whole of the
+      note below
 - [x] The release workflow runs the leak audit and the live suite before publishing, and cannot
       be skipped by a manual dispatch flag *(and `test/release-workflow.test.ts` asserts exactly
       that — the ordering, the absence of `workflow_dispatch`, the `--provenance`, and that
       `LIVE_REQUIRE_CONFIGURED` makes a missing secret fail the release rather than skip every case)*
-- [ ] All four packages publish with provenance, visible in `npm view` — **blocked** on the scope
-      question and a token
-- [ ] A fresh project outside the monorepo can `pnpm add @lazslov/content`, set two env vars, and
-      read a page — **blocked**: it must resolve from the registry, so it cannot precede a publish
+- [x] All **five** packages publish with provenance, visible in `npm view` — **done, 2026-08-15.**
+      `@lazslov/api-core`, `content`, `invoice`, `payment` and `telemetry`, all `1.0.0`, each with a
+      `dist.attestations` entry. Provenance needed the repository to be **public**, which is why it
+      went public before the first tag: npm signs the attestation against a public source repo, and
+      the same change unblocked a required reviewer, which GitHub does not offer on a private
+      repository outside a paid plan
+- [x] A fresh project outside the monorepo can `pnpm add @lazslov/content` — **done.** Installed
+      from the registry outside the workspace: three packages resolved, so the caret dependency on
+      `@lazslov/api-core` came from npm rather than a workspace link, and `VERSION` plus
+      `createContentClient` imported cleanly. **The "read a page" half is still open** — it needs a
+      scratch tenant answering, which is the same deployment the release gate needs
 - [ ] The weekly drift job opens an issue when `CONTRACTS.json` is behind the knowledge base —
       **half proven.** The detector ran and found real drift on its first run (see the carried-forward
       note below), and `pnpm contracts:drift --report=…` produced the issue body. The
@@ -247,6 +254,41 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
 ## Carried-forward items
 
 Things outside any phase's exit criteria that still need a decision or an action.
+
+- [x] **`v1.0.0` shipped, and the first tag failed — on `localhost`.** The `release` environment's
+      three base-URL secrets were filled from `.env.live`, which had been filled for local work, so
+      the runner dialled `ECONNREFUSED 127.0.0.1:3302` and all fifteen live cases died in
+      milliseconds. **Nothing published**, because the live suite runs before the publish step — the
+      gate behaving exactly as designed. Fixed by pointing the three URLs at deployed scratch
+      tenants and re-running the same run; the tag was never moved, because a moved tag is how a
+      published artefact stops matching its provenance attestation. `.env.live.example` and
+      [../live-testing.md](../live-testing.md) now both say this out loud.
+- [x] **`@lazslov/telemetry` was publishing through gates that never saw it.** `packageDirs` named
+      four packages while the workspace publishes five, so `audit:tarballs`, `deps:audit` and three
+      shape suites skipped it — `check:leaks`, `publint` and `attw` did not, because they walk the
+      workspace rather than the list. Adding it surfaced two real gaps: no `VERSION` export, and a
+      dependency assertion that assumed every non-core package depends on `api-core`, which
+      telemetry deliberately does not (OB-7 lets a service vendor it as one import-free file).
+- [x] **The telemetry package ships at `1.0.0`, not `0.x`.** A caret range does not cross a minor
+      below `1.0.0`, so `^0.2.0` refuses `0.3.0` — every rule the package gained would have cost
+      each service a bump of its own, which is how three services end up on three envelopes. This
+      contradicts the `0.x` paragraph in [CONTRIBUTING.md § Versioning](../../CONTRIBUTING.md#versioning),
+      **which still needs reconciling**: all five packages now declare `1.0.0` while the rule on the
+      same page says everything stays in `0.x` until two client sites run on it.
+- [ ] **payment-service still vendors telemetry rather than depending on it.**
+      `src/lib/telemetry.ts` is pinned by SHA-256 to SDK commit `6fc776c`, and the SDK has moved
+      ~112 lines past it — no flag vocabulary, a bare `LogMeta`, no `correlation_id` binding. Now
+      that `@lazslov/telemetry@1.0.0` is on npm the vendored file and its pin test can retire, but
+      it is an **upgrade, not a substitution**: `LogMeta` changes shape and the flag vocabulary
+      changes what log lines carry, which is what alert rules read. Its own branch and PR, there.
+- [ ] **`pnpm publish` logged `Skipped OIDC: ERR_PNPM_AUTH_TOKEN_EXCHANGE` before every package.**
+      Harmless here — that is pnpm's *trusted publishing* token exchange, not the provenance
+      signature, and every package carries an attestation. Worth knowing before someone reads it as
+      a provenance failure.
+- [x] **Three of the five 404'd on npm for several minutes after a successful publish.** Registry
+      replication lag on the read path: `npm access get status` already reported `public` while
+      `GET https://registry.npmjs.org/@lazslov%2fcontent` still answered `404`. Not a partial
+      publish. Check `npm access get status` before concluding anything from a 404.
 
 - [x] **The knowledge-base fix is merged.** `fix/openapi-yaml-scalars` (commit `b428f53`) is now
       `origin/main` in `../knowledge-base`, so a fresh clone can generate types again. Note that

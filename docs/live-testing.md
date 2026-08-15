@@ -25,14 +25,23 @@ service on `localhost`.
 
 | What you want to verify | Needs a Vercel deployment? | Why |
 | --- | --- | --- |
-| The SDK's request/response contract with all three services (`pnpm test:live`) | **No** | Every assertion is an outbound call the SDK makes. A service on `localhost` answers them identically. |
+| The SDK's request/response contract with all three services (`pnpm test:live`), **run here** | **No** | Every assertion is an outbound call the SDK makes. A service on `localhost` answers them identically. |
+| The same suite, **run by the release workflow** | **Yes — all three** | A GitHub runner cannot reach your laptop. A `localhost` secret fails every case with `ECONNREFUSED`, and because the suite sees the service as *configured* it fails the release rather than skipping. See below. |
 | A revalidation webhook reaching a site's `/api/revalidate` | **No**, if both sides are local | content-service POSTs to every enabled webhook endpoint registered for the site. Register one at `http://localhost:3000/api/revalidate` and a local Next site receives it. |
 | A PSP callback reaching payment-service | **No**, for this suite | The live cases create and read a payment; they never complete one through a PSP's hosted page. `refresh` is an *outbound* call and works from localhost. A callback would need a public `PUBLIC_BASE_URL`, which is only relevant to finishing a real checkout. |
 | **`x-vercel-cache: HIT` on a mode-A route** | **Yes** | That header is produced by Vercel's edge and by nothing else. It is the only mechanical proof that a mode-A route is still statically rendered — the bug it catches is a latency and cost regression with no error, invisible in a diff, and hidden entirely by a keyless local build. |
 
-So: run the contract suite locally, and deploy **one** thing — a Next site that reads through
-`@lazslov/content/next`'s mode A — to prove the caching claim. `examples/next-site` in this repository
-is that site; `devora` would do just as well and is more realistic.
+So, **while you are developing**: run the contract suite locally, and deploy **one** thing — a Next
+site that reads through `@lazslov/content/next`'s mode A — to prove the caching claim.
+`examples/next-site` in this repository is that site; `devora` would do just as well and is more
+realistic.
+
+**When you release, that changes.** The release workflow runs the same suite from a GitHub runner,
+so all three services need scratch tenants reachable over the internet, and the three base-URL
+secrets on the `release` environment must name them rather than `localhost`. The `v1.0.0` release
+failed on its first tag for exactly this reason — every case died on `ECONNREFUSED 127.0.0.1:3302`,
+which is the local content-service port. Nothing published, because the live suite runs before the
+publish step; the fix was three URLs, then a re-run of the same tag.
 
 ---
 
