@@ -37,7 +37,7 @@ export const services: readonly ServiceDescriptor[] = [
 ];
 
 /** Every published package directory name, core first — the order `pnpm -r` builds them in. */
-export const packageDirs = ["api-core", "content", "invoice", "payment"] as const;
+export const packageDirs = ["api-core", "content", "invoice", "payment", "telemetry"] as const;
 
 /** Absolute path of a package directory. */
 export function packagePath(dir: string): string {
