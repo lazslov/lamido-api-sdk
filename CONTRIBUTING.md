@@ -35,9 +35,23 @@ Pick the packages, pick the bump, describe the change in the changelog's voice �
 reading it should learn what to do, not what was refactored. Commit the generated file in
 `.changeset/`.
 
-Everything stays in `0.x` until at least two real client sites are running on it. In `0.x` a
-minor may break, which is honest; `1.0.0` is a statement that the shape has survived contact
-with a second project.
+**All five packages are at `1.0.0`.** This rule used to say everything stays in `0.x` until two
+real client sites run on it — that `1.0.0` is a statement the shape has survived contact with a
+second project. The `0.x` half did not survive contact with the estate:
+
+**below `1.0.0`, a caret range does not cross a minor.** `^0.2.0` refuses `0.3.0`. So every minor
+of `@lazslov/api-core` or `@lazslov/telemetry` would cost each service package, and each client
+site, a bump of its own. For packages whose entire purpose is that four consumers share one
+transport and one log envelope, that turns the routine case — a rule added, a verdict narrowed —
+into four pull requests, and drift into the path of least resistance. `1.0.0` is what lets a patch
+or a minor reach a consumer through `pnpm update`, which is the same reason
+[api-core is never pinned](#lazslovapi-core-is-never-pinned).
+
+So read `1.0.0` here as **the semver contract, not a maturity badge**: a breaking change gets a
+major, and the table below defines breaking narrowly and unsentimentally. It does not claim the
+shape is settled. What the old rule was protecting — *do not promise stability you have not
+earned* — is now carried by that table and by the deprecation policy, which are the parts a
+consumer can actually rely on.
 
 ### What counts as a breaking change
 
@@ -150,8 +164,10 @@ first publish looks like an auth error.
   with no deprecation window. Every service package's README then names the minimum core
   version, and the affected core versions are `npm deprecate`d with a message naming the fixed
   one.
-- A `0.x` breaking change may ship in a minor, but the changeset must say **what breaks and how
-  to migrate** — in the changelog, not only in a commit message.
+- A breaking change ships in a **major**, and its changeset must say **what breaks and how to
+  migrate** — in the changelog, not only in a commit message. That sentence used to grant `0.x`
+  the right to break in a minor; at `1.0.0` no such right exists, and the migration note is the
+  part that was always doing the work.
 
 ---
 
