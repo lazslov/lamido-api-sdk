@@ -1,9 +1,15 @@
 # @lazslov/telemetry
 
-## 0.2.0
+## 1.0.0
 
 Verified against knowledge base `16cd419`: content-service `ecf20fd`, invoice-service `3aa099f`,
 payment-service `4e3a0a5`.
+
+**First published release, at `1.0.0` rather than in `0.x`.** A caret range does not cross a minor
+below `1.0.0`, so `^0.2.0` refuses `0.3.0`: every rule this package gains would cost each service a
+bump of its own. This package exists so one log envelope is shared across the estate, and drift
+between services is the failure it prevents — a range that lets minors arrive on their own serves
+that better than the caution `0.x` signals.
 
 **Renamed from `@lamido/telemetry` before its first publish.** The repository had already settled
 on the `@lazslov` user scope for every package — `@lamido` on npm resolves to an account that may
@@ -12,7 +18,7 @@ was added afterwards and did not follow it. `Lamido` stays where it names the **
 repository, `LAMIDO_KB_PATH`, and the services. Nothing depended on the old name, and nothing was
 published under it.
 
-### Minor Changes
+### Major Changes
 
 - Implement OB-4 and OB-5, the two envelope rules the package shipped without.
 

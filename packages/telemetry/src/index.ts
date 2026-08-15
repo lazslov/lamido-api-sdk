@@ -25,7 +25,7 @@
  * disagrees with the tarball it came from. A vendored copy carries the version it was
  * taken from, which is what lets a service report which cut of this file it holds.
  */
-export const VERSION = "0.2.0";
+export const VERSION = "1.0.0";
 
 // ─── The envelope (OB-2) ───────────────────────────────────────────────────────────
 

@@ -107,10 +107,10 @@ and mirrors are fast, so a release that needs a gate skipped is a release that s
 publish step, and that `LIVE_REQUIRE_CONFIGURED` is set so a missing secret fails the release
 instead of silently skipping every case and reporting the same green as a full pass.
 
-The **first** release needs no changeset of its own: the four `@lazslov/*` SDK packages already
-declare `1.0.0` and `@lazslov/telemetry` declares `0.2.0`, each with a changelog entry carrying its
-provenance line, so `pnpm release:version` has nothing left to apply. Tagging `v1.0.0` is the whole
-step. Every release after that follows the flow above.
+The **first** release needs no changeset of its own: all five `@lazslov/*` packages already declare
+`1.0.0`, each with a changelog entry carrying its provenance line, so `pnpm release:version` has
+nothing left to apply. Tagging `v1.0.0` is the whole step. Every release after that follows the
+flow above.
 
 ### Before the first publish
 
