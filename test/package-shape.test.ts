@@ -49,8 +49,11 @@ describe.each(packageDirs)("packages/%s", (dir) => {
 
   it("depends on nothing but api-core", () => {
     const dependencies = Object.keys(manifest.dependencies ?? {});
-    const expected = dir === "api-core" ? [] : ["@lazslov/api-core"];
-    expect(dependencies).toEqual(expected);
+    // Two packages stand alone: api-core is the bottom of the graph, and telemetry is
+    // deliberately import-free so a service can vendor it as one file (OB-7). The three
+    // contract-backed packages take api-core and nothing else.
+    const standalone = dir === "api-core" || dir === "telemetry";
+    expect(dependencies).toEqual(standalone ? [] : ["@lazslov/api-core"]);
   });
 
   it("supports the documented minimum runtime", () => {

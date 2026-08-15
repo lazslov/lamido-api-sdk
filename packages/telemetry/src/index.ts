@@ -17,6 +17,16 @@
  * One import-free source file is what makes that copy possible to check.
  */
 
+/**
+ * The version of this package, as published.
+ *
+ * @remarks
+ * Kept in step with `package.json` by a test, so a release cannot ship a constant that
+ * disagrees with the tarball it came from. A vendored copy carries the version it was
+ * taken from, which is what lets a service report which cut of this file it holds.
+ */
+export const VERSION = "0.2.0";
+
 // ─── The envelope (OB-2) ───────────────────────────────────────────────────────────
 
 /** Log severities, ordered. */

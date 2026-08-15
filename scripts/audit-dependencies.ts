@@ -126,4 +126,6 @@ if (failed) {
   process.exit(1);
 }
 
-console.log("\nZero runtime dependencies, transitively, across all four packages.");
+console.log(
+  `\nZero runtime dependencies, transitively, across all ${packageDirs.length} packages.`,
+);
