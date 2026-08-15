@@ -2,8 +2,8 @@
 
 ## 1.0.0
 
-Verified against knowledge base `16cd419`: content-service `ecf20fd`, invoice-service `3aa099f`,
-payment-service `4e3a0a5`.
+Verified against knowledge base `5191225`: content-service `ecf20fd`, invoice-service `3aa099f`,
+payment-service `62a1799`.
 
 **First published release, at `1.0.0` rather than in `0.x`.** A caret range does not cross a minor
 below `1.0.0`, so `^0.2.0` refuses `0.3.0`: every rule this package gains would cost each service a

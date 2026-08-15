@@ -2,19 +2,19 @@
   "knowledgeBaseRepo": "lazslov/knowledge-base",
   "contracts": {
     "content-service": {
-      "kbCommit": "16cd419",
+      "kbCommit": "5191225",
       "sourceCommit": "ecf20fd",
       "verified": "2026-08-11"
     },
     "invoice-service": {
-      "kbCommit": "16cd419",
+      "kbCommit": "5191225",
       "sourceCommit": "3aa099f",
       "verified": "2026-08-09"
     },
     "payment-service": {
-      "kbCommit": "16cd419",
-      "sourceCommit": "4e3a0a5",
-      "verified": "2026-08-09"
+      "kbCommit": "5191225",
+      "sourceCommit": "62a1799",
+      "verified": "2026-08-15"
     }
   }
 }
