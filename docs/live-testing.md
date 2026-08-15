@@ -25,8 +25,8 @@ service on `localhost`.
 
 | What you want to verify | Needs a Vercel deployment? | Why |
 | --- | --- | --- |
-| The SDK's request/response contract with all three services (`pnpm test:live`) | **No** | Every assertion is an outbound call the SDK makes. `vercel dev` on `localhost:3000` answers them identically. |
-| A revalidation webhook reaching a site's `/api/revalidate` | **No**, if both sides are local | content-service POSTs to the URL stored on the site row. Point it at `http://localhost:3000/api/revalidate` and a local Next site receives it. |
+| The SDK's request/response contract with all three services (`pnpm test:live`) | **No** | Every assertion is an outbound call the SDK makes. A service on `localhost` answers them identically. |
+| A revalidation webhook reaching a site's `/api/revalidate` | **No**, if both sides are local | content-service POSTs to every enabled webhook endpoint registered for the site. Register one at `http://localhost:3000/api/revalidate` and a local Next site receives it. |
 | A PSP callback reaching payment-service | **No**, for this suite | The live cases create and read a payment; they never complete one through a PSP's hosted page. `refresh` is an *outbound* call and works from localhost. A callback would need a public `PUBLIC_BASE_URL`, which is only relevant to finishing a real checkout. |
 | **`x-vercel-cache: HIT` on a mode-A route** | **Yes** | That header is produced by Vercel's edge and by nothing else. It is the only mechanical proof that a mode-A route is still statically rendered — the bug it catches is a latency and cost regression with no error, invisible in a diff, and hidden entirely by a keyless local build. |
 
@@ -52,11 +52,14 @@ Read these before pointing anything at anything.
 4. **invoice-service issues real documents.** A successful create is a real invoice at szamlazz.hu or
    Billingo and is reported to NAV. The only undo is a storno, which is itself a real document. The
    live suite therefore stops at failures raised *before* the provider is called.
-5. **`POST …/publish` on content-service makes every unpublished draft on that page live.** No case in
-   the live suite publishes. The one write case reads a value and patches it back unchanged.
-6. **Changing `CREDENTIALS_ENC_KEY` or `SECRETS_ENC_KEY` is irreversible.** It makes every stored
-   credential undecryptable. Generate once, store in the password manager, never "regenerate to be
-   safe".
+5. **`POST /v1/admin/sites/{id}/pages/{slug}/publish` on content-service makes every unpublished draft
+   on that page live.** No case in the live suite publishes. The one write case reads a value and
+   patches it back unchanged.
+6. **Changing `CREDENTIALS_ENC_KEY` is irreversible.** It makes every stored credential undecryptable.
+   All three services now use that one name; content-service still boots on the old `SECRETS_ENC_KEY`
+   for one release, with a deprecation warning. Generate once, store in the password manager, never
+   "regenerate to be safe". content-service's `PREVIEW_TOKEN_SECRET` is the deliberate opposite:
+   changing it revokes every outstanding draft-preview link and nothing else.
 
 ---
 
@@ -80,18 +83,26 @@ copy-on-write fork, costs nothing, and throwing it away throws away every row th
 cd ../content-service
 cp .env.example .env      # then fill in:
 #   DATABASE_URL=<the sdk-live branch, pooled>
-#   SECRETS_ENC_KEY=$(openssl rand -base64 32)
+#   CREDENTIALS_ENC_KEY=$(openssl rand -base64 32)
+#   PREVIEW_TOKEN_SECRET=$(openssl rand -base64 32)
 #   BLOB_READ_WRITE_TOKEN=<from the linked Vercel Blob store>
 
 pnpm db:check                                   # connectivity + the pooled-host warning
 pnpm db:migrate
-pnpm db:seed -- sdk-live "SDK live probe" hu    # a bare site row
-pnpm db:site-key -- mint --site sdk-live        # capture the csk_… and cpk_…
-pnpm dev:node                                   # http://localhost:3000, no Vercel CLI needed
+pnpm db:admin-key -- mint --label sdk-live      # capture the cad_…
+SEED_ADMIN_KEY=cad_… pnpm db:seed -- sdk_live "SDK live probe" hu \
+  --origins http://localhost:3000               # a bare site row + its csk_/cpk_ pair
+pnpm dev                                        # http://localhost:3302, no Vercel CLI needed
 ```
 
-- [ ] `curl http://localhost:3000/api/health` → `{"status":"ok",...}`
-- [ ] Capture the `csk_…`. It is printed **once**.
+- [ ] `curl http://localhost:3302/healthz` → `{"status":"ok"}`. That is the only unauthenticated
+      endpoint; database health is `GET /v1/admin/health` and needs the `cad_` key.
+- [ ] Mint the `cad_` admin key **first**. `db:seed` calls the admin API in-process, so it refuses to
+      run without `SEED_ADMIN_KEY`, and the first admin key cannot come from the API itself.
+- [ ] Use a slug of lowercase letters, digits and underscores only. `sdk-live` is **rejected** —
+      the hyphen fails the slug validator.
+- [ ] Capture the `csk_…`. `db:seed` prints the pair **once**; nothing recovers it. If you lose it,
+      `pnpm db:site-key -- mint --site sdk_live` mints a replacement.
 - [ ] Optional: capture the `cpk_…` too — it enables the one case that proves a publishable key is
       refused on the client tier.
 - [ ] Optional: create a page with at least one text field and note its slug, for the round-trip case.
@@ -106,13 +117,14 @@ cp .env.example .env      # then fill in:
 #   CREDENTIALS_ENC_KEY=$(openssl rand -base64 32)
 #   DOWNLOAD_LINK_SECRET=$(openssl rand -base64 32)   # set it now; adding it later breaks live links
 
-npm run db:check
-npm run db:migrate
-npm run db:wizard         # creates a client + credential interactively → capture the isk_…
-npm run dev               # vercel dev → http://localhost:3000
+pnpm db:check
+pnpm db:migrate
+pnpm db:wizard            # creates a client + credential interactively → capture the isk_…
+pnpm dev                  # http://localhost:3301, no Vercel CLI needed
 ```
 
-- [ ] `curl http://localhost:3000/api/health` → `{"status":"ok"}`
+- [ ] `curl http://localhost:3301/healthz` → `{"status":"ok","db":"ok"}`. Like content-service, this is
+      the only unauthenticated endpoint; `GET /v1/admin/health` is the authenticated one.
 - [ ] Capture the `isk_…`.
 - [ ] The wizard will ask for a provider credential. **You can skip a real one.** Every live case except
       one asserts a failure that happens before the provider is contacted, so a client with no working
@@ -125,15 +137,16 @@ npm run dev               # vercel dev → http://localhost:3000
 cd ../payment-service
 cp .env.example .env      # then fill in:
 #   DATABASE_URL=<the sdk-live branch, pooled>
-#   PUBLIC_BASE_URL=http://localhost:3000        # no trailing slash — it is rejected
+#   PUBLIC_BASE_URL=http://localhost:3300        # no trailing slash — it is rejected
 #   CREDENTIALS_ENC_KEY=$(openssl rand -base64 32)
 #   PAYMENT_PROVIDERS_ALLOW_LIVE=false           # set it EXPLICITLY, do not rely on the default
 
-npm run db:migrate
+pnpm db:migrate
 npx tsx --env-file=.env scripts/wizard.ts        # merchant + pmk_ key + sandbox credential
-npm run dev
+pnpm dev                                         # http://localhost:3300
 ```
 
+- [ ] `curl http://localhost:3300/healthz` → `{"status":"ok","db":"ok"}`.
 - [ ] Capture the `pmk_…`.
 - [ ] In the wizard, set the credential's mode to **`sandbox`**. This is what makes every payment under
       that key a sandbox payment.
@@ -156,8 +169,10 @@ someone's notification e-mail.
 what each one gates. It also carries `NPM_TOKEN`, which this suite does not read — it is there so one
 file describes everything a release needs.
 
-The three services all default to port 3000, so run them on different ports (`vercel dev --listen 3001`)
-or one at a time — the suite runs files serially and skips any service that is not configured.
+Each service now has its own default port, so the three run side by side without a collision:
+payment-service 3300, invoice-service 3301, content-service 3302. Both `pnpm dev` and `pnpm dev:vercel`
+use it, and `PORT` overrides the first. Point each `*_BASE_URL` at the matching port. The suite runs
+files serially and skips any service that is not configured.
 
 - [ ] `pnpm test:live` — expect the configured services to report `✓` and the rest to say why.
 - [ ] Read the output. A **skip is not a pass.**
@@ -181,10 +196,15 @@ curl -sI https://<your-site>/ | grep -i x-vercel-cache
 #   x-vercel-cache: MISS  ← on every request: something made it dynamic
 ```
 
-- [ ] Optional, and worth it once: register the deployed site's `/api/revalidate` as its revalidation
-      URL, publish a page, and confirm the change appears within seconds rather than after the
-      time-based fallback. That is the end-to-end proof that the tag a read sets is the tag the webhook
-      busts.
+- [ ] Optional, and worth it once: register the deployed site's `/api/revalidate` as a webhook endpoint
+      — `POST /v1/admin/sites/{id}/webhook-endpoints` — then publish a page and confirm the change
+      appears within seconds rather than after the time-based fallback. That is the end-to-end proof
+      that the tag a read sets is the tag the webhook busts.
+
+      The create response carries the endpoint's signing secret **once**. That value is what
+      `CONTENT_REVALIDATE_SECRET` on the site must hold: each endpoint signs with its own secret, so
+      one receiver's leak cannot forge events to another. `POST /v1/admin/webhook-endpoints/{id}/rotate-secret`
+      mints a new one and stops the old one at once.
 
 ### 6 · Afterwards
 
