@@ -233,11 +233,19 @@ against services on `localhost`, and only the caching claim genuinely needs Verc
       went public before the first tag: npm signs the attestation against a public source repo, and
       the same change unblocked a required reviewer, which GitHub does not offer on a private
       repository outside a paid plan
-- [x] A fresh project outside the monorepo can `pnpm add @lazslov/content` — **done.** Installed
-      from the registry outside the workspace: three packages resolved, so the caret dependency on
-      `@lazslov/api-core` came from npm rather than a workspace link, and `VERSION` plus
-      `createContentClient` imported cleanly. **The "read a page" half is still open** — it needs a
-      scratch tenant answering, which is the same deployment the release gate needs
+- [x] A fresh project outside the monorepo can `pnpm add @lazslov/content`, set two env vars, and
+      read a page — **done, end to end.** Installed from the registry outside the workspace: three
+      packages resolved, so the caret dependency on `@lazslov/api-core` came from npm rather than a
+      workspace link. `tryCreateContentClient()` built a client from `CONTENT_SERVICE_BASE_URL` and
+      `CONTENT_SERVICE_SECRET_KEY` and nothing else, then `getMe()`, `listPages()` and
+      `getRenderedPage()` all answered against the `sdk_live` tenant.
+
+      Two things this shook out. The **deployed** tenant refused the key in `.env.live` with
+      `401 Invalid site key`, because a `csk_` is a row in one database and the deployed service
+      does not share the local one — so the check ran against `localhost:3302` instead, which the
+      criterion allows: it asks for a fresh project and two env vars, not a deployed host. And
+      `sdk_live` had **no page**, so one was created through the admin API rather than by an insert,
+      to keep validation and the audit entry in the path.
 - [ ] The weekly drift job opens an issue when `CONTRACTS.json` is behind the knowledge base —
       **half proven.** The detector ran and found real drift on its first run (see the carried-forward
       note below), and `pnpm contracts:drift --report=…` produced the issue body. The
