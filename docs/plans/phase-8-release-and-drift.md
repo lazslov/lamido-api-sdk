@@ -15,10 +15,18 @@ its own changelog. That is the whole point of the four-package split
 ([index](README.md#why-not-one-package)): a payment contract change should not produce a
 version bump that content consumers have to read a changelog to dismiss.
 
-Start every package at **`0.1.0`** and stay in `0.x` until at least two real client sites are
+~~Start every package at **`0.1.0`** and stay in `0.x` until at least two real client sites are
 running on it. In `0.x`, a minor bump may break — which is honest, and better than reaching
 `1.0.0` before the API has met a second project. `1.0.0` is a statement that the shape has
-survived contact.
+survived contact.~~
+
+**Superseded.** All five packages published at `1.0.0`. The plan missed that **below `1.0.0` a
+caret range does not cross a minor** — `^0.2.0` refuses `0.3.0` — so every core or telemetry minor
+would have cost each service package and each client site a bump of its own, which is the opposite
+of what the caret range in the next paragraph exists to achieve. `1.0.0` is read here as the semver
+contract rather than a maturity claim; the breaking-change table carries the honesty the `0.x`
+rule was reaching for. See
+[CONTRIBUTING.md § Versioning](../../CONTRIBUTING.md#versioning).
 
 `@lazslov/api-core` is depended on with a **caret range**, not `workspace:*` pinning, so a
 consumer can take a core patch — the HMAC verifier fix scenario from
