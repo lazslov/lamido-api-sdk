@@ -96,6 +96,23 @@ describe("the deny-list (OB-6)", () => {
     expect(JSON.stringify(line)).not.toContain("sk_live_123");
   });
 
+  /**
+   * A body is where the credentials without an obvious name live — an integration upsert
+   * carries a plaintext provider secret, a customer create carries personal data. OB-6
+   * item 2 bans bodies outright, and this is the emit-time net under that rule.
+   */
+  it("redacts a member named body, whatever it holds", () => {
+    const lines = captureLines();
+    testTelemetry().logger.info("upsert", {
+      body: { secret: "sk_live_123", name: "Acme" },
+      response_body_excerpt: "<html>500</html>",
+    });
+    const line = must(lines[0]);
+    expect(line.body).toBe("[redacted]");
+    expect(line.response_body_excerpt).toBe("[redacted]");
+    expect(JSON.stringify(line)).not.toContain("sk_live_123");
+  });
+
   it("spares counts and flags: a number or boolean is never a credential", () => {
     const lines = captureLines();
     testTelemetry().logger.info("heartbeat", {

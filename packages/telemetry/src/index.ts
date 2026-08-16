@@ -128,8 +128,16 @@ export interface TelemetryConfig {
 /**
  * Emit-time deny-list (OB-6 item 4). Any metadata key matching this pattern is replaced
  * with `[redacted]` inside the logger, so no call site can leak a credential by naming it.
+ *
+ * @remarks
+ * `body` is in the list because OB-6 item 2 bans request and response bodies outright, and
+ * a body is where the credentials that have no obvious name live: an integration upsert
+ * carries a plaintext provider secret, a customer create carries personal data, a
+ * magic-link render carries the token itself. invoice-service denied it before the SDK
+ * existed — its list was where OB-6 item 4 came from — and the name was lost when the
+ * mechanism moved here, which is the direction a consolidation is not supposed to go.
  */
-const SENSITIVE_KEY = /key|secret|password|token|authorization|credential/i;
+const SENSITIVE_KEY = /key|secret|password|token|authorization|credential|body/i;
 
 /**
  * `JSON.stringify` replacer that redacts sensitive keys at any depth. The root call has
