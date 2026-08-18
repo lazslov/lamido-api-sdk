@@ -13,6 +13,10 @@ it.
 - The service *behaviour* — what a 404 means, when a retry is safe, what an omitted field
   means — lives only in that repository's Markdown. `contracts/*.openapi.yaml` is the
   authority on shapes. When the two disagree, the Markdown wins and the YAML is a bug.
+- **[proposals/](proposals/) holds changes that are asked for and not yet decided.** A file
+  there is a request from a consuming service, not a plan and not a decision — it stays until a
+  maintainer accepts it (and it becomes a phase or a changeset) or refuses it (and it is
+  deleted, with the reason in this file).
 
 ## Phase 1 decisions, and where they deviate from the plan
 
