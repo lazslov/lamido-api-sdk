@@ -12,9 +12,13 @@
  * files, probe topology — and the process around adopting a rule. Neither is an npm
  * library's to implement.
  *
- * DELIBERATELY A SINGLE FILE WITH ZERO IMPORTS. OB-7 lets a service vendor this SDK as
- * one file when it cannot take the npm dependency, held byte-identical by a pin test.
- * One import-free source file is what makes that copy possible to check.
+ * DELIBERATELY A SINGLE FILE WITH NO STATIC IMPORTS. OB-7 lets a service vendor this
+ * SDK as one file when it cannot take the npm dependency, held byte-identical by a pin
+ * test. One self-contained source file is what makes that copy possible to check.
+ *
+ * The one exception is the guarded `import("node:async_hooks")` behind the ambient request
+ * scope. It is dynamic, its failure is caught, and a runtime without the module gets a no-op
+ * scope — so the file still loads anywhere, and a vendored copy is still one file.
  */
 
 /**
@@ -163,6 +167,72 @@ function defaultLevel(): Level {
   return raw === "debug" || raw === "info" || raw === "warn" || raw === "error" ? raw : "info";
 }
 
+// ─── The ambient request scope (OB-2) ──────────────────────────────────────────────
+
+/**
+ * The slice of `AsyncLocalStorage` this file uses.
+ *
+ * @remarks
+ * Declared structurally rather than imported, so the source keeps its zero static imports
+ * (OB-7) and the published `.d.ts` needs no `@types/node`.
+ */
+interface AmbientStore {
+  getStore(): LogMeta | undefined;
+  run<T>(store: LogMeta, callback: () => T): T;
+}
+
+/** The process-wide request scope. `null` until the guarded load succeeds, or forever if it cannot. */
+let ambientStore: AmbientStore | null = null;
+
+/** The in-flight load, so concurrent first requests wait on one import rather than racing. */
+let ambientLoad: Promise<void> | undefined;
+
+/**
+ * Load `AsyncLocalStorage` once per process, and never let its absence be an error.
+ *
+ * @returns A promise that settles when the scope is ready, or when it is known to be unavailable.
+ * @remarks
+ * `node:async_hooks` is a platform module on Node, but the Vercel Edge Runtime and workerd do
+ * not carry it unconditionally. A static import would therefore throw at **import** time on
+ * those runtimes, before a service could catch anything, so the load is dynamic and its failure
+ * is swallowed. A runtime without the module keeps exactly today's behaviour: no scope, so no
+ * ambient field, so every line is the line it writes now.
+ */
+function loadAmbientStore(): Promise<void> {
+  ambientLoad ??= import("node:async_hooks").then(
+    ({ AsyncLocalStorage }) => {
+      ambientStore = new AsyncLocalStorage<LogMeta>();
+    },
+    () => {
+      // Nothing to do: `ambientStore` stays null and every scope operation is a no-op.
+    },
+  );
+  return ambientLoad;
+}
+
+/**
+ * The bindings of the request in flight, or `{}` outside one.
+ *
+ * @remarks
+ * Called at **write** time, never when a logger is built: `telemetry.logger` is constructed once
+ * at module scope, long before any request exists.
+ */
+function currentScope(): LogMeta {
+  return ambientStore?.getStore() ?? {};
+}
+
+/**
+ * Run `work` with `bindings` ambient for everything it awaits.
+ *
+ * @remarks
+ * The scope follows the promise chain rather than the call graph, which is what reaches the code
+ * threading a context cannot: a helper three files from the route, and work that outlives the
+ * response — an inline queue drain, a detached alert.
+ */
+function runInScope<T>(bindings: LogMeta, work: () => T): T {
+  return ambientStore ? ambientStore.run(bindings, work) : work();
+}
+
 // ─── The sink (OB-8…OB-11) ─────────────────────────────────────────────────────────
 
 /** How long one flush may take before its batch is dropped (OB-9). */
@@ -257,14 +327,25 @@ function statusOfError(err: unknown): number | undefined {
 export interface Telemetry {
   /** Build a logger carrying fixed `bindings`, on top of the service envelope. */
   createLogger(bindings?: LogMeta): Logger;
-  /** The unbound service logger, for module scope and background work. */
+  /**
+   * The unbound service logger, for module scope and background work.
+   *
+   * @remarks
+   * Unbound, not context-free: a line it writes while a request is in flight carries that
+   * request's `request_id`, because {@link Telemetry.requestMiddleware} puts the id in an
+   * ambient scope that every line is written inside. That is what lets a helper three files
+   * from the route obey OB-2 without taking a context parameter. Outside a request it writes
+   * exactly the service envelope.
+   */
   logger: Logger;
   /**
    * Bind a `correlation_id` onto a logger, so every line it writes carries it (OB-4).
    *
    * @param correlationId - The id from the inbound event's envelope, copied unchanged.
-   * @param from - The logger to extend. Defaults to the request logger's usual parent, the
-   * service logger; pass `c.get("log")` on a request path so `request_id` survives too.
+   * @param from - The logger to extend. Defaults to the service logger, which is enough: the
+   * ambient request scope adds `request_id` wherever there is a request, including on a path
+   * that holds a chain id and no context — an event emitter, a delivery worker. Pass a logger
+   * only when you want bindings it carries beyond that.
    * @returns A child logger carrying the id.
    * @remarks
    * The counterpart to what {@link Telemetry.requestMiddleware} does for `request_id`, and
@@ -277,7 +358,7 @@ export interface Telemetry {
    *
    * @example
    * ```ts
-   * const log = telemetry.correlated(event.correlation_id, c.get("log"));
+   * const log = telemetry.correlated(event.correlation_id);
    * log.info("Invoice issued", { event: "invoice.issued", public_id });
    * ```
    */
@@ -299,6 +380,12 @@ export interface Telemetry {
    * The request middleware (HR-20 + OB-3): accepts or mints the request id, binds
    * `request_id` onto the request logger under the `log` context key, echoes the header,
    * emits exactly one `http.request` summary line per request, and schedules the flush.
+   *
+   * @remarks
+   * It also runs the handler inside an ambient scope carrying `request_id` (OB-2), so **every**
+   * line written while the request is in flight carries it, not only the lines written through
+   * `c.get("log")`. `c.get("log")` stays correct and stays the right thing to use where the
+   * context is in hand; the scope is for the code that cannot reach it.
    */
   requestMiddleware(options?: RequestMiddlewareOptions): TelemetryMiddleware;
 }
@@ -332,8 +419,14 @@ export function createTelemetry(config: TelemetryConfig): Telemetry {
     // The envelope members are spread last so no call-site metadata can displace the
     // line's identity: `level`/`message` (the existing estate invariant) and the OB-2
     // `time`/`service`/`env` members always win. Call-site meta still wins over bindings.
+    //
+    // The ambient scope goes underneath everything, so a logger given `request_id` explicitly
+    // keeps its own value. It is read here rather than in `createLogger` because this is the one
+    // place a line is built: `alert()` and the sink's own warnings go through it too, and OB-2's
+    // clause covers every line written inside a request, not only the ones a logger writes.
     const line = JSON.stringify(
       {
+        ...currentScope(),
         ...bindings,
         ...meta,
         time: new Date(timeMs).toISOString(),
@@ -531,7 +624,11 @@ export function createTelemetry(config: TelemetryConfig): Telemetry {
   function requestMiddleware(options: RequestMiddlewareOptions = {}): TelemetryMiddleware {
     const mintId = options.mintId ?? (() => crypto.randomUUID());
     const scheduleFlush = options.scheduleFlush ?? ((work) => void work());
+    // Started when the app wires its middleware and awaited per request: by the first request the
+    // import has almost always settled, and the await is one microtask on an already-kept promise.
+    const scopeReady = loadAmbientStore();
     return async (c, next) => {
+      await scopeReady;
       const inbound = c.req.header(REQUEST_ID_HEADER);
       const id = inbound && SANE_REQUEST_ID.test(inbound) ? inbound : mintId();
       c.set("requestId", id);
@@ -554,7 +651,10 @@ export function createTelemetry(config: TelemetryConfig): Telemetry {
       };
 
       try {
-        await next();
+        // The handler and everything it awaits run inside the scope, so a helper that never saw
+        // `c` still writes `request_id`. The summary line below needs no scope: `log` carries
+        // the id as an explicit binding.
+        await runInScope({ request_id: id }, () => next());
       } catch (err) {
         // The summary must exist on a 500 too; the framework's error handler answers
         // after this middleware unwinds, so the status is taken from the error itself.

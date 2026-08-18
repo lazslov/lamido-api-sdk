@@ -15,8 +15,9 @@ Estate telemetry for the Lamido services. One shared implementation of the
   (`TELEGRAM_ALERT_BOT_TOKEN`, `TELEGRAM_ALERT_CHAT_ID`) and always also logs a line
   with `alert: true` as the sink-side backstop. Never throws.
 - **Request middleware** — accepts or mints the `X-Request-Id`, binds `request_id` onto
-  the request logger, emits one `http.request` summary line per request, and schedules
-  the sink flush off the response path.
+  the request logger, runs the handler inside an ambient scope so every line written during
+  the request carries the id, emits one `http.request` summary line per request, and
+  schedules the sink flush off the response path.
 
 ## Usage
 
@@ -28,9 +29,36 @@ export const { logger, alert, flush } = telemetry;
 export const createLogger = telemetry.createLogger;
 ```
 
+## The request scope (OB-2)
+
+`requestMiddleware` runs the handler inside an ambient scope carrying `request_id`, so **every**
+line written while a request is in flight carries it — including lines written through the
+module-scope `logger` by a helper that never saw the request context:
+
+```ts
+// A helper three files from the route. No context, no signature change.
+import { logger } from "./logger.js";
+
+logger.warn("last_used_at refresh failed", { error: err.name });
+// → { level: "warn", service, env, request_id: "…", … }
+```
+
+Three things to know:
+
+- **Outside a request there is no id**, and no error either. A cron, a CLI and a queue drain
+  write exactly the line they write without the middleware.
+- **An explicit binding wins.** A logger built with `createLogger({ request_id })` keeps its own
+  value; the scope only fills in what nothing else set.
+- `c.get("log")` **is still correct** and still the right thing to use where the context is in
+  hand. The scope is for the code that cannot reach it.
+
 ## Vendoring
 
-The whole SDK is deliberately a single import-free file (`src/index.ts`). A service that
-cannot take the npm dependency may vendor that file verbatim, per OB-7 — **if** a test
-pins the copy byte-identical against this source. Drift without a failing test is the
-one outcome that rule exists to prevent.
+The whole SDK is deliberately a single self-contained file (`src/index.ts`) with no static
+imports. A service that cannot take the npm dependency may vendor that file verbatim, per
+OB-7 — **if** a test pins the copy byte-identical against this source. Drift without a
+failing test is the one outcome that rule exists to prevent.
+
+The one dynamic import is `node:async_hooks`, behind the request scope. It is guarded,
+so a runtime without the module gets a no-op scope rather than a throw, and the file still
+vendors as one file.
