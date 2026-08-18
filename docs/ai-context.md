@@ -13,10 +13,10 @@ it.
 - The service *behaviour* — what a 404 means, when a retry is safe, what an omitted field
   means — lives only in that repository's Markdown. `contracts/*.openapi.yaml` is the
   authority on shapes. When the two disagree, the Markdown wins and the YAML is a bug.
-- **[proposals/](proposals/) holds changes that are asked for and not yet decided.** A file
-  there is a request from a consuming service, not a plan and not a decision — it stays until a
+- **`docs/proposals/` holds changes that are asked for and not yet decided.** A file there is
+  a request from a consuming service, not a plan and not a decision — it stays until a
   maintainer accepts it (and it becomes a phase or a changeset) or refuses it (and it is
-  deleted, with the reason in this file).
+  deleted, with the reason in this file). The directory is empty when nothing is pending.
 
 ## Phase 1 decisions, and where they deviate from the plan
 
@@ -512,6 +512,32 @@ Two related workspace-resolution notes, both needed the moment a service package
   `"@lazslov/api-core"`.
 - **`vitest.config.ts` aliases the same specifier** to core's source, so the suites run without a
   build. `test:node-baseline` is the one that exercises `dist/`.
+
+## The ambient request scope in `@lazslov/telemetry`
+
+**Accepted 2026-08-18**, from `docs/proposals/ambient-request-scope.md` — raised by
+webshop-service, whose observability audit measured the defect. The proposal file is deleted per
+the rule above; the rationale it carried now lives in the package's changeset, and the three
+questions it left open were answered like this.
+
+- **The Edge Runtime stays a supported target, so the `node:async_hooks` load is guarded.**
+  `import("node:async_hooks")` is dynamic and its failure is swallowed, so a runtime without the
+  module gets a no-op scope and therefore exactly the previous behaviour. A static import would
+  throw at *import* time, before a service could catch anything. This also keeps the file's zero
+  **static** imports, which is what OB-7 vendoring rests on.
+- **The scope is not public API.** No new export: the middleware opens it and the emitter reads
+  it. A `withScope` for background work that *starts* outside a request — a cron worker that then
+  handles a batch — is a second decision, and it can be added later without breaking this one.
+- **The store carries `request_id` and nothing else.** `correlated()` already gets
+  `correlation_id` for free through the logger it returns, and a general `LogMeta` bag would
+  invite call sites to push arbitrary context into an invisible channel.
+
+**One deviation from the proposal's own sketch: the scope is read in `emit`, not in
+`createLogger`.** `emit` is the single place a line is built, so one spread does what a
+per-logger closure would, and it also covers the two callers that build a line without a logger —
+`alert()` and the sink's own diagnostics. OB-2's clause is about every line written inside a
+request, not only the ones a logger writes, so the wider reach is the rule rather than an
+extension of it.
 
 ## Settled
 
