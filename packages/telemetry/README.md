@@ -52,6 +52,27 @@ Three things to know:
 - `c.get("log")` **is still correct** and still the right thing to use where the context is in
   hand. The scope is for the code that cannot reach it.
 
+### If your service wraps the logger, pass `createLogger`
+
+**Required whenever `lib/logger.ts` wraps the logger**, which is every service enforcing OB-6
+item 2 — the container strip that replaces `body`, `values`, `variables` and `payload`
+wholesale, and which this package does not carry:
+
+```ts
+export const createLogger = (b?: LogMeta): Logger => guarded(telemetry.createLogger(b));
+
+// Without the hook the middleware builds the request logger from this package's own
+// factory, and `guarded` never runs on a single request-scoped line.
+export const requestId = telemetry.requestMiddleware({ createLogger });
+```
+
+The logger the hook returns is used for the `log` context key **and** for the `http.request`
+summary line, so one argument covers both. `telemetry.logger` is a different seam: wrap that
+one in your own file and export the wrapped value.
+
+*The scope and the strip were mutually exclusive until this option existed, and four of the
+five services on this package chose the strip — so the scope reached nobody.*
+
 ## Vendoring
 
 The whole SDK is deliberately a single self-contained file (`src/index.ts`) with no static
