@@ -313,6 +313,27 @@ export interface RequestMiddlewareOptions {
    * the default runs the flush unawaited, which is correct anywhere the process lives on.
    */
   scheduleFlush?: (work: () => Promise<void>) => void;
+  /**
+   * Builds the request logger. Defaults to {@link Telemetry.createLogger}.
+   *
+   * @remarks
+   * **Pass this whenever the service wraps the logger**, which every service enforcing
+   * OB-6 item 2 does: the container strip lives in that wrapper, and a request logger built
+   * from the SDK's own factory does not carry it. Without this hook a service had to choose
+   * between the strip and the ambient `request_id` scope, because adopting the middleware
+   * meant discarding whatever `lib/logger.ts` had installed — and four of the five services
+   * on this package chose the strip, so the scope reached nobody.
+   *
+   * The logger this returns is put on the `log` context key **and** used for the OB-3
+   * summary line, so a service-side wrapper covers both.
+   *
+   * @example
+   * ```ts
+   * // in the service's src/lib/logger.ts, the single seam
+   * export const requestId = telemetry.requestMiddleware({ createLogger });
+   * ```
+   */
+  createLogger?: (bindings: LogMeta) => Logger;
 }
 
 /** `err.status` when it is a plausible HTTP status, else undefined. */
@@ -386,6 +407,12 @@ export interface Telemetry {
    * line written while the request is in flight carries it, not only the lines written through
    * `c.get("log")`. `c.get("log")` stays correct and stays the right thing to use where the
    * context is in hand; the scope is for the code that cannot reach it.
+   *
+   * **A service that wraps the logger MUST pass
+   * {@link RequestMiddlewareOptions.createLogger}**, or the wrapper is bypassed for every
+   * request-scoped line and the OB-6 item 2 container strip goes with it. Adopting this
+   * middleware is otherwise a choice between two rules in the same standard, which is the
+   * reason that option exists.
    */
   requestMiddleware(options?: RequestMiddlewareOptions): TelemetryMiddleware;
 }
@@ -624,6 +651,10 @@ export function createTelemetry(config: TelemetryConfig): Telemetry {
   function requestMiddleware(options: RequestMiddlewareOptions = {}): TelemetryMiddleware {
     const mintId = options.mintId ?? (() => crypto.randomUUID());
     const scheduleFlush = options.scheduleFlush ?? ((work) => void work());
+    // The service's own factory when it has one, so a wrapper enforcing OB-6 item 2 is not
+    // bypassed by the middleware that carries OB-2's scope. Resolved once per middleware
+    // rather than per request: it is configuration, not request state.
+    const buildLogger = options.createLogger ?? createLogger;
     // Started when the app wires its middleware and awaited per request: by the first request the
     // import has almost always settled, and the await is one microtask on an already-kept promise.
     const scopeReady = loadAmbientStore();
@@ -632,7 +663,7 @@ export function createTelemetry(config: TelemetryConfig): Telemetry {
       const inbound = c.req.header(REQUEST_ID_HEADER);
       const id = inbound && SANE_REQUEST_ID.test(inbound) ? inbound : mintId();
       c.set("requestId", id);
-      const log = createLogger({ request_id: id });
+      const log = buildLogger({ request_id: id });
       c.set("log", log);
       c.header(REQUEST_ID_HEADER, id);
 

@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTelemetry, REQUEST_ID_HEADER, type TelemetryRequestContext } from "../src/index.js";
+import {
+  createTelemetry,
+  type Logger,
+  type LogMeta,
+  REQUEST_ID_HEADER,
+  type TelemetryRequestContext,
+} from "../src/index.js";
 
 /** A minimal Hono-shaped context, enough to drive the middleware. */
 function fakeContext(headers: Record<string, string> = {}, routePath = "/v1/things/:id") {
@@ -111,5 +117,138 @@ describe("request middleware (HR-20 + OB-3)", () => {
     const { c } = fakeContext();
     // The middleware promise settles even though the sink fetch never will.
     await telemetry().requestMiddleware()(c, async () => {});
+  });
+});
+
+/**
+ * The service logger factory (OB-2 composed with OB-6 item 2).
+ *
+ * @remarks
+ * Without this hook the middleware built its request logger from the SDK's own factory, so a
+ * service that wraps the logger — which every service enforcing OB-6 item 2 does, because the
+ * container strip lives in that wrapper — had the wrapper bypassed on every request-scoped line
+ * the moment it adopted the middleware. **Four of the five services on this package chose the
+ * strip, so the ambient scope reached nobody.** These tests pin the composition: a service-side
+ * wrapper survives, and it survives on the summary line too.
+ */
+describe("the request logger comes from the service seam when one is given", () => {
+  /** A wrapper of the shape a service installs: one container member replaced wholesale. */
+  function stripping(inner: Logger): Logger {
+    const strip = (meta?: LogMeta): LogMeta | undefined =>
+      meta && "variables" in meta ? { ...meta, variables: "[redacted]" } : meta;
+    return {
+      debug: (m, meta) => inner.debug(m, strip(meta)),
+      info: (m, meta) => inner.info(m, strip(meta)),
+      warn: (m, meta) => inner.warn(m, strip(meta)),
+      error: (m, meta) => inner.error(m, strip(meta)),
+      child: (b) => stripping(inner.child(b)),
+    };
+  }
+
+  it("builds the context logger through the supplied factory", async () => {
+    captureLines();
+    const t = telemetry();
+    const seen: LogMeta[] = [];
+    const { c, vars } = fakeContext();
+
+    await t.requestMiddleware({
+      createLogger: (bindings) => {
+        seen.push(bindings);
+        return t.createLogger(bindings);
+      },
+    })(c, async () => {});
+
+    expect(seen).toEqual([{ request_id: expect.any(String) }]);
+    expect(vars.get("log")).toBeDefined();
+  });
+
+  /**
+   * **The regression this option exists to prevent.** A handler logs the body it has just
+   * validated; the service wrapper is the only thing standing between that and a log line, and
+   * before this hook the middleware handed the handler a logger that had never been through it.
+   */
+  it("does not bypass a service wrapper on a line the handler writes", async () => {
+    const lines = captureLines();
+    const t = telemetry();
+    const { c } = fakeContext();
+
+    await t.requestMiddleware({ createLogger: (b) => stripping(t.createLogger(b)) })(
+      c,
+      async () => {
+        (c.get("log") as Logger).info("handled a send", {
+          variables: { to: "someone@example.com", magic: "magic-link-4f2a" },
+        });
+      },
+    );
+
+    const whole = JSON.stringify(lines);
+    expect(whole).not.toContain("someone@example.com");
+    expect(whole).not.toContain("magic-link-4f2a");
+    expect(lines.some((l) => l.variables === "[redacted]")).toBe(true);
+  });
+
+  it("routes the OB-3 summary line through the wrapper too", async () => {
+    const lines = captureLines();
+    const t = telemetry();
+    const { c } = fakeContext();
+    const written: string[] = [];
+
+    await t.requestMiddleware({
+      createLogger: (b) => {
+        const inner = t.createLogger(b);
+        return {
+          ...inner,
+          info: (m: string, meta?: LogMeta) => {
+            written.push(m);
+            inner.info(m, meta);
+          },
+        };
+      },
+    })(c, async () => {});
+
+    expect(written).toContain("Request handled");
+    expect(lines.filter((l) => l.event === "http.request")).toHaveLength(1);
+  });
+
+  /**
+   * The composition, which is the whole reason the hook exists: **a custom factory does not
+   * cost the ambient scope, and the scope does not cost the wrapper.** Before this option a
+   * service had to give up one to get the other.
+   *
+   * The wrapper is asserted on the request logger and the scope on a helper's line, because
+   * those are the two things each mechanism actually governs — `telemetry.logger` is the SDK's
+   * own and no middleware option can wrap it. A service wraps that one in its `lib/logger.ts`
+   * and exports the wrapped value, which is a separate seam and has its own tests.
+   */
+  it("composes with the ambient scope, which is the whole point", async () => {
+    const lines = captureLines();
+    const t = telemetry();
+    const { c } = fakeContext({ "x-request-id": "both-features" });
+
+    await t.requestMiddleware({ createLogger: (b) => stripping(t.createLogger(b)) })(
+      c,
+      async () => {
+        // A helper that never saw the context, writing through the service logger.
+        t.logger.warn("a helper three files away", { note: "no context here" });
+        // And the request logger, which the wrapper does govern.
+        (c.get("log") as Logger).info("from the handler", { variables: { inner: "s" } });
+      },
+    );
+
+    // The scope reaches a helper that has no context — that is OB-2's clause.
+    expect(must(lines.find((l) => l.message === "a helper three files away")).request_id).toBe(
+      "both-features",
+    );
+    // And the wrapper still governs every line the request logger writes.
+    expect(must(lines.find((l) => l.message === "from the handler")).variables).toBe("[redacted]");
+  });
+
+  it("uses the SDK factory when no hook is given, unchanged", async () => {
+    const lines = captureLines();
+    const { c } = fakeContext({ "x-request-id": "default-path" });
+
+    await telemetry().requestMiddleware()(c, async () => {});
+
+    expect(lines.some((l) => l.request_id === "default-path")).toBe(true);
   });
 });
