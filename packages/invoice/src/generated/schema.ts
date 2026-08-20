@@ -21,12 +21,17 @@ export interface paths {
         };
         /**
          * Liveness probe
-         * @description **Always returns HTTP 200 while the process is alive**, whatever the database is
-         *     doing. It answers exactly one question — should the platform restart or drain this
-         *     instance? — and while requests are still being served the answer is no.
+         * @description **Always returns HTTP 200 while the process is alive, and it touches no
+         *     dependency.** It answers exactly one question — should the platform restart or
+         *     drain this instance? — and while requests are still being served the answer is no.
          *
-         *     A monitor that only checks `response.ok` will therefore never notice a database
-         *     outage. **Parse the body and alert on `status !== "ok"`.**
+         *     Since `f73e397` it runs no query and reports no `db` member; `status` has exactly
+         *     one value, `"ok"`. There is nothing here to alert on beyond the transport: a broken
+         *     `DATABASE_URL` still answers `200`. Because it wakes nothing, a synthetic monitor
+         *     may poll it at any cadence.
+         *
+         *     **For the database, the stuck counts and the queue, use
+         *     `GET /v1/admin/health`** — which is also always `200`, so read its body.
          */
         get: operations["getHealthz"];
         put?: never;
@@ -1138,8 +1143,9 @@ export interface paths {
          *     problem document, and a non-`GET` here is a `404`.
          *
          *     **Not a health check** — the body is a compile-time constant served without touching
-         *     the database, so it stays `200` through a total outage. Use `/healthz`, and read its
-         *     body.
+         *     the database, so it stays `200` through a total outage. `/healthz` is the liveness
+         *     surface, and it touches nothing either; `GET /v1/admin/health` is the one that
+         *     reports on the database.
          */
         get: operations["getLandingPage"];
         put?: never;
@@ -1763,18 +1769,14 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * @description Liveness only. Since `f73e397` this endpoint touches no dependency, so the body has
+         *     exactly one member and one value. The `db` and `code` members it used to carry when
+         *     the database was unreachable no longer exist.
+         */
         Healthz: {
             /** @enum {string} */
-            status: "ok" | "degraded";
-            /** @enum {string} */
-            db?: "ok" | "unreachable";
-            /**
-             * @description A driver error code (`ETIMEDOUT`), never a message — the driver's message
-             *     contains the connection string, password included.
-             */
-            code?: string;
-        } & {
-            [key: string]: unknown;
+            status: "ok";
         };
         /** @description **Always returned with HTTP 200.** Every count is absent in the degraded body. */
         AdminHealth: {
@@ -2457,7 +2459,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The process is alive. `status` reports the database separately. */
+            /**
+             * @description The process is alive. The body is always exactly `{"status":"ok"}` and says
+             *     nothing about any dependency.
+             */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];

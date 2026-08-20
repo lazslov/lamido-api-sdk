@@ -4,9 +4,9 @@ openapi: 3.1.0
 # Prose, gotchas and runbooks live in the sibling Markdown files — this file is the
 # authority on SHAPES (fields, types, enums, status codes); the Markdown is the authority
 # on BEHAVIOUR (idempotency semantics, side effects, retry rules).
-# Source: https://github.com/lazslov/invoice-service @ b82afda — verified 2026-08-05
+# Source: https://github.com/lazslov/invoice-service @ 1f6a1ed — verified 2026-08-17
 #
-# 30 paths, 38 operations.
+# 44 paths, 55 operations.
 
 info:
   title: Invoice Service API
@@ -86,16 +86,23 @@ paths:
       tags: [public]
       summary: Liveness probe
       description: |
-        **Always returns HTTP 200 while the process is alive**, whatever the database is
-        doing. It answers exactly one question — should the platform restart or drain this
-        instance? — and while requests are still being served the answer is no.
+        **Always returns HTTP 200 while the process is alive, and it touches no
+        dependency.** It answers exactly one question — should the platform restart or
+        drain this instance? — and while requests are still being served the answer is no.
 
-        A monitor that only checks `response.ok` will therefore never notice a database
-        outage. **Parse the body and alert on `status !== "ok"`.**
+        Since `f73e397` it runs no query and reports no `db` member; `status` has exactly
+        one value, `"ok"`. There is nothing here to alert on beyond the transport: a broken
+        `DATABASE_URL` still answers `200`. Because it wakes nothing, a synthetic monitor
+        may poll it at any cadence.
+
+        **For the database, the stuck counts and the queue, use
+        `GET /v1/admin/health`** — which is also always `200`, so read its body.
       security: []
       responses:
         "200":
-          description: The process is alive. `status` reports the database separately.
+          description: |
+            The process is alive. The body is always exactly `{"status":"ok"}` and says
+            nothing about any dependency.
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
@@ -105,9 +112,7 @@ paths:
                 $ref: "#/components/schemas/Healthz"
               examples:
                 healthy:
-                  value: { status: ok, db: ok }
-                degraded:
-                  value: { status: degraded, db: unreachable, code: ETIMEDOUT }
+                  value: { status: ok }
 
   /v1/public/invoices/{public_id}/pdf:
     get:
@@ -2421,8 +2426,9 @@ paths:
         problem document, and a non-`GET` here is a `404`.
 
         **Not a health check** — the body is a compile-time constant served without touching
-        the database, so it stays `200` through a total outage. Use `/healthz`, and read its
-        body.
+        the database, so it stays `200` through a total outage. `/healthz` is the liveness
+        surface, and it touches nothing either; `GET /v1/admin/health` is the one that
+        reports on the database.
       security: []
       tags: [Public]
       responses:
@@ -3594,15 +3600,13 @@ components:
     Healthz:
       type: object
       required: [status]
-      additionalProperties: true
+      additionalProperties: false
+      description: |
+        Liveness only. Since `f73e397` this endpoint touches no dependency, so the body has
+        exactly one member and one value. The `db` and `code` members it used to carry when
+        the database was unreachable no longer exist.
       properties:
-        status: { type: string, enum: [ok, degraded] }
-        db: { type: string, enum: [ok, unreachable] }
-        code:
-          type: string
-          description: |
-            A driver error code (`ETIMEDOUT`), never a message — the driver's message
-            contains the connection string, password included.
+        status: { type: string, enum: [ok] }
 
     AdminHealth:
       type: object

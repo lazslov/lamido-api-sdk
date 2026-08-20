@@ -1,5 +1,30 @@
 # @lazslov/invoice
 
+## 2.0.0
+
+Verified against knowledge base `9b8228c`: content-service `eb0b88d`, invoice-service `7fdc5ec`,
+payment-service `2cd0a4e`.
+
+### Major Changes
+
+- `InvoiceHealth` is liveness only: `db` and `code` are gone, and `status` is `"ok"`.
+
+  invoice-service stopped querying the database on `GET /healthz` at its `f73e397`. The route touches
+  no dependency, so the body is always exactly `{"status":"ok"}`. A monitor polling it was holding a
+  Neon database awake around the clock for a reading nothing acted on.
+
+  **Migration.** Any code reading `health.db` or comparing `health.status` against `"degraded"` no
+  longer compiles, and there is nothing on this route to replace it with:
+
+  ```diff
+    const health = await client.getHealth();
+  - if (health.db !== "ok") alert("database unreachable");
+  + // Liveness only. The database is on GET /v1/admin/health, which this SDK does not expose.
+  ```
+
+  This route now proves the process is up and nothing else — a broken `DATABASE_URL` still answers
+  `200`. Because it wakes nothing, a synthetic monitor may poll it at any cadence.
+
 ## 1.0.0
 
 Verified against knowledge base `5191225`: content-service `ecf20fd`, invoice-service `3aa099f`,

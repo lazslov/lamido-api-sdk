@@ -1911,11 +1911,17 @@ export interface components {
             /** @description Machine-readable cause on a non-200, e.g. `unknown_merchant`, `no_webhook_secret`. */
             reason?: string;
         };
+        /**
+         * @description The drain report from `/api/cron/webhooks`, and the same object spread into the OB-15 `job.heartbeat` log line.
+         *
+         *     BREAKING at `95c66a3`: `deadLettered` was renamed `dead_lettered`. It was the one camelCase key in this estate that was on a **wire** surface rather than only in a log line — this response body and the heartbeat both — so the OB-2 casing sweep that renamed 27 log keys changed a documented response shape with them. A client reading `deadLettered` gets `undefined`, not an error.
+         */
         DrainSummary: {
             claimed: number;
             delivered: number;
             scheduled: number;
-            deadLettered: number;
+            /** @description Renamed from `deadLettered` at `95c66a3`. */
+            dead_lettered: number;
             /** @description Attempts that threw. The claim lease expiry brings the row back. */
             failed: number;
         };

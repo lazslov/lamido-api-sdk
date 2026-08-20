@@ -1,5 +1,36 @@
 # @lazslov/content
 
+## 2.0.0
+
+Verified against knowledge base `9b8228c`: content-service `eb0b88d`, invoice-service `7fdc5ec`,
+payment-service `2cd0a4e`.
+
+### Major Changes
+
+- `publishItem` returns `ItemPublishResult`, not `CollectionItem`.
+
+  content-service changed the response at its `d06a3f8`. `POST /v1/collections/{key}/items/{id}/publish`
+  answered a bare item and now answers `{ locales, item }` — the same `locales` half a page publish
+  reports.
+
+  **Migration.** Read `.item` where you read the item, and read `.locales` rather than assuming which
+  locales went live:
+
+  ```diff
+  - const item = await client.publishItem("news", id);
+  - console.log(item.slug);
+  + const { item, locales } = await client.publishItem("news", id);
+  + console.log(item.slug, `published in ${locales.join(", ")}`);
+  ```
+
+  **Read `locales`, because the default surprised the service too.** Omitting `locale` publishes
+  **every** locale of the site. Before `d06a3f8` the service published one — the site's default —
+  while flipping `status` for the whole item, so a bilingual import answered `200` per item and left
+  the second language empty in public. The required-value check now runs per locale, which means an
+  item filled in one language and empty in another is a `409` rather than a half-published `200`.
+
+  `ItemPublishResult` is exported from the package root.
+
 ## 1.0.0
 
 Verified against knowledge base `5191225`: content-service `ecf20fd`, invoice-service `3aa099f`,
