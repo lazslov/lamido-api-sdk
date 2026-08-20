@@ -17,7 +17,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 203,
+    "line": 205,
     "context": "`GET /v1/admin/health`",
     "json": {
       "status": "attention",
@@ -38,7 +38,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 285,
+    "line": 287,
     "context": "`GET /v1/admin/providers`",
     "json": {
       "data": [
@@ -93,7 +93,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 358,
+    "line": 360,
     "context": "`POST /v1/admin/admin-keys`",
     "json": {
       "label": "reporting",
@@ -106,7 +106,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 370,
+    "line": 372,
     "context": "`POST /v1/admin/admin-keys`",
     "json": {
       "id": "e0a4b7c1-9d22-4e10-8f31-77bb0c1d2e33",
@@ -124,7 +124,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 421,
+    "line": 423,
     "context": "`GET /v1/admin/clients`",
     "json": {
       "data": [
@@ -150,7 +150,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 449,
+    "line": 451,
     "context": "`POST /v1/admin/clients`",
     "json": {
       "name": "Acme Kft",
@@ -160,7 +160,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 461,
+    "line": 463,
     "context": "`POST /v1/admin/clients`",
     "json": {
       "public_id": "019839b0-1c2d-7e3f-8a41-556677889900",
@@ -176,7 +176,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 557,
+    "line": 559,
     "context": "The Credential object",
     "json": {
       "id": "77aa11bb-22cc-33dd-44ee-55ff66aa77bb",
@@ -200,7 +200,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 614,
+    "line": 616,
     "context": "`GET /v1/admin/integrations`",
     "json": {
       "data": [
@@ -232,7 +232,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 711,
+    "line": 713,
     "context": "`PUT /v1/admin/clients/{public_id}/integrations/{config_id}`",
     "json": {
       "provider": "szamlazz",
@@ -242,7 +242,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 770,
+    "line": 772,
     "context": "`POST /v1/admin/clients/{public_id}/integrations/{config_id}/test`",
     "json": {
       "ok": false,
@@ -263,7 +263,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 909,
+    "line": 911,
     "context": "`GET /v1/admin/invoices/{public_id}/download-link`",
     "json": {
       "url": "https://invoice.example.com/v1/public/invoices/019839c2-…/pdf?token=1786917843.Qm9ndXNTaWc",
@@ -272,7 +272,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 929,
+    "line": 931,
     "context": "`POST /v1/admin/invoices/{public_id}/cancel`",
     "json": {
       "reason": "customer canceled the order"
@@ -280,7 +280,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 992,
+    "line": 994,
     "context": "`POST /v1/admin/invoices/{public_id}/reconcile`",
     "json": {
       "action": "attach",
@@ -293,7 +293,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 1042,
+    "line": 1044,
     "context": "`GET /v1/admin/stats/overview`",
     "json": {
       "range": {
@@ -335,7 +335,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 1080,
+    "line": 1082,
     "context": "`GET /v1/admin/stats/timeseries`",
     "json": {
       "data": [
@@ -365,7 +365,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 1103,
+    "line": 1105,
     "context": "`GET /v1/admin/stats/clients`",
     "json": {
       "data": [
@@ -393,7 +393,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 1151,
+    "line": 1153,
     "context": "`GET /v1/admin/audit`",
     "json": {
       "data": [
@@ -530,7 +530,7 @@
   },
   {
     "file": "client-api.md",
-    "line": 539,
+    "line": 546,
     "context": "5. `GET /v1/invoices/{public_id}/download-link` — mint a public link",
     "json": {
       "url": "https://invoice.example.com/v1/public/invoices/019839c2-…/pdf?token=1786917843.Qm9ndXNTaWc",
@@ -539,16 +539,15 @@
   },
   {
     "file": "client-api.md",
-    "line": 673,
+    "line": 681,
     "context": "`GET /healthz`",
     "json": {
-      "status": "ok",
-      "db": "ok"
+      "status": "ok"
     }
   },
   {
     "file": "conventions.md",
-    "line": 165,
+    "line": 212,
     "context": "5. Success responses",
     "json": {
       "public_id": "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
@@ -557,7 +556,7 @@
   },
   {
     "file": "conventions.md",
-    "line": 215,
+    "line": 262,
     "context": "6. Errors — RFC 9457 Problem Details",
     "json": {
       "type": "urn:invoice-service:problem:validation",
@@ -577,7 +576,7 @@
   },
   {
     "file": "conventions.md",
-    "line": 414,
+    "line": 461,
     "context": "9. Money",
     "json": {
       "gross_amount_minor": "38100",
@@ -586,7 +585,7 @@
   },
   {
     "file": "examples.http",
-    "line": 47,
+    "line": 49,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "billingo",
@@ -619,7 +618,7 @@
   },
   {
     "file": "examples.http",
-    "line": 73,
+    "line": 75,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -650,7 +649,7 @@
   },
   {
     "file": "examples.http",
-    "line": 111,
+    "line": 113,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -675,7 +674,7 @@
   },
   {
     "file": "examples.http",
-    "line": 126,
+    "line": 128,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -702,7 +701,7 @@
   },
   {
     "file": "examples.http",
-    "line": 144,
+    "line": 146,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -727,7 +726,7 @@
   },
   {
     "file": "examples.http",
-    "line": 158,
+    "line": 160,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -753,7 +752,7 @@
   },
   {
     "file": "examples.http",
-    "line": 173,
+    "line": 175,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -778,7 +777,7 @@
   },
   {
     "file": "examples.http",
-    "line": 188,
+    "line": 190,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -803,7 +802,7 @@
   },
   {
     "file": "examples.http",
-    "line": 307,
+    "line": 309,
     "context": "POST {{base}}/v1/admin/clients",
     "json": {
       "name": "Acme Kft",
@@ -813,7 +812,7 @@
   },
   {
     "file": "examples.http",
-    "line": 314,
+    "line": 316,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
     "json": {
       "provider": "billingo",
@@ -827,7 +826,7 @@
   },
   {
     "file": "examples.http",
-    "line": 326,
+    "line": 328,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/szamlazz_acme",
     "json": {
       "provider": "szamlazz",
@@ -837,7 +836,7 @@
   },
   {
     "file": "examples.http",
-    "line": 337,
+    "line": 339,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
     "json": {
       "provider": "billingo",
@@ -850,7 +849,7 @@
   },
   {
     "file": "examples.http",
-    "line": 344,
+    "line": 346,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
     "json": {
       "provider": "billingo",
@@ -860,7 +859,7 @@
   },
   {
     "file": "examples.http",
-    "line": 351,
+    "line": 353,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/szamlazz_acme",
     "json": {
       "provider": "billingo",
@@ -873,7 +872,7 @@
   },
   {
     "file": "examples.http",
-    "line": 381,
+    "line": 383,
     "context": "PATCH {{base}}/v1/admin/clients/{{clientPublicId}}",
     "json": {
       "notes": "called about VAT rates"
@@ -881,7 +880,7 @@
   },
   {
     "file": "examples.http",
-    "line": 444,
+    "line": 446,
     "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
     "json": {
       "action": "mark_failed",
@@ -890,7 +889,7 @@
   },
   {
     "file": "examples.http",
-    "line": 452,
+    "line": 454,
     "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
     "json": {
       "action": "attach",
@@ -903,7 +902,7 @@
   },
   {
     "file": "examples.http",
-    "line": 461,
+    "line": 463,
     "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
     "json": {
       "action": "release",
@@ -912,7 +911,7 @@
   },
   {
     "file": "examples.http",
-    "line": 519,
+    "line": 521,
     "context": "POST {{base}}/v1/admin/admin-keys",
     "json": {
       "label": "reporting",
@@ -924,7 +923,7 @@
   },
   {
     "file": "examples.http",
-    "line": 526,
+    "line": 528,
     "context": "PATCH {{base}}/v1/admin/admin-keys/{{adminKeyId}}",
     "json": {
       "allowed_ips": [
@@ -934,7 +933,7 @@
   },
   {
     "file": "examples.http",
-    "line": 557,
+    "line": 559,
     "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
     "json": {
       "url": "https://acme.example.com/api/invoice-webhook",
@@ -943,7 +942,7 @@
   },
   {
     "file": "examples.http",
-    "line": 565,
+    "line": 567,
     "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
     "json": {
       "url": "https://acme.example.com/api/ledger-feed",
@@ -956,7 +955,7 @@
   },
   {
     "file": "examples.http",
-    "line": 577,
+    "line": 579,
     "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
     "json": {
       "url": "https://acme.example.com/api/nowhere",
@@ -965,7 +964,7 @@
   },
   {
     "file": "examples.http",
-    "line": 602,
+    "line": 604,
     "context": "PATCH {{base}}/v1/admin/webhook-endpoints/{{endpointId}}",
     "json": {
       "url": "https://acme.example.com/api/invoice-webhook-v2"
@@ -973,7 +972,7 @@
   },
   {
     "file": "examples.http",
-    "line": 615,
+    "line": 617,
     "context": "POST {{base}}/v1/admin/webhook-endpoints/{{endpointId}}/disable",
     "json": {
       "reason": "Receiver migrating to a new host"
@@ -981,7 +980,7 @@
   },
   {
     "file": "examples.http",
-    "line": 732,
+    "line": 735,
     "context": "POST {{base}}/v1/hooks/payment-service",
     "json": {
       "event_id": "019e5b02-0000-7000-8000-000000000001",
@@ -1030,7 +1029,7 @@
   },
   {
     "file": "examples.http",
-    "line": 774,
+    "line": 777,
     "context": "POST {{base}}/v1/hooks/payment-servcie",
     "json": {}
   },

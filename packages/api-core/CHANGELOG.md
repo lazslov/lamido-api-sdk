@@ -1,5 +1,19 @@
 # @lazslov/api-core
 
+## 1.0.1
+
+Verified against knowledge base `9b8228c`: content-service `eb0b88d`, invoice-service `7fdc5ec`,
+payment-service `2cd0a4e`.
+
+### Patch Changes
+
+- Re-pin the contracts at knowledge base `9b8228c`, so the changelog inside the tarball names the
+  commits these packages were verified against.
+
+  No public surface moves in these three. The one shape that changed is payment-service's
+  `DrainSummary`, which renamed `deadLettered` to `dead_lettered` at the service's `95c66a3`: it is
+  the `/api/cron/webhooks` drain report, and this SDK has never exposed it.
+
 ## 1.0.0
 
 Verified against knowledge base `5191225`: content-service `ecf20fd`, invoice-service `3aa099f`,

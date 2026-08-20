@@ -35,16 +35,14 @@ describe.skipIf(!invoiceTarget.ready)("invoice-service live", () => {
       apiKey: invoiceTarget.keys.client,
     });
 
-  it("answers an unwrapped health body that reports the database separately", async () => {
+  it("answers an unwrapped health body", async () => {
     // One of the three documented envelope exceptions, and the reason core's ReadMode is explicit per
     // call: a shared unwrap(body.data) applied here returns undefined.
     const health = await client().getHealth();
 
-    // `db` is the half a monitor must read. The route always answers 200 while the process is alive,
-    // so an unreachable database arrives as `{ status: "degraded", db: "unreachable" }` at 200 — and
-    // a check that stops at response.ok reports a healthy service over a dead database.
+    // `status` is the whole body now. The service no longer reports the database here, so this asserts
+    // liveness only — database health is not on this tier.
     expect(health.status).toBe("ok");
-    expect(health.db).toBe("ok");
   });
 
   it("returns NO total on the invoice list, and pages by cursor", async () => {

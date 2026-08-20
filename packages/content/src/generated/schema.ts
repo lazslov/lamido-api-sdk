@@ -478,8 +478,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish one item
+         * Publish one item — EVERY LOCALE unless the body names one
          * @description Copies draft over published per key with coalesce, flips status to published and stamps published_at, then fires the revalidation webhook. An empty required key is a 409 with details.missing. Publishing an ARCHIVED item brings it back — there is no separate un-archive endpoint.
+         *
+         *     AN OMITTED locale PUBLISHES EVERY LOCALE OF THE SITE, the same default a page publish carries. Before d06a3f8 it published one — the site's default_locale — while flipping status for the whole item, so a bilingual import answered 200 per item and left the second language empty in public. The required-value check therefore runs PER LOCALE: an item filled in one language and empty in another is a 409, not a half-published 200.
+         *
+         *     locale is a BODY field here. As a query parameter it is a 400 at #/query/locale — a write's query string is closed.
          */
         post: operations["publishItem"];
         delete?: never;
@@ -691,11 +695,11 @@ export interface paths {
         /**
          * The operator status strip
          * @description No scope required — a key must always be able to introspect. Deeper than /healthz, and since d013970 THE ONLY ENDPOINT THAT REPORTS DATABASE HEALTH — /healthz stopped querying, so every `db` alert belongs here. It queries on every call, so schedule a poll in minutes rather than seconds: Neon bills for the compute a poll keeps awake.
-         *     It reports the conditions a human has to act on, and EVERY COUNT HAS A DRILL-DOWN — orphan_assets → GET /v1/admin/assets/orphans · dangling_refs → GET /v1/admin/datasets/{id}/records · pending_deliveries and dead_lettered_deliveries → GET /v1/admin/webhook-deliveries?status=… · disabled_endpoints → GET /v1/admin/webhook-endpoints?enabled=false · sites_without_external_ref → GET /v1/admin/sites.
+         *     It reports the conditions a human has to act on, and EVERY COUNT HAS A DRILL-DOWN — orphan_assets → GET /v1/admin/assets/orphans · dangling_refs → GET /v1/admin/datasets/{id}/records · pending_deliveries and dead_lettered_deliveries → GET /v1/admin/webhook-deliveries?status=… · disabled_endpoints → GET /v1/admin/webhook-endpoints?enabled=false · endpoints_without_secret and endpoints_with_undecryptable_secret → GET /v1/admin/webhook-endpoints?signing_state=… · sites_without_external_ref → GET /v1/admin/sites?paired=false.
          *
          *     The four webhook counts bind the SAME exported predicate their list does, which is what the removed failed_revalidations got wrong: it and its drill-down were two independent queries over two tables with different windows, so they could disagree.
          *
-         *     ALSO ALWAYS 200 — alert on `status`, never on the status code. dangling_refs and pending_deliveries are deliberately excluded from `status`: ref policy `store` produces the first on purpose, and with no cron a queued delivery is the ordinary state of a healthy queue, so either would pin a dashboard amber forever.
+         *     ALSO ALWAYS 200 — alert on `status`, never on the status code, AND THAT NOW HOLDS WITH THE DATABASE DOWN: until eb0b88d this endpoint answered 500 in exactly that state, because resolving the cad_ key is itself a database read and threw before the handler ran. During an outage the credential therefore cannot be verified, so any well-formed bearer token is answered; no token is still 401 and an Origin header still 403, and every other /v1/admin/* route still answers 500. dangling_refs and pending_deliveries are deliberately excluded from `status`: ref policy `store` produces the first on purpose, and with no cron a queued delivery is the ordinary state of a healthy queue, so either would pin a dashboard amber forever.
          */
         get: operations["getAdminHealth"];
         put?: never;
@@ -763,7 +767,7 @@ export interface paths {
         };
         /**
          * Sites, filterable
-         * @description Scope: sites:read. `external_ref` is indexed, so filtering by it is cheap.
+         * @description Scope: sites:read. `external_ref` is indexed, so filtering by it is cheap. `paired=false` is the drill-down for `sites_without_external_ref`.
          */
         get: operations["listSites"];
         put?: never;
@@ -1550,8 +1554,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish an item, for any site
+         * Publish an item, for any site — EVERY LOCALE unless the body names one
          * @description Scope: content:publish. Fires the revalidation webhook. Un-archives an archived item.
+         *
+         *     Identical semantics to the client twin, publishItem: an omitted locale publishes every locale of the site, the required-value check runs per locale, and locale is a body field rather than a query parameter.
          */
         post: operations["publishAdminItem"];
         delete?: never;
@@ -1679,7 +1685,7 @@ export interface paths {
          * Every endpoint, across sites
          * @description Scope: webhooks:read. `event_type` is the TRIGGER-FIRST view — "on page.published, call these two endpoints" — which is the question an operator actually has. It is this relation read from the other side and is derived on read; the inverse is never stored, because two truths about one relation disagree.
          *
-         *     GOTCHA: the `event_type` filter is applied IN MEMORY, because `subscribed_events` is a jsonb array where null means "every type, including ones added later". So a page may come back SHORT of `limit` — recorded here rather than hidden, because a silently short page is how a client concludes it has reached the end.
+         *     GOTCHA: the `event_type` and `signing_state` filters are applied IN MEMORY — `subscribed_events` is a jsonb array where null means "every type, including ones added later". So a page may come back SHORT of `limit` — recorded here rather than hidden, because a silently short page is how a client concludes it has reached the end.
          */
         get: operations["listWebhookEndpoints"];
         put?: never;
@@ -2527,6 +2533,11 @@ export interface components {
             secret_last4?: string | null;
             /** @description A stable, non-reversible label for the secret — an HMAC under the KEK rather than a bare digest, so it cannot be compared against a rainbow table of candidate secrets. It exists so an operator can confirm a receiver holds the right secret WITHOUT either side sending the other the plaintext. */
             secret_fingerprint?: string | null;
+            /**
+             * @description Whether this endpoint can actually be signed for, decided by ATTEMPTING the decryption rather than by reading a column. The drill-down behind admin health's endpoints_with_undecryptable_secret. 'missing' is a half-finished migration (no ciphertext); 'undecryptable' is a CREDENTIALS_ENC_KEY rotated without re-encrypting (a ciphertext that no longer opens) — and in that second case secret_last4 and secret_fingerprint look identical and perfectly healthy.
+             * @enum {string}
+             */
+            signing_state?: "ok" | "missing" | "undecryptable";
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -2707,6 +2718,8 @@ export interface components {
             endpoints_without_secret?: number;
             /** @description Enabled AND unsignable — a state that must never exist. NON-ZERO IS A BUG IN THE SERVICE rather than a half-done configuration: the migration creates such endpoints disabled, `enable` refuses while the secret is missing, and rotating is the only thing that sets one enabled. Counted anyway, because an invariant nothing checks is one nobody notices breaking. */
             enabled_endpoints_without_secret?: number;
+            /** @description Endpoints whose ciphertext is PRESENT and no longer opens — the symptom of a CREDENTIALS_ENC_KEY rotated without re-encrypting, and the one count here an IS NULL query cannot produce. Non-zero means no delivery to those endpoints can be signed, and it turns `status` to `attention`. Before it existed the whole strip stayed green while the websites simply stopped hearing. Drill down with signing_state on the endpoint object. */
+            endpoints_with_undecryptable_secret?: number;
             /** @description Active sites nobody has paired. Not an error — their own receivers work — but they emit `account_id: null` and so cannot participate cross-service. */
             sites_without_external_ref?: number;
         };
@@ -3753,18 +3766,24 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
+                    /** @description Omitted publishes every locale of the site. One locale restricts both the write and the required-value check to it. */
                     locale?: string;
                 };
             };
         };
         responses: {
-            /** @description The published item. */
+            /** @description The locales the publish covered, and the item rendered in one of them. The shape changed at d06a3f8 — it was a bare Item — to match what a page publish answers. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Item"];
+                    "application/json": {
+                        /** @description Every locale this call published. Read this rather than inferring it. */
+                        locales: string[];
+                        /** @description Rendered in ONE locale — the requested one, or the site's default. An item's values are one map per locale, so a response can only carry one. */
+                        item: components["schemas"]["Item"];
+                    };
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -4261,7 +4280,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description `status` is ok | attention | degraded. WHEN THE DATABASE IS UNREACHABLE THE BODY IS SHORT — `{status: "degraded", db: "unreachable", blob_configured}` and nothing else, because the counts are the queries that failed. Code for absent keys, not for zeroes. */
+            /** @description `status` is ok | attention | degraded. WHEN THE DATABASE IS UNREACHABLE THE BODY IS SHORT — `{status: "degraded", db: "unreachable", blob_configured}` and nothing else, because the counts are the queries that failed. Code for absent keys, not for zeroes. That body is REACHABLE as of eb0b88d; before it, an outage produced a 500 problem document and this branch could not be observed at all. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4413,6 +4432,8 @@ export interface operations {
                 q?: string;
                 active?: "true" | "false";
                 external_ref?: string;
+                /** @description Whether lamido-admin has paired the site. paired=false is the drill-down behind sites_without_external_ref on GET /v1/admin/health and binds the same predicate that count uses, including its active clause. NOT the same as external_ref=, which matches a VALUE and therefore cannot express absence. */
+                paired?: "true" | "false";
                 /** @description Out of range is a 400, never a clamp. */
                 limit?: components["parameters"]["limitQuery"];
                 offset?: components["parameters"]["offsetQuery"];
@@ -5512,6 +5533,8 @@ export interface operations {
     listAdminAssets: {
         parameters: {
             query?: {
+                /** @description The drill-down behind two health counts: missing is endpoints_without_secret, and undecryptable is endpoints_with_undecryptable_secret. Filtered IN MEMORY like event_type, because telling ok from undecryptable means attempting the decryption — so a page may come back SHORT of limit. */
+                signing_state?: "ok" | "missing" | "undecryptable";
                 site_id?: string;
                 /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
                 limit?: components["parameters"]["keysetLimitQuery"];
@@ -6388,18 +6411,22 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
+                    /** @description Omitted publishes every locale of the site. One locale restricts both the write and the required-value check to it. */
                     locale?: string;
                 };
             };
         };
         responses: {
-            /** @description The published item. */
+            /** @description The locales the publish covered, and the item rendered in one of them. The shape changed at d06a3f8 — it was a bare Item. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Item"];
+                    "application/json": {
+                        locales: string[];
+                        item: components["schemas"]["Item"];
+                    };
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -8,6 +8,7 @@ import type {
   ContentHealth,
   ContentSite,
   DatasetRecord,
+  ItemPublishResult,
   PageDocument,
   PublishedPageSummary,
   UploadToken,
@@ -315,6 +316,12 @@ const itemSpec = spec(
   } satisfies MandatoryKeys<CollectionItem>,
 );
 
+/** What an item publish answers: the locales it covered, and the item in one of them. */
+const itemPublishSpec = spec(
+  { locales: true, item: true } satisfies AllKeys<ItemPublishResult>,
+  { locales: true, item: true } satisfies MandatoryKeys<ItemPublishResult>,
+);
+
 const recordSpec = spec(
   {
     public_id: true,
@@ -454,15 +461,9 @@ const contentHealthSpec = spec(
   { status: true } satisfies MandatoryKeys<ContentHealth>,
 );
 
-/**
- * invoice-service's health body.
- *
- * @remarks
- * Unlike content-service, this route still reports the database — and both the healthy and the
- * degraded body now arrive at `200`, so `status` is the only thing that says which.
- */
+/** invoice-service's `/healthz` body: `{ status: "ok" }`, the same one member content-service reports. */
 const healthSpec = spec(
-  { status: true, db: true, code: true } satisfies AllKeys<InvoiceHealth>,
+  { status: true } satisfies AllKeys<InvoiceHealth>,
   { status: true } satisfies MandatoryKeys<InvoiceHealth>,
 );
 
@@ -666,6 +667,14 @@ const contentClassifiers: readonly Classifier[] = [
     }),
   },
   {
+    id: "content: ItemPublishResult",
+    matches: (example) => {
+      const data = unwrap(example.json);
+      return typeof data === "object" && data !== null && "locales" in data && "item" in data;
+    },
+    check: (example) => ({ value: unwrap(example.json) as object, spec: itemPublishSpec }),
+  },
+  {
     id: "content: CollectionItem",
     matches: (example) =>
       typeof example.json === "object" &&
@@ -690,6 +699,15 @@ const contentClassifiers: readonly Classifier[] = [
         example.json !== null &&
         "filename" in (example.json as object)),
   ),
+  {
+    // A log line, not a response. `event` is what every one of them carries.
+    id: "out of scope: a structured log line, which no SDK type describes",
+    matches: (example) =>
+      example.file === "operations.md" &&
+      typeof example.json === "object" &&
+      example.json !== null &&
+      "event" in (example.json as object),
+  },
   {
     id: "out of scope: a structure definition, which only staff can write",
     matches: (example) => example.file === "data-model.md",

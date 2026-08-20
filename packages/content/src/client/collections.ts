@@ -17,6 +17,7 @@ import type {
   ContentValue,
   ContentView,
   DeleteResult,
+  ItemPublishResult,
   ItemStatus,
 } from "../types.js";
 
@@ -106,8 +107,17 @@ export interface CollectionMethods {
     options?: LocaleOptions,
   ): Promise<CollectionItem>;
 
-  /** Publish one item. Publishing an archived item flips it straight back to published. */
-  publishItem(key: string, id: string, options?: LocaleOptions): Promise<CollectionItem>;
+  /**
+   * Publish one item.
+   *
+   * @returns The locales the publish covered, and the item in one of them.
+   * @remarks
+   * Publishing an archived item flips it straight back to published.
+   *
+   * **Omitting `locale` publishes every locale of the site.** The required-value check then runs
+   * per locale, so an item filled in one language and empty in another is a `409`.
+   */
+  publishItem(key: string, id: string, options?: LocaleOptions): Promise<ItemPublishResult>;
 
   /**
    * Archive one item — off the site, recoverable, and the editor-facing "remove".
@@ -220,7 +230,7 @@ export function bindCollectionMethods(cfg: ResolvedConfig): CollectionMethods {
       }),
 
     publishItem: (key, id, options = {}) =>
-      call<CollectionItem>(cfg, {
+      call<ItemPublishResult>(cfg, {
         method: "POST",
         path: `${item(key, id)}/publish`,
         body: withLocale({}, options),

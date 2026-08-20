@@ -425,6 +425,12 @@ forced are collected at the end, under "What publishing actually taught us".
   heading, so `test/changelog-provenance.test.ts` fails until a human adds the line naming the
   knowledge-base commit and the three `source_commit` values — read from `CONTRACTS.json` rather than
   restated, because the restated copy is the one that would drift.
+- **`changeset version` leaves the `VERSION` constant behind as well.** Every package exports
+  `VERSION` from its `src/index.ts`, and `changeset version` rewrites only `package.json`, so the two
+  disagree until a human edits the constant. `test/package-shape.test.ts` catches it, the same way the
+  provenance test catches the missing changelog line. Both are hand steps of one release: apply the
+  changesets, add the provenance line, then sync the five constants. Found by re-pinning the contracts
+  at knowledge base `9b8228c`, which forced a release and therefore hit both in turn.
 - **The release workflow is asserted by a unit test.** `test/release-workflow.test.ts` checks the
   ordering (gate → live suite → publish), the absence of `workflow_dispatch` and of any `inputs.`
   reference, `id-token: write`, `cancel-in-progress: false`, and that `release:publish` carries

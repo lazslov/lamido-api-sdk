@@ -172,6 +172,23 @@ export interface PublishResult {
 }
 
 /**
+ * What an item publish did.
+ *
+ * @remarks
+ * The service answered a bare item until its `d06a3f8`, and now answers this — the same
+ * `locales` half a page publish reports. Read `locales` rather than inferring it: omitting
+ * `locale` publishes **every** locale of the site, and the required-value check runs per
+ * locale, so a bilingual item that is empty in one language is a `409` rather than a
+ * half-published `200`.
+ */
+export interface ItemPublishResult {
+  /** Every locale this publish covered. */
+  readonly locales: string[];
+  /** Rendered in one locale — the requested one, or the site's default. */
+  readonly item: CollectionItem;
+}
+
+/**
  * What a restore brought back, and what it could not.
  *
  * @remarks

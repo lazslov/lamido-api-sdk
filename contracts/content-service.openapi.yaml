@@ -1324,6 +1324,16 @@ components:
             digest, so it cannot be compared against a rainbow table of candidate secrets. It exists
             so an operator can confirm a receiver holds the right secret WITHOUT either side sending
             the other the plaintext.
+        signing_state:
+          type: string
+          enum: [ok, missing, undecryptable]
+          description: >
+            Whether this endpoint can actually be signed for, decided by ATTEMPTING the decryption
+            rather than by reading a column. The drill-down behind admin health's
+            endpoints_with_undecryptable_secret. 'missing' is a half-finished migration (no
+            ciphertext); 'undecryptable' is a CREDENTIALS_ENC_KEY rotated without re-encrypting (a
+            ciphertext that no longer opens) — and in that second case secret_last4 and
+            secret_fingerprint look identical and perfectly healthy.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -1566,6 +1576,15 @@ components:
             disabled, `enable` refuses while the secret is missing, and rotating is the only
             thing that sets one enabled. Counted anyway, because an invariant nothing checks is
             one nobody notices breaking.
+        endpoints_with_undecryptable_secret:
+          type: integer
+          description: >
+            Endpoints whose ciphertext is PRESENT and no longer opens — the symptom of a
+            CREDENTIALS_ENC_KEY rotated without re-encrypting, and the one count here an IS NULL
+            query cannot produce. Non-zero means no delivery to those endpoints can be signed, and
+            it turns `status` to `attention`. Before it existed the whole strip stayed green
+            while the websites simply stopped hearing. Drill down with signing_state on the
+            endpoint object.
         sites_without_external_ref:
           type: integer
           description: >
@@ -2495,12 +2514,23 @@ paths:
     post:
       operationId: publishItem
       tags: [client]
-      summary: Publish one item
+      summary: Publish one item — EVERY LOCALE unless the body names one
       description: >
         Copies draft over published per key with coalesce, flips status to published and stamps
         published_at, then fires the revalidation webhook. An empty required key is a 409 with
         details.missing. Publishing an ARCHIVED item brings it back — there is no separate
         un-archive endpoint.
+
+
+        AN OMITTED locale PUBLISHES EVERY LOCALE OF THE SITE, the same default a page publish
+        carries. Before d06a3f8 it published one — the site's default_locale — while flipping
+        status for the whole item, so a bilingual import answered 200 per item and left the
+        second language empty in public. The required-value check therefore runs PER LOCALE:
+        an item filled in one language and empty in another is a 409, not a half-published 200.
+
+
+        locale is a BODY field here. As a query parameter it is a 400 at #/query/locale — a
+        write's query string is closed.
       security: [{ secretKey: [] }]
       parameters:
         - { $ref: '#/components/parameters/collectionKey' }
@@ -2512,14 +2542,31 @@ paths:
             schema:
               type: object
               properties:
-                locale: { type: string }
+                locale:
+                  type: string
+                  description: >
+                    Omitted publishes every locale of the site. One locale restricts both the
+                    write and the required-value check to it.
       responses:
         '200':
-          description: The published item.
+          description: >
+            The locales the publish covered, and the item rendered in one of them. The shape
+            changed at d06a3f8 — it was a bare Item — to match what a page publish answers.
           content:
             application/json:
               schema:
-                { $ref: '#/components/schemas/Item' }
+                type: object
+                required: [locales, item]
+                properties:
+                  locales:
+                    type: array
+                    items: { type: string }
+                    description: Every locale this call published. Read this rather than inferring it.
+                  item:
+                    allOf: [{ $ref: '#/components/schemas/Item' }]
+                    description: >
+                      Rendered in ONE locale — the requested one, or the site's default. An item's
+                      values are one map per locale, so a response can only carry one.
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -3035,8 +3082,9 @@ paths:
         orphan_assets → GET /v1/admin/assets/orphans · dangling_refs → GET
         /v1/admin/datasets/{id}/records · pending_deliveries and dead_lettered_deliveries → GET
         /v1/admin/webhook-deliveries?status=… · disabled_endpoints → GET
-        /v1/admin/webhook-endpoints?enabled=false · sites_without_external_ref → GET
-        /v1/admin/sites.
+        /v1/admin/webhook-endpoints?enabled=false · endpoints_without_secret and
+        endpoints_with_undecryptable_secret → GET /v1/admin/webhook-endpoints?signing_state=… ·
+        sites_without_external_ref → GET /v1/admin/sites?paired=false.
 
 
         The four webhook counts bind the SAME exported predicate their list does, which is what
@@ -3044,7 +3092,12 @@ paths:
         queries over two tables with different windows, so they could disagree.
 
 
-        ALSO ALWAYS 200 — alert on `status`, never on the status code. dangling_refs and
+        ALSO ALWAYS 200 — alert on `status`, never on the status code, AND THAT NOW HOLDS WITH THE
+        DATABASE DOWN: until eb0b88d this endpoint answered 500 in exactly that state, because
+        resolving the cad_ key is itself a database read and threw before the handler ran. During an
+        outage the credential therefore cannot be verified, so any well-formed bearer token is
+        answered; no token is still 401 and an Origin header still 403, and every other
+        /v1/admin/* route still answers 500. dangling_refs and
         pending_deliveries are deliberately excluded from `status`: ref policy `store` produces
         the first on purpose, and with no cron a queued delivery is the ordinary state of a
         healthy queue, so either would pin a dashboard amber forever.
@@ -3055,6 +3108,8 @@ paths:
             `status` is ok | attention | degraded. WHEN THE DATABASE IS UNREACHABLE THE BODY IS
             SHORT — `{status: "degraded", db: "unreachable", blob_configured}` and nothing else,
             because the counts are the queries that failed. Code for absent keys, not for zeroes.
+            That body is REACHABLE as of eb0b88d; before it, an outage produced a 500 problem
+            document and this branch could not be observed at all.
           content:
             application/json:
               schema:
@@ -3199,7 +3254,7 @@ paths:
       operationId: listSites
       tags: [admin-sites]
       summary: Sites, filterable
-      description: 'Scope: sites:read. `external_ref` is indexed, so filtering by it is cheap.'
+      description: 'Scope: sites:read. `external_ref` is indexed, so filtering by it is cheap. `paired=false` is the drill-down for `sites_without_external_ref`.'
       security: [{ adminKey: [] }]
       parameters:
         - name: q
@@ -3215,6 +3270,15 @@ paths:
           in: query
           required: false
           schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: paired
+          in: query
+          required: false
+          schema: { type: string, enum: ['true', 'false'] }
+          description: >
+            Whether lamido-admin has paired the site. paired=false is the drill-down behind
+            sites_without_external_ref on GET /v1/admin/health and binds the same predicate that
+            count uses, including its active clause. NOT the same as external_ref=, which matches a
+            VALUE and therefore cannot express absence.
         - { $ref: '#/components/parameters/limitQuery' }
         - { $ref: '#/components/parameters/offsetQuery' }
       responses:
@@ -4252,6 +4316,15 @@ paths:
       description: 'Scope: assets:read. Omitting site_id lists EVERY site — this key is cross-tenant.'
       security: [{ adminKey: [] }]
       parameters:
+        - name: signing_state
+          in: query
+          required: false
+          schema: { type: string, enum: [ok, missing, undecryptable] }
+          description: >
+            The drill-down behind two health counts: missing is endpoints_without_secret, and
+            undecryptable is endpoints_with_undecryptable_secret. Filtered IN MEMORY like
+            event_type, because telling ok from undecryptable means attempting the decryption — so
+            a page may come back SHORT of limit.
         - name: site_id
           in: query
           required: false
@@ -5023,8 +5096,14 @@ paths:
     post:
       operationId: publishAdminItem
       tags: [admin-content]
-      summary: Publish an item, for any site
-      description: 'Scope: content:publish. Fires the revalidation webhook. Un-archives an archived item.'
+      summary: Publish an item, for any site — EVERY LOCALE unless the body names one
+      description: >
+        Scope: content:publish. Fires the revalidation webhook. Un-archives an archived item.
+
+
+        Identical semantics to the client twin, publishItem: an omitted locale publishes every
+        locale of the site, the required-value check runs per locale, and locale is a body field
+        rather than a query parameter.
       security: [{ adminKey: [] }]
       parameters:
         - { $ref: '#/components/parameters/siteIdPath' }
@@ -5037,14 +5116,27 @@ paths:
             schema:
               type: object
               properties:
-                locale: { type: string }
+                locale:
+                  type: string
+                  description: >
+                    Omitted publishes every locale of the site. One locale restricts both the
+                    write and the required-value check to it.
       responses:
         '200':
-          description: The published item.
+          description: >
+            The locales the publish covered, and the item rendered in one of them. The shape
+            changed at d06a3f8 — it was a bare Item.
           content:
             application/json:
               schema:
-                { $ref: '#/components/schemas/Item' }
+                type: object
+                required: [locales, item]
+                properties:
+                  locales:
+                    type: array
+                    items: { type: string }
+                  item:
+                    allOf: [{ $ref: '#/components/schemas/Item' }]
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -5255,7 +5347,7 @@ paths:
         about one relation disagree.
 
 
-        GOTCHA: the `event_type` filter is applied IN MEMORY, because `subscribed_events` is a jsonb
+        GOTCHA: the `event_type` and `signing_state` filters are applied IN MEMORY — `subscribed_events` is a jsonb
         array where null means "every type, including ones added later". So a page may come back
         SHORT of `limit` — recorded here rather than hidden, because a silently short page is how a
         client concludes it has reached the end.
