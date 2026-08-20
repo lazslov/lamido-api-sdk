@@ -1,5 +1,137 @@
 # @lazslov/telemetry
 
+## 1.1.0
+
+Verified against knowledge base `5191225`: content-service `ecf20fd`, invoice-service `3aa099f`,
+payment-service `62a1799`.
+
+### Minor Changes
+
+- 86bf208: `requestMiddleware` builds its request logger through a service-supplied factory, so the
+  ambient `request_id` scope and a service's own logger wrapper can both be had (OB-2 with
+  OB-6 item 2).
+
+  `RequestMiddlewareOptions` gains `createLogger?: (bindings: LogMeta) => Logger`, defaulted
+  to the instance's own `createLogger`. Nothing is removed, no signature changes, and a
+  consumer that passes no hook gets exactly today's behaviour.
+
+  **Why this is needed before the ambient scope ships, not after.** The scope is entered only
+  inside `requestMiddleware`, and that middleware built the request logger from this package's
+  own factory — so a service whose `lib/logger.ts` wraps the logger had that wrapper bypassed
+  on every request-scoped line the moment it adopted the middleware. **Four of the five
+  services on this package wrap it**, because OB-6 item 2's container strip lives in exactly
+  that wrapper and this package does not carry the strip. So adopting the middleware meant
+  choosing between two rules in the same standard, and every one of the four chose the strip.
+
+  That is the whole reason the scope reached nobody. `1.0.0` shipped before the scope existed,
+  so no service could have adopted it yet — which makes this the one moment the design costs
+  nothing to correct. **A feature that lands unreleased is the only kind that can be fixed for
+  free**; every comparable finding in this estate arrived after a service had already paid for
+  it.
+
+  **What a consumer does.** One argument, at the single seam it already has:
+
+  ```ts
+  // src/lib/logger.ts — the service's only importer of this package
+  const telemetry = createTelemetry({
+    service: SERVICE_NAME,
+    env: platformEnv(),
+  });
+
+  export const createLogger = (b?: LogMeta): Logger =>
+    guarded(telemetry.createLogger(b));
+
+  // The request logger and the OB-3 summary line now both go through `guarded`.
+  export const requestId = telemetry.requestMiddleware({ createLogger });
+  ```
+
+  The returned logger is used for the `log` context key **and** for the `http.request` summary
+  line, so one hook covers both. `telemetry.logger` is untouched: a service that wraps the
+  module logger keeps doing that in its own file, which is a different seam.
+
+  **Why a factory hook rather than exporting `runInScope`.** Exposing the scope directly would
+  also let a hand-rolled middleware have both, and it would leave the _supported_ path —
+  `requestMiddleware` — still discarding every service's strip. A default that violates a rule
+  is a default that will be used by whoever reads the README next. This way the conformant
+  path is the easy one.
+
+  Raised from email-service's observability re-measure, which found the conflict while scoring
+  OB-2 after adopting this package.
+
+- 3917034: Bind `request_id` into an ambient request scope, so every line written inside a request
+  carries it (OB-2).
+
+  `requestMiddleware` now runs the handler inside an `AsyncLocalStorage` scope holding the
+  request id, and every line reads that scope as it is written. Nothing is removed, no
+  signature changes, and no service changes a call site: a service adopts this by bumping
+  the package.
+
+  **Why it belongs here and not in each service.** OB-2 asks that a line written while
+  handling a request carries that request's `request_id`. The package offered two ways to get
+  a logger and only one could obey: a handler reads `c.get("log")`, which is bound, while a
+  helper three files away imports `telemetry.logger`, which was not — because it has no
+  context to read, and taking one would change its signature and every signature above it up
+  to the route. Five services failed the clause and every one failed it the same way; the most
+  recently audited column measured `request_id` reaching 2 of 29 module-logger call sites with
+  24 of the 29 reachable inside a request. The one service that passed did not pass by
+  threading harder — it bound the id into a scope. A rule four disciplined services obey
+  partially, and one obeys completely by changing the mechanism, is a rule about the mechanism.
+
+  Threading could not have closed it anyway. Work scheduled after the response — an inline
+  queue drain, a detached alert, the sink flush — runs where there is no context left to pass;
+  in the audited service that was 8 of the 24 sites. The scope follows the promise rather than
+  the call graph, so it reaches them.
+
+  **What a consumer sees.** A module-scope logger, `telemetry.correlated(id)` with no parent
+  passed, and `telemetry.alert(...)` all gain `request_id` when they run inside a request:
+
+  ```ts
+  // A helper with no context, three files from the route. Unchanged.
+  import { logger } from "./logger.js";
+  logger.warn("last_used_at refresh failed", { error: err.name });
+  // → before: { level: "warn", service, env, … }
+  // → after:  { level: "warn", service, env, request_id: "…", … }
+  ```
+
+  `correlated(id)` no longer needs `c.get("log")` passed to keep the request id, which is what
+  unblocks it on the paths that hold a chain id and no context: an event emitter, a delivery
+  worker. Its `from` parameter stays, for the cases that want an explicit parent.
+
+  **Migration — one thing can turn a consumer's suite red.** A log line gains a field. A test
+  that asserts a line by exact equality rather than by `toMatchObject` will fail on a
+  `request_id` that was not there before. The fix is to loosen the assertion, or to assert the
+  id it now expects. Nothing else changes: outside a request the scope is empty, so a cron, a
+  CLI and a queue drain write exactly the line they write today, and a logger given
+  `request_id` explicitly keeps its own value — the scope only fills in what nothing else set.
+
+  **Runtimes without `node:async_hooks`.** The module is loaded with a guarded dynamic import
+  rather than a static one, so the Vercel Edge Runtime and workerd — which do not carry it
+  unconditionally — get a no-op scope instead of a throw at import time, and therefore exactly
+  today's behaviour. No runtime dependency is added; `AsyncLocalStorage` is a platform API like
+  `fetch` and `crypto.subtle`. The file keeps its zero static imports, so it still vendors as
+  one file under OB-7.
+
+  Raised from webshop-service, whose observability audit produced the measurements.
+
+### Patch Changes
+
+- 1c5f6b0: Deny `body` at emit time (OB-6 item 4).
+
+  The pattern now matches `body`, so a metadata member named `body` — or one ending in
+  `_body_excerpt` — is replaced with `[redacted]` like every other credential-shaped name.
+
+  Found while invoice-service adopted the standard. Its service-local deny-list carried
+  `body` before this package existed, and that list is where OB-6 item 4 came from: the
+  route `PUT /v1/admin/clients/:id/integrations` takes a plaintext provider secret in its
+  body, so one `log.info('upsert', { body })` would put a provider credential on stdout.
+  The name was lost when the mechanism moved here, which is the direction a consolidation
+  must not go — a shared implementation that redacts less than the service it replaced is a
+  regression every service inherits at once.
+
+  OB-6 item 2 already bans bodies outright. This is the emit-time net under that rule, for
+  the same reason the rest of the list exists: a rule that has to be re-obeyed at every call
+  site eventually is not.
+
 ## 1.0.0
 
 Verified against knowledge base `5191225`: content-service `ecf20fd`, invoice-service `3aa099f`,
