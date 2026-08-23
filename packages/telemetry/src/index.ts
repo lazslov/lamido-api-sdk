@@ -29,7 +29,7 @@
  * disagrees with the tarball it came from. A vendored copy carries the version it was
  * taken from, which is what lets a service report which cut of this file it holds.
  */
-export const VERSION = "1.1.1";
+export const VERSION = "1.1.2";
 
 // ─── The envelope (OB-2) ───────────────────────────────────────────────────────────
 
@@ -130,18 +130,32 @@ export interface TelemetryConfig {
 }
 
 /**
- * Emit-time deny-list (OB-6 item 4). Any metadata key matching this pattern is replaced
- * with `[redacted]` inside the logger, so no call site can leak a credential by naming it.
+ * Emit-time deny-list (OB-6 item 4), and OB-6 item 2's four container names behind it. Any
+ * metadata key matching this pattern is replaced with `[redacted]` inside the logger, so no
+ * call site can leak a credential by naming it.
  *
  * @remarks
- * `body` is in the list because OB-6 item 2 bans request and response bodies outright, and
- * a body is where the credentials that have no obvious name live: an integration upsert
- * carries a plaintext provider secret, a customer create carries personal data, a
- * magic-link render carries the token itself. invoice-service denied it before the SDK
- * existed — its list was where OB-6 item 4 came from — and the name was lost when the
- * mechanism moved here, which is the direction a consolidation is not supposed to go.
+ * The tail of the pattern — **`body`, `values`, `variables`, `payload`** — is item 2, a
+ * different rule with a different reason. Item 4 detects a credential-shaped *name*. Item 2
+ * bans a class of *containers*, because a body is where the credentials that have no obvious
+ * name live: an integration upsert carries a plaintext provider secret, a customer create
+ * carries personal data, a magic-link render carries the token itself. Item 4's pattern
+ * cannot see any of that — `body: { value: … }` matches nothing in it, and that is the exact
+ * shape the accident takes, a handler passing the thing it just validated.
+ *
+ * The two lists share one regex because they share one mechanism. **Item 2's list is closed
+ * at those four**: adding a name is a change with a changelog row, exactly as adding a flag
+ * to OB-5's table is.
+ *
+ * `body` shipped alone in `1.1.0`. The other three arrive for the reason that release's own
+ * changelog recorded and could not then act on: four of the five services on this package
+ * wrap the logger *only* to strip these names, and a wrapper is bypassed the moment its
+ * service adopts `requestMiddleware` without passing `createLogger`. The strip and OB-2's
+ * ambient `request_id` were therefore two rules in one standard pulling one edit in opposite
+ * directions. Carrying item 2 here retires all four wrappers, and the trap with them.
  */
-const SENSITIVE_KEY = /key|secret|password|token|authorization|credential|body/i;
+const SENSITIVE_KEY =
+  /key|secret|password|token|authorization|credential|body|values|variables|payload/i;
 
 /**
  * `JSON.stringify` replacer that redacts sensitive keys at any depth. The root call has
@@ -151,6 +165,10 @@ const SENSITIVE_KEY = /key|secret|password|token|authorization|credential|body/i
  *   `key` and the vendor layer groups by it, so redacting it would break alerting;
  * - numbers and booleans — a count or a flag is never a credential, and the OB-15
  *   heartbeat must carry `failing_credentials: 0` for the vendor layer to threshold.
+ *
+ * The second carve-out reaches item 2's container names too, and it is meant to: `values: 3`
+ * is a count of them, not a body, and `body` has behaved this way since `1.1.0`. A container
+ * a service actually wants to log is a container it must name something else.
  */
 function redactingReplacer(key: string, value: unknown): unknown {
   if (key === "" || key === "key" || !SENSITIVE_KEY.test(key)) return value;

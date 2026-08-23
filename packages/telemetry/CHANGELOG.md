@@ -1,5 +1,35 @@
 # @lazslov/telemetry
 
+## 1.1.2
+
+Verified against knowledge base `9b8228c`: content-service `eb0b88d`, invoice-service `7fdc5ec`,
+payment-service `2cd0a4e`. The contract pins do not move in this release — it changes the logger
+and no generated type.
+
+### Patch Changes
+
+- The emit-time deny-list carries all four of OB-6 item 2's container names: `values`,
+  `variables` and `payload` join `body`.
+
+  `1.1.0` added `body` alone, and one of four names is not the rule. The other three are the
+  reason four of the five services on this package wrap the logger — the strip lives in the
+  wrapper, because it did not live here — and a wrapper is bypassed the moment its service
+  adopts `requestMiddleware` without passing `createLogger`. That made the strip and OB-2's
+  ambient `request_id` two rules in one standard pulling one edit in opposite directions.
+  Carrying item 2 here retires the wrappers and the trap together.
+
+  **What a consumer sees.** Any metadata member named `values`, `variables` or `payload`, at
+  any depth, now reads `[redacted]` in the line and in an alert's fields. A number or a boolean
+  under one of those names survives, exactly as it does under `body` since `1.1.0`: `values: 3`
+  is a count of them, not a body. A service that logs a container it means to keep renames the
+  member — narrowing the pattern is how a deny-list stops denying.
+
+  **The test to copy, not the assertion.** `packages/telemetry/test/telemetry.test.ts` names
+  every planted inner member `card`. The obvious plant is a credential-shaped inner name, and it
+  makes three of these four _pass against the unfixed code_: item 4's pattern eats
+  `values: { token_value: … }` and `payload: { secret_thing: … }` while the container they sit in
+  stays whole. That reads as an item-2 pass and is not one. Item 2 is asserted on the container.
+
 ## 1.1.1
 
 Verified against knowledge base `9b8228c`: content-service `eb0b88d`, invoice-service `7fdc5ec`,

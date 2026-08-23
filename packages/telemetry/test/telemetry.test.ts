@@ -113,6 +113,37 @@ describe("the deny-list (OB-6)", () => {
     expect(JSON.stringify(line)).not.toContain("sk_live_123");
   });
 
+  /**
+   * OB-6 item 2's list is four names, and until `1.1.2` this package carried one of them.
+   *
+   * **Every inner member here is named `card`, and that is the whole design of the test.**
+   * The obvious plant is a credential-shaped inner name, and it makes three of these four
+   * pass against the unfixed code: `values: { token_value: … }` and
+   * `payload: { secret_thing: … }` both come back redacted, by item 4's pattern eating the
+   * inner name while the container it was in stays whole. That reads as an item-2 pass and
+   * is not one. A neutral inner name is the only plant that can tell the two rules apart.
+   *
+   * So the assertion is on the **container**, not on the leak: item 2 replaces the member
+   * wholesale, which is what makes it a net under the bodies item 4 cannot see.
+   */
+  it("replaces all four of item 2's container names, at every depth", () => {
+    const lines = captureLines();
+    testTelemetry().logger.info("upsert", {
+      body: { card: "PLANT-body" },
+      values: { card: "PLANT-values" },
+      variables: { card: "PLANT-variables" },
+      payload: { card: "PLANT-payload" },
+      deep: { nested: { payload: { card: "PLANT-deep" } } },
+    });
+    const line = must(lines[0]);
+    for (const name of ["body", "values", "variables", "payload"]) {
+      expect(line[name], `${name} is item 2's container, replaced whole`).toBe("[redacted]");
+    }
+    const deep = must((line.deep as Record<string, Record<string, unknown>>).nested);
+    expect(deep.payload, "at every depth the logger serialises").toBe("[redacted]");
+    expect(JSON.stringify(line)).not.toContain("PLANT-");
+  });
+
   it("spares counts and flags: a number or boolean is never a credential", () => {
     const lines = captureLines();
     testTelemetry().logger.info("heartbeat", {

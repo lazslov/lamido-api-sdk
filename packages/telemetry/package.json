@@ -1,6 +1,6 @@
 {
   "name": "@lazslov/telemetry",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Estate telemetry for the Lamido services: the canonical log envelope, the batched log sink, the Telegram alert channel and the request middleware (observability house rules OB-1…OB-15).",
   "license": "MIT",
   "repository": {
