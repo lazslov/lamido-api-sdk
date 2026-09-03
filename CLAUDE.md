@@ -110,6 +110,60 @@ PR descriptions, code comments, and TSDoc.
 
 Code identifiers, error strings, and quoted output keep their original text.
 
+## 7. Asana — task management
+
+Asana is the estate's task manager. The `asana` MCP server is the only tool that reads it and
+writes it.
+
+### 7.1 Asana holds Lamido work and nothing else
+
+Never write OkeOke, BarSoft, Fruitsys or CoOS content into Asana. That work belongs to a
+different estate and a different tracker. The boundary runs both ways: Asana content does not
+go into a `coos-*` repository either.
+
+### 7.2 One project per repository
+
+Every Lamido repository has one Asana project, named `Lamido · <repository>` — for example
+`Lamido · lamido-admin`. A task lives in the project of the repository that can close it. A task
+parked in a project that cannot close it is a task nobody owns.
+
+The sections inside a project are `Blocked`, `P1` … `Pn`, `Needs a human` and
+`Watch list — no work yet`, in that order.
+
+### 7.3 This repository has no backlog file, so the Asana task is the record
+
+The seven Lamido services and the knowledge base keep their open work in `docs/backlog.md` and
+mirror it into Asana. **This repository has no such file.** Its Asana task is therefore the
+record of the work, not a mirror, and it carries the link to the pull request that closes it.
+
+An Asana task still holds only **Why** and **What to do**. A design belongs in a document in
+this repository, and the task links to it.
+
+### 7.4 Work found while developing
+
+When you find work during a change and you will not do it now, create the Asana task in this
+repository's project before you continue. An unwritten task is a forgotten task.
+
+If the work belongs to another Lamido repository, the task goes in **that** repository's
+project — and if that repository has a `docs/backlog.md`, the entry goes in the file first and
+the Asana task mirrors it.
+
+### 7.5 Asana as a source of information
+
+Read Asana to answer a question about the state of work — what is open, what blocks a task, what
+the comments on a task record. Read the repository as well. A task can lag behind the code.
+
+### 7.6 What never goes into Asana
+
+No credential, no API key, no customer personal data, no contract or pricing detail. Abstract
+the fact or leave it out.
+
+### 7.7 A decision is the user's
+
+Ask before you create or rename a project, change the sections of a project, complete or delete
+a task, reassign work, or set a due date the user did not give. §2 applies to Asana without
+exception.
+
 ## Memory
 
 When you learn important project context, update `docs/ai-context.md` instead of relying only on user-level memory.
