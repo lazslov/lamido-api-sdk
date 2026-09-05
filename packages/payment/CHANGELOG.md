@@ -1,5 +1,31 @@
 # @lazslov/payment
 
+## 1.0.2
+
+Verified against knowledge base `714f2ee`: content-service `0048426`, invoice-service `706dc63`,
+payment-service `e3828d2`, auth-service `bbeb4d4`, booking-service `18846e1`,
+email-service `23051b9`, webshop-service `529003d`.
+
+### Patch Changes
+
+- Re-pin the contracts at knowledge base `714f2ee`, so the changelog inside each tarball names the
+  commits these packages were verified against — now including the four services that gained a
+  package in this release: auth-service, booking-service, email-service and webshop-service.
+
+  No public surface moves in the five packages that already existed. Every operation and schema
+  that changed upstream is outside what this SDK ships, and the regenerated types say so: two new
+  admin routes (`POST /v1/admin/integrations/test` and
+  `POST /v1/admin/invoices/{public_id}/revoke-download-links`), a `stats:read` admin scope,
+  `signing_state` on an admin health body, and `publicly_enumerable` on a dataset **field
+  descriptor** — which is dataset structure, written by staff, and referenced nowhere in
+  `@lazslov/content`.
+
+- Takes `@lazslov/api-core@2.0.0`, whose `ProblemFieldError.code` is now optional.
+
+  Nothing in this package reads that member, so no behaviour moves here. A caller that reads
+  `error.errors[0].code` on a `400` gets `string | undefined` and needs the fallback core's own
+  changelog shows.
+
 ## 1.0.1
 
 Verified against knowledge base `9b8228c`: content-service `eb0b88d`, invoice-service `7fdc5ec`,
