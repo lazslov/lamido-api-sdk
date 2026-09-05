@@ -1,0 +1,12 @@
+{
+  "name": "valid-non-ascii",
+  "describes": "a body with Hungarian accented characters",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019e5c31-0000-7000-8000-0000000001a2\",\"event_type\":\"booking.reminder_reached\",\"contract_version\":1,\"occurred_at\":\"2026-09-13T08:00:00.000Z\",\"service\":\"booking-service\",\"account_id\":\"acct_EXAMPLE\",\"tenant\":{\"kind\":\"tenant\",\"public_id\":\"019e5c31-0000-7000-8000-000000000100\"},\"correlation_id\":\"019e5c31-0000-7000-8000-0000000001a2\",\"causation_id\":null,\"hop\":0,\"data\":{\"booking\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000106\",\"status\":\"confirmed\",\"pending_reason\":null,\"starts_at\":\"2026-09-14T08:00:00.000Z\",\"ends_at\":\"2026-09-14T08:45:00.000Z\",\"timezone\":\"Europe/Budapest\",\"cancellation_reason\":null,\"rescheduled_from_id\":null},\"location\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000101\"},\"service\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000102\",\"price_minor\":\"4500\",\"currency\":\"HUF\"},\"employee\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000103\"},\"customer\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000104\",\"name\":\"Árvíztűrő Tükörfúrógép\",\"email\":\"arvizturo@example.com\",\"phone\":null}}}",
+  "timestamp": "1789000000",
+  "signature": "sha256=061fcd279032cb0c2dcb722e788dd69d82cd44033a34e3916502c5d985247efd",
+  "nowSeconds": 1789000000,
+  "expect": {
+    "ok": true
+  }
+}
