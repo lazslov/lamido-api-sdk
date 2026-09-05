@@ -1,6 +1,6 @@
 {
   "name": "@lazslov/booking",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Consumer SDK for booking-service: availability, holds, the booking lifecycle for browsers and backends, and its webhooks.",
   "license": "MIT",
   "repository": {

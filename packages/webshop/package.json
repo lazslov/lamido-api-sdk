@@ -1,6 +1,6 @@
 {
   "name": "@lazslov/webshop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Consumer SDK for webshop-service: the public catalog, carts, checkout and orders on the storefront tier, and its webhooks.",
   "license": "MIT",
   "repository": {
