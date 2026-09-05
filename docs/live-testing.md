@@ -177,9 +177,15 @@ Two facts decide how you do it:
       for the browser tripwire on a server tier, a `404` for a stranger's id and one `400` that creates
       nothing. None sends mail, takes a booking, creates a cart or checks out — so a tenant with no
       provider credential, no templates and no products is enough.
-- [ ] **The release cannot pass until these four are configured.** `LIVE_REQUIRE_CONFIGURED=true`
-      turns every unconfigured service into a failed release, by design. Set the eleven new secrets on
-      the `release` environment through `scripts/push-release-secrets.sh` before tagging.
+- [x] **Done for local work, 2026-09-05.** One tenant per service on production, named
+      `SDK live probe` / slug `sdk_live`, provisioned through each admin tier. All seven services
+      now report `✓` and the four new files contribute 19 passing cases.
+- [ ] **The release still cannot pass.** `LIVE_REQUIRE_CONFIGURED=true` turns every unconfigured
+      service into a failed release, by design, and the eleven secrets are in `.env.live` only. Run
+      `scripts/push-release-secrets.sh` before tagging.
+- [ ] **auth-service: leave the organization unpaired.** A non-UUID `external_ref` makes every event
+      it emits answer `500` — auth-service T-70. Setting one on this tenant breaks its member and
+      webhook routes.
 
 ### 4 · Wire it up here
 
