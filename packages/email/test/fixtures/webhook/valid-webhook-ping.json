@@ -1,0 +1,12 @@
+{
+  "name": "valid-webhook-ping",
+  "describes": "the connectivity test, which carries no message",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"schema_version\":1,\"event_id\":\"0194c7a3-0000-7000-8000-000000000004\",\"event_type\":\"webhook.ping\",\"occurred_at\":\"2026-08-09T09:00:00.000Z\",\"service\":\"email-service\",\"account_id\":\"acct_EXAMPLE\",\"correlation_id\":\"0194c7a1-0000-7000-8000-000000000001\",\"hop\":0,\"data\":{}}",
+  "timestamp": "1785168000",
+  "signature": "sha256=0b49e298fbcca1c0afe7bfd0388598b1abcc5109b048328b92fa72792b7987b7",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": true
+  }
+}

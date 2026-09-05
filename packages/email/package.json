@@ -1,0 +1,60 @@
+{
+  "name": "@lazslov/email",
+  "version": "1.0.0",
+  "description": "Consumer SDK for email-service: template-only transactional mail on the tenant tier, and its delivery events.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lazslov/lamido-api-sdk.git",
+    "directory": "packages/email"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19"
+  },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next/index.d.ts",
+        "default": "./dist/next/index.js"
+      },
+      "require": {
+        "types": "./dist/next/index.d.cts",
+        "default": "./dist/next/index.cjs"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "next": [
+        "./dist/next/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "check:package": "publint && attw --pack ."
+  },
+  "dependencies": {
+    "@lazslov/api-core": "workspace:^"
+  }
+}
