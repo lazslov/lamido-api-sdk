@@ -126,4 +126,4 @@ export type { WebsiteClient } from "./website/reads.js";
  * Kept in step with `package.json` by a test, so a release cannot ship a constant that disagrees
  * with the tarball it came from.
  */
-export const VERSION = "2.0.1";
+export const VERSION = "2.0.2";

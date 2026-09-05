@@ -96,6 +96,43 @@ describe("a cart line is spelled the way the service spells it now", () => {
     const wrong = line.name;
     expect(wrong).toBeUndefined();
   });
+
+  /**
+   * `CartLine` is hand-written for its `readonly` members and its prose, **not** because it
+   * diverges — the contract agreed as of webshop-service `525fe1e` (T-36). It was a correction
+   * before that, and a hand-written copy whose reason has gone is exactly the copy that drifts.
+   *
+   * Both directions are asserted, and each catches a different mistake — verified by making each
+   * mistake and reading the error, not by reasoning about it:
+   *
+   * - `const local: CartLine = wire` fails `TS2741` when the hand-written copy **invents** a member
+   *   the contract does not declare.
+   * - `local satisfies Schemas["CartLine"]` fails `TS1360` when the contract declares one the copy
+   *   **lacks** — which is the drift that matters, since the contract is what moves.
+   *
+   * A single direction passes while the two disagree. Note both are type-level: `vitest` does not
+   * typecheck, so this test is only a guard under `pnpm typecheck`.
+   */
+  it("declares neither more nor less than the generated contract's CartLine", () => {
+    const wire: components["schemas"]["CartLine"] = {
+      public_id: "019e5c31-0000-7000-8000-00000000000a",
+      variant_public_id: "019e5c31-0000-7000-8000-00000000000b",
+      product_public_id: "019e5c31-0000-7000-8000-00000000000c",
+      product_slug: "espresso-beans",
+      product_name: "Espresso Beans",
+      variant_name: "1 kg whole bean",
+      quantity: 2,
+      unit_price: "4990",
+      line_total: "9980",
+      discount_total: "0",
+      unavailable: false,
+    };
+
+    const local: CartLine = wire;
+    const back = local satisfies components["schemas"]["CartLine"];
+
+    expect(Object.keys(back).sort()).toEqual(Object.keys(wire).sort());
+  });
 });
 
 describe("an order", () => {

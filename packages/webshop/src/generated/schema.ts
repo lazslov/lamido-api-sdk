@@ -1890,6 +1890,7 @@ export interface components {
         CouponList: components["schemas"]["ListEnvelope"] & {
             data?: components["schemas"]["Coupon"][];
         };
+        /** @description A line names its PRODUCT, not only its variant. `"Lifetime access"` alone does not say what a buyer is about to pay for, so a storefront given the variant name alone has to map `variant_public_id` back through the catalog to render its own cart. */
         CartLine: {
             /**
              * Format: uuid
@@ -1898,8 +1899,17 @@ export interface components {
             public_id: string;
             /** Format: uuid */
             variant_public_id: string;
-            /** @description The VARIANT's name. */
-            name: string;
+            /**
+             * Format: uuid
+             * @description The product this variant belongs to - for a link back to your product page.
+             */
+            product_public_id: string;
+            /** @description The natural key your own product route is built on (HR-9). */
+            product_slug: string;
+            /** @description WHAT THE BUYER THINKS THEY ARE BUYING. */
+            product_name: string;
+            /** @description The VARIANT's own name, e.g. `"1 kg whole bean"`. It was `name` until a product name sat beside it. */
+            variant_name: string;
             /** @description A JSON NUMBER - a small retail count, unlike money and unlike a stock count. */
             quantity: number;
             unit_price: components["schemas"]["MinorAmount"];
@@ -2009,7 +2019,7 @@ export interface components {
             guest_email?: string | null;
             shipping_address: components["schemas"]["Address"];
             /** @description Null means "the same as shipping". THE SERVICE DOES NOT COPY IT - you resolve that. */
-            billing_address?: (components["schemas"]["Address"] | null) & components["schemas"]["Address"];
+            billing_address?: components["schemas"]["Address"] | null;
         };
         /** @description Copied at checkout. The catalog may say something else today; this line may not. */
         OrderLine: {
@@ -2058,7 +2068,8 @@ export interface components {
             coupon_code: string | null;
             coupon_discount: string | null;
             shipping_address: components["schemas"]["Address"];
-            billing_address: (components["schemas"]["Address"] | null) & components["schemas"]["Address"];
+            /** @description Null means "the same as shipping" - the same rule as on the request. */
+            billing_address: components["schemas"]["Address"] | null;
             /**
              * @description payment-service's payment `public_id`, written after the checkout transaction commits. Null until the payment is created, and PERMANENTLY NULL for a shop holding no credential.
              *     A `pending` order with a null `payment_ref` IS NOT RECONCILABLE - the reconcile poll only touches orders that have one. What recovers such an order is the buyer retrying the checkout with the same Idempotency-Key.

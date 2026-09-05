@@ -1987,18 +1987,16 @@ export interface paths {
         get: operations["cronDrainJobs"];
         put?: never;
         /**
-         * Drain the job queue
-         * @description Vercel's scheduler calls this. **Fails closed** — `CRON_SECRET` unset or wrong is 401 to
-         *     everyone, Vercel included, because a queue drain anybody can trigger is a queue drain
-         *     anybody can exhaust.
+         * Drain the job queue, by hand
+         * @description The same handler as the `GET` above, and the same fail-closed rule. Both exist because
+         *     Vercel's scheduler issues `GET` while a human triggering a drain by hand reaches for
+         *     `POST`.
          *
-         *     `GET` and `POST` both exist because Vercel's scheduler issues `GET` while a human
-         *     triggering a drain by hand reaches for `POST`. They are the same handler.
-         *
-         *     The drain is bounded by time, not by count: falling behind must show up as a rising
-         *     `due_jobs` on admin health, never as a timeout.
+         *     **It carries its own `operationId` rather than sharing the `GET`'s.** One anchor covered
+         *     both until T-19, so the id resolved twice — which OpenAPI forbids, and which made a
+         *     generated client uncompilable.
          */
-        post: operations["cronDrainJobs"];
+        post: operations["cronDrainJobsByHand"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2020,11 +2018,11 @@ export interface paths {
         get: operations["cronSyncCalendars"];
         put?: never;
         /**
-         * Poll calendars and renew watches
-         * @description The floor under the push channel. Enqueues a pull for every active connection and a
-         *     renewal for every watch nearing expiry. Fails closed, like every cron here.
+         * Poll calendars and renew watches, by hand
+         * @description The same handler as the `GET` above. See `cronDrainJobsByHand` for why it carries its
+         *     own `operationId`.
          */
-        post: operations["cronSyncCalendars"];
+        post: operations["cronSyncCalendarsByHand"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2048,13 +2046,11 @@ export interface paths {
         get: operations["cronMaintenance"];
         put?: never;
         /**
-         * Housekeeping
-         * @description Expires overdue pending bookings and trims rate-limit windows.
-         *
-         *     **It deletes no tenant data.** Retention and erasure are CLIs, run by a human, dry-run
-         *     by default — a scheduled deleter is the thing this service deliberately does not have.
+         * Housekeeping, by hand
+         * @description The same handler as the `GET` above. See `cronDrainJobsByHand` for why it carries its
+         *     own `operationId`.
          */
-        post: operations["cronMaintenance"];
+        post: operations["cronMaintenanceByHand"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2534,7 +2530,7 @@ export interface components {
             created_at: string;
         };
         MintedTenantKey: components["schemas"]["TenantKey"] & {
-            /** @example bsk_YOUR_BSK_KEY */
+            /** @example bsk_YOUR_SECRET_KEY */
             key: string;
         };
         AdminKey: {
@@ -6458,6 +6454,31 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    cronDrainJobsByHand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was drained. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        claimed?: number;
+                        succeeded?: number;
+                        failed?: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     cronSyncCalendars: {
         parameters: {
             query?: never;
@@ -6481,7 +6502,53 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    cronSyncCalendarsByHand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was enqueued. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        enqueued?: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     cronMaintenance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was done. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    cronMaintenanceByHand: {
         parameters: {
             query?: never;
             header?: never;

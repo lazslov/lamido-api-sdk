@@ -65,4 +65,4 @@ export { type HttpMethod, type RequestSpec, request } from "./transport.js";
  * Kept in step with `package.json` by a test, so a release cannot ship a constant that
  * disagrees with the tarball it came from.
  */
-export const VERSION = "2.0.0";
+export const VERSION = "2.0.1";

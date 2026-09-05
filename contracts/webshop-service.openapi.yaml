@@ -7,24 +7,20 @@ openapi: 3.1.0
 # CI run - 82 operations against 82 routes, 23 declared request bodies against 23 routes that read
 # one. This file is synced FROM there. Do not hand-edit it here; fix it there and re-sync.
 #
-# NO DIVERGENCE. This copy is content-identical to the source at `main` (18c4a9a), body for body,
-# from `info:` down. The one earlier divergence is gone: this copy carried `without_payment_credential`
-# inlined on the shops listing while the source had moved it into `components/parameters`, and the
-# source's form is what is here now.
+# NO DIVERGENCE. This copy is content-identical to the source at `main` (525fe1e), body for body,
+# from `info:` down. Verified by diffing the two bodies before the copy: they differed only by the
+# fix named below, so nothing had drifted in between.
 #
-# What moved in the 18c4a9a sync, and every one of these is a SHAPE a generated client will feel:
-#   1. `MinorAmount` LOST ITS SIGN. The pattern is `^(0|[1-9][0-9]{0,17})$`; no amount in this
-#      service is negative. `compare_at_price` is a `MinorAmount` now rather than a bare nullable
-#      string, so a negative struck-through price is a 400 where it used to be accepted.
-#   2. SIX NEW ADMIN SCOPES - `jobs:*`, `payments:*`, `shipping:*` - each sitting BESIDE the wider
-#      scope it split from. The wide one still works and is a compatibility grant with a stated end.
-#   3. The admin-key routes gained `allow_any_ip` on the mint, `?allowlist=empty` on the listing,
-#      and TWO 422 GUARDS on the revoke (`key_self_revoke`, `last_managing_key`).
-#   4. Admin health carries ELEVEN counts, not ten: `cross_service_dead_letters` and
-#      `unrestricted_admin_keys` are new, and ten of the eleven vanish when the database is degraded.
-#   5. `?event_type=` on the endpoints listing, `?cross_service=true` on the deliveries listing.
-#   6. `from`/`until` are STRICT ISO 8601 now - `"2026"` is a 400 where it used to be a window.
-#   7. The inbound receiver has a REPLAY WINDOW: `refused` / `stale` joins the closed reason set.
+# What moved in the 525fe1e sync, and both are SHAPES a generated client feels:
+#   1. `CartLine` GAINED THREE MEMBERS AND RENAMED A FOURTH. It declared eight; the serializer
+#      emits eleven. `product_public_id`, `product_slug` and `product_name` are new, and the
+#      variant's name is `variant_name` where this file used to call it `name`. A storefront
+#      generated from the old shape could not link a cart line to its own product page, so it
+#      re-read the catalog on every render. Filed and fixed as the service's T-36.
+#   2. `billing_address` CAN BE NULL NOW, WHICH IT ALWAYS COULD. Both occurrences wrote
+#      `type: [object, 'null']` and then intersected a non-null `Address` through `allOf`;
+#      JSON Schema 2020-12 ANDs those, so the null was unreachable and the generated type rejected
+#      it. Both use `oneOf` with an explicit null branch now. The service's T-37.
 #
 # AUTHORITY: this file is authoritative for SHAPES — types, enums, required fields, status codes.
 # The Markdown in the knowledge-base folder is authoritative for BEHAVIOUR — side effects, guard
@@ -4025,7 +4021,11 @@ components:
 
     CartLine:
       type: object
-      required: [public_id, variant_public_id, name, quantity, unit_price, line_total, discount_total, unavailable]
+      required: [public_id, variant_public_id, product_public_id, product_slug, product_name, variant_name, quantity, unit_price, line_total, discount_total, unavailable]
+      description: >-
+        A line names its PRODUCT, not only its variant. `"Lifetime access"` alone does not say what
+        a buyer is about to pay for, so a storefront given the variant name alone has to map
+        `variant_public_id` back through the catalog to render its own cart.
       properties:
         public_id:
           type: string
@@ -4034,9 +4034,19 @@ components:
         variant_public_id:
           type: string
           format: uuid
-        name:
+        product_public_id:
           type: string
-          description: The VARIANT's name.
+          format: uuid
+          description: The product this variant belongs to - for a link back to your product page.
+        product_slug:
+          type: string
+          description: The natural key your own product route is built on (HR-9).
+        product_name:
+          type: string
+          description: WHAT THE BUYER THINKS THEY ARE BUYING.
+        variant_name:
+          type: string
+          description: The VARIANT's own name, e.g. `"1 kg whole bean"`. It was `name` until a product name sat beside it.
         quantity:
           type: integer
           minimum: 1
@@ -4232,11 +4242,11 @@ components:
         shipping_address:
           $ref: '#/components/schemas/Address'
         billing_address:
-          type: [object, 'null']
+          oneOf:
+            - $ref: '#/components/schemas/Address'
+            - type: 'null'
           description: >-
             Null means "the same as shipping". THE SERVICE DOES NOT COPY IT - you resolve that.
-          allOf:
-            - $ref: '#/components/schemas/Address'
     OrderLine:
       type: object
       required: [product_id, variant_id, product_name, variant_name, sku, unit_price, quantity, discount_total, total, currency]
@@ -4325,9 +4335,10 @@ components:
         shipping_address:
           $ref: '#/components/schemas/Address'
         billing_address:
-          type: [object, 'null']
-          allOf:
+          oneOf:
             - $ref: '#/components/schemas/Address'
+            - type: 'null'
+          description: Null means "the same as shipping" - the same rule as on the request.
         payment_ref:
           type: [string, 'null']
           description: >-
