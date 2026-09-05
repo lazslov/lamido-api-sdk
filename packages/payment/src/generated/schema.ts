@@ -1321,6 +1321,12 @@ export interface paths {
          *     rule that could never match is refused at mint time rather than silently locking the
          *     key out.
          *
+         *     **An empty `allowed_ips` needs `allow_any: true` in the same body**, in every
+         *     environment, else `400` reported against `allowed_ips`. The gate is at mint time and
+         *     not at authentication time on purpose: refusing an empty allowlist when a key is *used*
+         *     would lock lamido-admin out of production on the first redeploy, because Vercel's
+         *     egress addresses rotate. Keys minted before this field keep working untouched.
+         *
          *     **`admin:manage` is transitively every scope** — a key holding it can mint itself a
          *     `*` key.
          */
@@ -2458,7 +2464,8 @@ export interface components {
         };
         /**
          * @description Every count here comes from a predicate shared with the listing an operator drills into,
-         *     so a tile and the list behind it are the same set by construction.
+         *     so a tile and the list behind it are the same set by construction — with one exception,
+         *     `admin_keys_without_ip_allowlist`, which has no listing to share one with.
          */
         HealthStrip: {
             /**
@@ -2523,6 +2530,24 @@ export interface components {
              *     before it matters.
              */
             unmapped_provider_statuses_24h: number;
+            /**
+             * @description Live operator keys usable from any address. An admin key reads and moves money
+             *     across every tenant, so "this key works from anywhere" is worth a number rather
+             *     than a property an operator has to open each key to see. Revoked keys are excluded:
+             *     an inactive key authenticates nothing, so counting it would make the number grow
+             *     with history instead of with exposure.
+             *
+             *     **Moves the verdict not at all** — the only count here with that property. Every
+             *     key minted before the `allow_any` opt-in has an empty allowlist, so a strip that
+             *     went red on this would have been red from the day it shipped.
+             *
+             *     **It also has no drill-down**, unlike every other count in this object: no filter
+             *     binds its predicate, so an operator reads the number and then filters
+             *     `GET /v1/admin/keys` by eye. The description above this schema says every count
+             *     comes from a predicate shared with a listing; that is true of the others and not
+             *     of this one.
+             */
+            admin_keys_without_ip_allowlist: number;
         };
         /**
          * @description Append-only. `actor_id` carries **no foreign key**, so the trail stays readable after a
@@ -4514,8 +4539,22 @@ export interface operations {
                     label: string;
                     /** @description Omitted grants `["*"]`. `[]` is rejected. */
                     scopes?: components["schemas"]["AdminScope"][];
-                    /** @description CIDRs. Omitted or empty means unrestricted. */
+                    /**
+                     * @description CIDRs. Omitted or empty still means unrestricted, but empty is no longer
+                     *     reachable without `allow_any`.
+                     */
                     allowed_ips?: string[];
+                    /**
+                     * @description Accept an unrestricted key, knowingly. **Required to be `true` whenever
+                     *     `allowed_ips` is empty.**
+                     *
+                     *     **Not stored and never returned.** It records a decision about this
+                     *     request; what lasts is `allowlist_empty` on the audit entry and
+                     *     `admin_keys_without_ip_allowlist` on `GET /v1/admin/health`, both derived
+                     *     from the allowlist actually being empty.
+                     * @default false
+                     */
+                    allow_any?: boolean;
                 };
             };
         };

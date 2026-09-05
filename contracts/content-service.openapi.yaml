@@ -55,10 +55,11 @@ info:
     **`richtext` is a markdown subset, never HTML.** Nothing here sanitises tags.
 
     This service has no users, no roles, no sessions, no cron, no queue, no general request
-    quota and no CORS on the two write tiers. It does have THREE narrow throttles — failed
-    authentications per IP, dataset aggregates per site, manual revalidations per site — and all
-    three FAIL OPEN, so a `429` is never guaranteed to arrive. See `conventions.md` for the full
-    list of non-features.
+    quota and no CORS on the two write tiers. It does have FOUR narrow throttles — failed
+    authentications per IP, dataset aggregates per site, manual revalidations per site, webhook
+    probes per site. THREE OF THE FOUR FAIL OPEN, so a `429` from those is never guaranteed to
+    arrive; the failed-auth counter degrades to a bounded per-instance counter instead and does
+    not fail open (a9c8a7c). See `conventions.md` for the full list of non-features.
   license:
     name: UNLICENSED
   x-docs:
@@ -303,7 +304,9 @@ components:
         maxItems: 3
         items: { type: string }
       description: >
-        `field:value` equality, repeatable, max 3. The field must be declared `groupable`.
+        `field:value` equality, repeatable, max 3. The field must be declared `groupable`, and on
+        the PUBLIC tier `publicly_enumerable` as well — an eq on a field that did not opt in is a
+        400 there, because `eq=donorName:Anna` with a count answers "did Anna donate".
         The value is coerced to the field's declared type, so `manual:false` matches the
         boolean `false` rather than the string.
     fromQuery:
@@ -485,10 +488,12 @@ components:
     RateLimited:
       description: >
         Problem type `rate-limit`. One of the four throttles was spent: 20 failed
-        authentications per client IP per minute, 60 dataset aggregates per SITE per minute, or 10
-        manual revalidations per SITE per minute. Carries `Retry-After` and the mirroring
-        `retry_after` member. Safe to retry after that many seconds. All three FAIL OPEN, so a
-        counter outage allows the request rather than rejecting it.
+        authentications per client IP per minute, 60 dataset aggregates per SITE per minute, 10
+        manual revalidations per SITE per minute, or 20 webhook probes per SITE per minute.
+        Carries `Retry-After` and the mirroring `retry_after` member. Safe to retry after that
+        many seconds. The last three FAIL OPEN, so a counter outage allows the request rather
+        than rejecting it. The failed-auth counter does NOT: it degrades to a bounded
+        per-instance counter, so an outage of its table makes this response likelier.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -817,6 +822,7 @@ components:
         - records:write
         - keys:manage
         - audit:read
+        - stats:read
         - admin:manage
       description: >
         `content:write` can stage every change and make none of it live; `content:publish` is
@@ -1011,7 +1017,21 @@ components:
     RecordFieldSpec:
       type: object
       required: [key, type]
-      description: One entry of a dataset's `record_schema`.
+      additionalProperties: false
+      description: >
+        One entry of a dataset's `record_schema`.
+
+        STRICT AS OF a931876 — an unrecognised member is a 400 `unknown_field` carrying a pointer
+        at the key, such as `/record_schema/0/maxLength`. It used to be accepted and ignored, which
+        answered 201 while applying a default: `maxLength: 200` silently gave the field the default
+        2 000, and a `ref` block with `Policy` silently selected `reject`, discarding writes.
+
+        THE CASING TRAP IS SPECIFIC. `key` MAY be camelCase, because it is a JSON property rather
+        than an address. Every member of the spec around it is snake_case — `max_length`, never
+        `maxLength`.
+
+        The `ref` block below is strict too. The BODY containing this array is NOT: a stray
+        top-level member on the dataset create is still stripped, which is the service's T-23.
       properties:
         key:
           type: string
@@ -1046,7 +1066,15 @@ components:
           default: false
           description: >
             Withheld from list reads, audit, logs and export. MAY NEVER BE `groupable` — a
-            group key is publicly enumerable once an aggregate is public.
+            group key is echoed in aggregate output.
+        publicly_enumerable:
+          type: boolean
+          default: false
+          description: >
+            May be a `group_by` or an `eq` field ON THE PUBLIC TIER. Requires `groupable`, and
+            MAY NEVER sit on a `sensitive` field. Independent of `sensitive`: the absence of
+            that flag does not make a field public, which is what it meant before 9833022.
+            Granting it is audited and raises dataset.public_enumeration_granted.
         max_length: { type: integer, minimum: 1, maximum: 5000, default: 2000, description: '`text` only.' }
         min:
           type: number
@@ -1085,6 +1113,7 @@ components:
         ref:
           type: object
           required: [collection]
+          additionalProperties: false
           properties:
             collection:
               allOf: [{ $ref: '#/components/schemas/Slug' }]
@@ -1118,8 +1147,9 @@ components:
           type: boolean
           default: false
           description: >
-            Gates `GET /v1/public/datasets/:key/aggregate`. Turning it on makes every
-            `groupable` field's VALUES publicly enumerable through group keys.
+            Gates `GET /v1/public/datasets/:key/aggregate`. It publishes the dataset TOTALS and
+            no field's values: a group_by or an eq on that tier needs the field's own
+            publicly_enumerable flag as well. Before 9833022 this one flag did both.
         retention_days:
           type: [integer, 'null']
           minimum: 1
@@ -1270,8 +1300,14 @@ components:
         cross_service:
           type: boolean
           description: >
-            Whether a sibling Lamido service acts on it today. True only for record.created, which
-            email-service turns into an acknowledgement.
+            Whether this service DECLARES a sibling Lamido service as a consumer. True only for
+            record.created, which email-service turns into an acknowledgement — live since
+            2026-08-21. The flag is a declaration by THIS service and not evidence about the
+            receiver: the authority on what a receiver does with an event is that receiver's own
+            folder, at email-service/webhooks.md section 7. From 2026-08-10 to 2026-08-21 this
+            field said the same thing and it was false, because email-service's dispatch accepted
+            record.submitted, which nothing in the estate emits. Do not infer an action from this
+            flag alone.
 
     WebhookEndpoint:
       type: object
@@ -1871,8 +1907,10 @@ paths:
           required: false
           schema: { type: string }
           description: >
-            A field the dataset declared `groupable`. Omitted gives ONE row with a null key
-            holding whole-dataset totals, which exists even over zero records.
+            A field the dataset declared `groupable` AND `publicly_enumerable` — on this tier
+            both are required, and a field with only the first is a 400 whose
+            details.publicly_enumerable lists the fields that qualify. Omitted gives ONE row
+            with a null key holding whole-dataset totals, which exists even over zero records.
         - name: metrics
           in: query
           required: false
@@ -2992,10 +3030,10 @@ paths:
       tags: [client-datasets]
       summary: Grouped counts and sums, authenticated
       description: >
-        The same parser and the same semantics as the public aggregate, with no public_aggregate
-        gate — so a dataset's public aggregate can never answer a question its authenticated twin
-        refuses. Answers ETag/If-None-Match with 304; the validator folds in the record count, so
-        a delete moves it.
+        The same parser as the public aggregate, with neither the public_aggregate gate nor the
+        per-field publicly_enumerable one — so this endpoint answers questions the public twin
+        refuses, and never the other way round. Answers ETag/If-None-Match with 304; the
+        validator folds in the record count, so a delete moves it.
       security: [{ secretKey: [] }]
       parameters:
         - { $ref: '#/components/parameters/datasetKey' }
@@ -3003,7 +3041,10 @@ paths:
           in: query
           required: false
           schema: { type: string }
-          description: A field the dataset declared groupable. Omitted gives one null-key row of totals.
+          description: >
+            A field the dataset declared groupable. NO publicly_enumerable requirement here — that
+            gates the cpk_ tier only, so this endpoint answers questions the public one refuses.
+            Omitted gives one null-key row of totals.
         - name: metrics
           in: query
           required: false
@@ -3017,7 +3058,13 @@ paths:
         - { $ref: '#/components/parameters/ifNoneMatch' }
       responses:
         '200':
-          description: Groups.
+          description: >
+            Groups, key ascending, nulls first. Cache-Control private, max-age=0,
+            must-revalidate, plus Vary: Authorization and an ETag — 55b828d, 2026-08-24. It
+            answered `public, s-maxage=10` with NO Vary before that, on a response authorised by
+            a secret key, so a shared proxy could serve one tenant's totals to another's key.
+            Keep the ETag and revalidate: a repeat read then costs one validator query instead
+            of the GROUP BY.
           content:
             application/json:
               schema:
@@ -3093,7 +3140,7 @@ paths:
 
 
         ALSO ALWAYS 200 — alert on `status`, never on the status code, AND THAT NOW HOLDS WITH THE
-        DATABASE DOWN: until eb0b88d this endpoint answered 500 in exactly that state, because
+        DATABASE DOWN: until f8e51f8 this endpoint answered 500 in exactly that state, because
         resolving the cad_ key is itself a database read and threw before the handler ran. During an
         outage the credential therefore cannot be verified, so any well-formed bearer token is
         answered; no token is still 401 and an Origin header still 403, and every other
@@ -3108,7 +3155,7 @@ paths:
             `status` is ok | attention | degraded. WHEN THE DATABASE IS UNREACHABLE THE BODY IS
             SHORT — `{status: "degraded", db: "unreachable", blob_configured}` and nothing else,
             because the counts are the queries that failed. Code for absent keys, not for zeroes.
-            That body is REACHABLE as of eb0b88d; before it, an outage produced a 500 problem
+            That body is REACHABLE as of f8e51f8; before it, an outage produced a 500 problem
             document and this branch could not be observed at all.
           content:
             application/json:
@@ -4316,15 +4363,6 @@ paths:
       description: 'Scope: assets:read. Omitting site_id lists EVERY site — this key is cross-tenant.'
       security: [{ adminKey: [] }]
       parameters:
-        - name: signing_state
-          in: query
-          required: false
-          schema: { type: string, enum: [ok, missing, undecryptable] }
-          description: >
-            The drill-down behind two health counts: missing is endpoints_without_secret, and
-            undecryptable is endpoints_with_undecryptable_secret. Filtered IN MEMORY like
-            event_type, because telling ok from undecryptable means attempting the decryption — so
-            a page may come back SHORT of limit.
         - name: site_id
           in: query
           required: false
@@ -4462,10 +4500,12 @@ paths:
       summary: Provision a dataset
       description: >
         Scope: datasets:write. A new kind of client data costs one call and NO DEPLOY. Cross-field
-        rules, each a 400: summable only on a number field, sensitive may NEVER be groupable, and
-        a ref.collection must be a collection that already exists on this site. Setting
-        public_aggregate true makes every groupable field's values publicly enumerable through
-        group keys.
+        rules, each a 400: summable only on a number field, sensitive may NEVER be groupable,
+        publicly_enumerable REQUIRES groupable and may never sit on a sensitive field, and a
+        ref.collection must be a collection that already exists on this site. Setting
+        public_aggregate true publishes the dataset TOTALS; a field's values reach the public
+        tier only through that field's own publicly_enumerable flag, and granting it is audited
+        and alerted.
       security: [{ adminKey: [] }]
       parameters:
         - { $ref: '#/components/parameters/siteIdPath' }
@@ -5365,6 +5405,14 @@ paths:
           in: query
           required: false
           schema: { type: string, format: uuid }
+        - name: signing_state
+          in: query
+          required: false
+          description: >
+            Applied IN MEMORY, like `event_type` — see the GOTCHA above. `missing` is the
+            drill-down behind the `endpoints_without_secret` health count; `undecryptable`
+            is the one to reach for after a `CREDENTIALS_ENC_KEY` rotation went wrong.
+          schema: { type: string, enum: [ok, missing, undecryptable] }
         - { $ref: '#/components/parameters/keysetLimitQuery' }
         - { $ref: '#/components/parameters/cursorQuery' }
       responses:
@@ -5920,6 +5968,13 @@ paths:
           in: query
           required: false
           schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: request_id
+          in: query
+          required: false
+          description: >
+            Joins the trail to the log lines of the request that wrote it — the value of the
+            `X-Request-Id` header on that call.
+          schema: { type: string, minLength: 1, maxLength: 200 }
         - { $ref: '#/components/parameters/fromQuery' }
         - { $ref: '#/components/parameters/untilQuery' }
         - { $ref: '#/components/parameters/keysetLimitQuery' }
@@ -5951,8 +6006,10 @@ paths:
       tags: [admin-ops]
       summary: Size-of-the-world counters
       description: >
-        Scope: sites:read. Unfiltered rollups, plus publishes in the window — counted from
-        page_versions, which IS the publish record.
+        Scope: stats:read, and NOT sites:read as it was before 1372230 — these are unfiltered
+        rollups over every tenant, so the scope that reads one site must not report the size of
+        the fleet. Publishes in the window are counted from page_versions, which IS the publish
+        record.
       security: [{ adminKey: [] }]
       parameters:
         - name: days

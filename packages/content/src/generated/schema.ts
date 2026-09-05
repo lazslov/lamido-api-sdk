@@ -654,7 +654,7 @@ export interface paths {
         };
         /**
          * Grouped counts and sums, authenticated
-         * @description The same parser and the same semantics as the public aggregate, with no public_aggregate gate — so a dataset's public aggregate can never answer a question its authenticated twin refuses. Answers ETag/If-None-Match with 304; the validator folds in the record count, so a delete moves it.
+         * @description The same parser as the public aggregate, with neither the public_aggregate gate nor the per-field publicly_enumerable one — so this endpoint answers questions the public twin refuses, and never the other way round. Answers ETag/If-None-Match with 304; the validator folds in the record count, so a delete moves it.
          */
         get: operations["getClientAggregate"];
         put?: never;
@@ -699,7 +699,7 @@ export interface paths {
          *
          *     The four webhook counts bind the SAME exported predicate their list does, which is what the removed failed_revalidations got wrong: it and its drill-down were two independent queries over two tables with different windows, so they could disagree.
          *
-         *     ALSO ALWAYS 200 — alert on `status`, never on the status code, AND THAT NOW HOLDS WITH THE DATABASE DOWN: until eb0b88d this endpoint answered 500 in exactly that state, because resolving the cad_ key is itself a database read and threw before the handler ran. During an outage the credential therefore cannot be verified, so any well-formed bearer token is answered; no token is still 401 and an Origin header still 403, and every other /v1/admin/* route still answers 500. dangling_refs and pending_deliveries are deliberately excluded from `status`: ref policy `store` produces the first on purpose, and with no cron a queued delivery is the ordinary state of a healthy queue, so either would pin a dashboard amber forever.
+         *     ALSO ALWAYS 200 — alert on `status`, never on the status code, AND THAT NOW HOLDS WITH THE DATABASE DOWN: until f8e51f8 this endpoint answered 500 in exactly that state, because resolving the cad_ key is itself a database read and threw before the handler ran. During an outage the credential therefore cannot be verified, so any well-formed bearer token is answered; no token is still 401 and an Origin header still 403, and every other /v1/admin/* route still answers 500. dangling_refs and pending_deliveries are deliberately excluded from `status`: ref policy `store` produces the first on purpose, and with no cron a queued delivery is the ordinary state of a healthy queue, so either would pin a dashboard amber forever.
          */
         get: operations["getAdminHealth"];
         put?: never;
@@ -1251,7 +1251,7 @@ export interface paths {
         put?: never;
         /**
          * Provision a dataset
-         * @description Scope: datasets:write. A new kind of client data costs one call and NO DEPLOY. Cross-field rules, each a 400: summable only on a number field, sensitive may NEVER be groupable, and a ref.collection must be a collection that already exists on this site. Setting public_aggregate true makes every groupable field's values publicly enumerable through group keys.
+         * @description Scope: datasets:write. A new kind of client data costs one call and NO DEPLOY. Cross-field rules, each a 400: summable only on a number field, sensitive may NEVER be groupable, publicly_enumerable REQUIRES groupable and may never sit on a sensitive field, and a ref.collection must be a collection that already exists on this site. Setting public_aggregate true publishes the dataset TOTALS; a field's values reach the public tier only through that field's own publicly_enumerable flag, and granting it is audited and alerted.
          */
         post: operations["createDataset"];
         delete?: never;
@@ -1957,7 +1957,7 @@ export interface paths {
         };
         /**
          * Size-of-the-world counters
-         * @description Scope: sites:read. Unfiltered rollups, plus publishes in the window — counted from page_versions, which IS the publish record.
+         * @description Scope: stats:read, and NOT sites:read as it was before 1372230 — these are unfiltered rollups over every tenant, so the scope that reads one site must not report the size of the fleet. Publishes in the window are counted from page_versions, which IS the publish record.
          */
         get: operations["getStatsOverview"];
         put?: never;
@@ -2187,7 +2187,7 @@ export interface components {
          * @description `content:write` can stage every change and make none of it live; `content:publish` is the scope that reaches a visitor. `datasets:*` is structure, `records:*` may return PII.
          * @enum {string}
          */
-        AdminScope: "*" | "sites:read" | "sites:write" | "content:read" | "content:write" | "content:publish" | "assets:read" | "assets:write" | "datasets:read" | "datasets:write" | "records:read" | "records:write" | "keys:manage" | "audit:read" | "admin:manage";
+        AdminScope: "*" | "sites:read" | "sites:write" | "content:read" | "content:write" | "content:publish" | "assets:read" | "assets:write" | "datasets:read" | "datasets:write" | "records:read" | "records:write" | "keys:manage" | "audit:read" | "stats:read" | "admin:manage";
         Page: {
             /** Format: uuid */
             id: string;
@@ -2332,7 +2332,12 @@ export interface components {
          * @enum {string}
          */
         ImageContentType: "image/jpeg" | "image/png" | "image/webp" | "image/avif";
-        /** @description One entry of a dataset's `record_schema`. */
+        /**
+         * @description One entry of a dataset's `record_schema`.
+         *     STRICT AS OF a931876 — an unrecognised member is a 400 `unknown_field` carrying a pointer at the key, such as `/record_schema/0/maxLength`. It used to be accepted and ignored, which answered 201 while applying a default: `maxLength: 200` silently gave the field the default 2 000, and a `ref` block with `Policy` silently selected `reject`, discarding writes.
+         *     THE CASING TRAP IS SPECIFIC. `key` MAY be camelCase, because it is a JSON property rather than an address. Every member of the spec around it is snake_case — `max_length`, never `maxLength`.
+         *     The `ref` block below is strict too. The BODY containing this array is NOT: a stray top-level member on the dataset create is still stripped, which is the service's T-23.
+         */
         RecordFieldSpec: {
             /**
              * @description camelCase IS allowed here, unlike every addressing key in this API: a record field is a JSON property of `data`, not an address.
@@ -2358,10 +2363,15 @@ export interface components {
              */
             summable: boolean;
             /**
-             * @description Withheld from list reads, audit, logs and export. MAY NEVER BE `groupable` — a group key is publicly enumerable once an aggregate is public.
+             * @description Withheld from list reads, audit, logs and export. MAY NEVER BE `groupable` — a group key is echoed in aggregate output.
              * @default false
              */
             sensitive: boolean;
+            /**
+             * @description May be a `group_by` or an `eq` field ON THE PUBLIC TIER. Requires `groupable`, and MAY NEVER sit on a `sensitive` field. Independent of `sensitive`: the absence of that flag does not make a field public, which is what it meant before 9833022. Granting it is audited and raises dataset.public_enumeration_granted.
+             * @default false
+             */
+            publicly_enumerable: boolean;
             /**
              * @description `text` only.
              * @default 2000
@@ -2401,7 +2411,7 @@ export interface components {
             name: string;
             record_schema: components["schemas"]["RecordSchema"];
             /**
-             * @description Gates `GET /v1/public/datasets/:key/aggregate`. Turning it on makes every `groupable` field's VALUES publicly enumerable through group keys.
+             * @description Gates `GET /v1/public/datasets/:key/aggregate`. It publishes the dataset TOTALS and no field's values: a group_by or an eq on that tier needs the field's own publicly_enumerable flag as well. Before 9833022 this one flag did both.
              * @default false
              */
             public_aggregate: boolean;
@@ -2498,7 +2508,7 @@ export interface components {
             contract_version: number;
             /** @description Blocks that appear only behind an `include_*` flag. `["record.values"]` on record.created; empty on everything else. */
             sensitive_blocks: string[];
-            /** @description Whether a sibling Lamido service acts on it today. True only for record.created, which email-service turns into an acknowledgement. */
+            /** @description Whether this service DECLARES a sibling Lamido service as a consumer. True only for record.created, which email-service turns into an acknowledgement — live since 2026-08-21. The flag is a declaration by THIS service and not evidence about the receiver: the authority on what a receiver does with an event is that receiver's own folder, at email-service/webhooks.md section 7. From 2026-08-10 to 2026-08-21 this field said the same thing and it was false, because email-service's dispatch accepted record.submitted, which nothing in the estate emits. Do not infer an action from this flag alone. */
             cross_service: boolean;
         };
         /**
@@ -2818,7 +2828,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Problem type `rate-limit`. One of the four throttles was spent: 20 failed authentications per client IP per minute, 60 dataset aggregates per SITE per minute, or 10 manual revalidations per SITE per minute. Carries `Retry-After` and the mirroring `retry_after` member. Safe to retry after that many seconds. All three FAIL OPEN, so a counter outage allows the request rather than rejecting it. */
+        /** @description Problem type `rate-limit`. One of the four throttles was spent: 20 failed authentications per client IP per minute, 60 dataset aggregates per SITE per minute, 10 manual revalidations per SITE per minute, or 20 webhook probes per SITE per minute. Carries `Retry-After` and the mirroring `retry_after` member. Safe to retry after that many seconds. The last three FAIL OPEN, so a counter outage allows the request rather than rejecting it. The failed-auth counter does NOT: it degrades to a bounded per-instance counter, so an outage of its table makes this response likelier. */
         RateLimited: {
             headers: {
                 [name: string]: unknown;
@@ -2876,7 +2886,7 @@ export interface components {
         confirmQuery: "true" | "false";
         /** @description The only way a `sensitive` value reaches a response, and the read IS audited (`record.read_sensitive`). */
         includeSensitiveQuery: "sensitive";
-        /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
+        /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`, and on the PUBLIC tier `publicly_enumerable` as well — an eq on a field that did not opt in is a 400 there, because `eq=donorName:Anna` with a count answers "did Anna donate". The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
         eqQuery: string[];
         /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
         fromQuery: string;
@@ -3117,11 +3127,11 @@ export interface operations {
     getPublicAggregate: {
         parameters: {
             query?: {
-                /** @description A field the dataset declared `groupable`. Omitted gives ONE row with a null key holding whole-dataset totals, which exists even over zero records. */
+                /** @description A field the dataset declared `groupable` AND `publicly_enumerable` — on this tier both are required, and a field with only the first is a 400 whose details.publicly_enumerable lists the fields that qualify. Omitted gives ONE row with a null key holding whole-dataset totals, which exists even over zero records. */
                 group_by?: string;
                 /** @description Comma-separated `count` and/or `sum:<field>`. Max 3 sum metrics; each field must be declared summable. */
                 metrics?: string;
-                /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
+                /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`, and on the PUBLIC tier `publicly_enumerable` as well — an eq on a field that did not opt in is a 400 there, because `eq=donorName:Anna` with a count answers "did Anna donate". The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
                 eq?: components["parameters"]["eqQuery"];
                 /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
@@ -3992,7 +4002,7 @@ export interface operations {
     listRecords: {
         parameters: {
             query?: {
-                /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
+                /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`, and on the PUBLIC tier `publicly_enumerable` as well — an eq on a field that did not opt in is a 400 there, because `eq=donorName:Anna` with a count answers "did Anna donate". The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
                 eq?: components["parameters"]["eqQuery"];
                 /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
@@ -4200,11 +4210,11 @@ export interface operations {
     getClientAggregate: {
         parameters: {
             query?: {
-                /** @description A field the dataset declared groupable. Omitted gives one null-key row of totals. */
+                /** @description A field the dataset declared groupable. NO publicly_enumerable requirement here — that gates the cpk_ tier only, so this endpoint answers questions the public one refuses. Omitted gives one null-key row of totals. */
                 group_by?: string;
                 /** @description Comma-separated count and/or sum:<field>. Max 3 sum metrics. */
                 metrics?: string;
-                /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
+                /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`, and on the PUBLIC tier `publicly_enumerable` as well — an eq on a field that did not opt in is a 400 there, because `eq=donorName:Anna` with a count answers "did Anna donate". The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
                 eq?: components["parameters"]["eqQuery"];
                 /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
@@ -4225,7 +4235,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Groups. */
+            /** @description Groups, key ascending, nulls first. Cache-Control private, max-age=0, must-revalidate, plus Vary: Authorization and an ETag — 55b828d, 2026-08-24. It answered `public, s-maxage=10` with NO Vary before that, on a response authorised by a secret key, so a shared proxy could serve one tenant's totals to another's key. Keep the ETag and revalidate: a repeat read then costs one validator query instead of the GROUP BY. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4280,7 +4290,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description `status` is ok | attention | degraded. WHEN THE DATABASE IS UNREACHABLE THE BODY IS SHORT — `{status: "degraded", db: "unreachable", blob_configured}` and nothing else, because the counts are the queries that failed. Code for absent keys, not for zeroes. That body is REACHABLE as of eb0b88d; before it, an outage produced a 500 problem document and this branch could not be observed at all. */
+            /** @description `status` is ok | attention | degraded. WHEN THE DATABASE IS UNREACHABLE THE BODY IS SHORT — `{status: "degraded", db: "unreachable", blob_configured}` and nothing else, because the counts are the queries that failed. Code for absent keys, not for zeroes. That body is REACHABLE as of f8e51f8; before it, an outage produced a 500 problem document and this branch could not be observed at all. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5533,8 +5543,6 @@ export interface operations {
     listAdminAssets: {
         parameters: {
             query?: {
-                /** @description The drill-down behind two health counts: missing is endpoints_without_secret, and undecryptable is endpoints_with_undecryptable_secret. Filtered IN MEMORY like event_type, because telling ok from undecryptable means attempting the decryption — so a page may come back SHORT of limit. */
-                signing_state?: "ok" | "missing" | "undecryptable";
                 site_id?: string;
                 /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
                 limit?: components["parameters"]["keysetLimitQuery"];
@@ -5803,7 +5811,7 @@ export interface operations {
     listAdminRecords: {
         parameters: {
             query?: {
-                /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`. The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
+                /** @description `field:value` equality, repeatable, max 3. The field must be declared `groupable`, and on the PUBLIC tier `publicly_enumerable` as well — an eq on a field that did not opt in is a 400 there, because `eq=donorName:Anna` with a count answers "did Anna donate". The value is coerced to the field's declared type, so `manual:false` matches the boolean `false` rather than the string. */
                 eq?: components["parameters"]["eqQuery"];
                 /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
@@ -6616,6 +6624,8 @@ export interface operations {
                 enabled?: "true" | "false";
                 event_type?: string;
                 site_id?: string;
+                /** @description Applied IN MEMORY, like `event_type` — see the GOTCHA above. `missing` is the drill-down behind the `endpoints_without_secret` health count; `undecryptable` is the one to reach for after a `CREDENTIALS_ENC_KEY` rotation went wrong. */
+                signing_state?: "ok" | "missing" | "undecryptable";
                 /** @description 1–200, default 50, on the keyset-paginated lists. Out of range is a 400, never a clamp. */
                 limit?: components["parameters"]["keysetLimitQuery"];
                 /** @description OPAQUE. Pass back a `next_cursor` verbatim; never construct, parse or store one, because the encoding is free to change. A malformed cursor is a 400 — never a quiet restart from page 1, which would be a pager that loops forever while looking like progress. */
@@ -7054,6 +7064,8 @@ export interface operations {
                 action?: string;
                 target_type?: "site" | "site_key" | "page" | "section" | "field" | "collection" | "collection_item" | "asset" | "dataset" | "record" | "admin_key";
                 target_id?: string;
+                /** @description Joins the trail to the log lines of the request that wrote it — the value of the `X-Request-Id` header on that call. */
+                request_id?: string;
                 /** @description INCLUSIVE lower bound. `from` not strictly before `until` — including equal — is a 400, because an empty window is a caller bug rather than a request for nothing. */
                 from?: components["parameters"]["fromQuery"];
                 /** @description EXCLUSIVE upper bound, so `from=D&until=D+1` covers a day exactly once. Named `until` rather than `to` deliberately: `to` reads inclusive to nearly everyone. */

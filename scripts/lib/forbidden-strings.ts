@@ -65,8 +65,30 @@ const allowedHosts = new Set([
   "api.telegram.org",
 ]);
 
-/** Key prefixes for the three services' credential tiers, plus webhook signing secrets. */
-const credentialPattern = /\b(cpk|csk|cad|isk|iad|pmk|pad|whsec)_([A-Za-z0-9_-]{12,})\b/g;
+/**
+ * Key prefixes for the seven services' credential tiers, plus webhook signing secrets.
+ *
+ * @remarks
+ * Every tier of every service, the browser-safe ones included: a publishable key is not a secret,
+ * but a real one still names a tenant, and tenant identity is not ours to commit.
+ */
+export const credentialPrefixes =
+  "cpk|csk|cad|isk|iad|pmk|pad|apk|ask|aad|bpk|bsk|bad|esk|ead|wpk|wsk|wad|whsec";
+
+/**
+ * A credential-shaped token: a tier prefix and at least twelve characters of payload.
+ *
+ * @remarks
+ * A **function** rather than a shared constant, because a `g` regular expression carries
+ * `lastIndex` between calls and two callers sharing one object skip matches at random.
+ *
+ * Exported so the import sanitisers rewrite exactly what this guard rejects, rather than keeping a
+ * second pattern of their own. Two patterns would drift, and the one that drifted would be the
+ * sanitiser — which fails *open*. Same reasoning as {@link isAllowedHost}.
+ */
+export function credentialShaped(): RegExp {
+  return new RegExp(`\\b(${credentialPrefixes})_([A-Za-z0-9_-]{12,})\\b`, "g");
+}
 
 /** Placeholder tails that mark a documentation example rather than a real key. */
 const placeholderTail = /^(YOUR|EXAMPLE)_/;
@@ -93,7 +115,7 @@ export function isAllowedHost(hostWithPort: string): boolean {
 
 /** Replace credential-shaped text so a finding can be logged without reprinting a secret. */
 function maskCredentials(line: string): string {
-  return line.replace(credentialPattern, (match, prefix: string, tail: string) =>
+  return line.replace(credentialShaped(), (match, prefix: string, tail: string) =>
     placeholderTail.test(tail) ? match : `${prefix}_<redacted:${tail.length}chars>`,
   );
 }
@@ -133,7 +155,7 @@ export function scanText(text: string, options: ScanOptions = {}): Finding[] {
       }
     }
 
-    for (const [, prefix, tail] of line.matchAll(credentialPattern)) {
+    for (const [, prefix, tail] of line.matchAll(credentialShaped())) {
       if (tail && !placeholderTail.test(tail)) {
         findings.push({
           rule: "credential",

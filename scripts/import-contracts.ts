@@ -57,7 +57,8 @@ function main(): void {
     };
 
     console.log(
-      `${service.id.padEnd(16)} servers: templated, ${sanitised.hostRewrites} host(s) rewritten, ` +
+      `${service.id.padEnd(16)} servers: templated, ${sanitised.hostRewrites} host(s) and ` +
+        `${sanitised.credentialRewrites} credential example(s) rewritten, ` +
         `source ${contracts[service.id]?.sourceCommit} verified ${contracts[service.id]?.verified}`,
     );
   }

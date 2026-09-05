@@ -1,0 +1,4073 @@
+# Generated from the service's own route table at 905fbea — 125 operations across 93 paths.
+# Behaviour lives in the Markdown beside this file; this is the shape.
+#
+# The ERROR RESPONSES are derived, per operation, from the service at b8e9c6a on 2026-08-27:
+# `agent-skills/kb-sync/scripts/derive-route-facts.mjs` reads every status reachable from a
+# route — its handler, the helpers that handler calls, and each middleware on its chain — and
+# `apply-route-facts.mjs` writes them here. They replaced a boilerplate 400/401/403/404/429 that
+# every one of the 125 operations carried: a 422 on none of them against nine 422 codes, a 409 on
+# four against nineteen, and a 404 on 50 routes that cannot answer one.
+#
+# The `code` under each status is the branchable member of the problem document. kb-sync check 22
+# diffs those against conventions.md's own table, so the two files cannot drift apart in silence.
+#
+# The 41 QUERY PARAMETER declarations are no longer hand-carried: the same scan finds the names,
+# and the warning that used to stand here — "regenerating this file WILL DELETE all 41 of them" —
+# is discharged. Their descriptions, enums and defaults are still read from the source by hand,
+# per the sweep checklist's §2.1; only the names are derived.
+#
+# STILL A GAP, and a real one: response SCHEMAS are `{}` on most operations, and 51 write
+# operations declare 2 request bodies. Do not generate a write client from this file.
+openapi: 3.1.0
+info:
+  title: "auth-service"
+  version: "1.0.0"
+  description: "Identity, authorization and entitlements for the Lamido estate. Behaviour, gotchas and the rules that prevent incidents are in the Markdown beside this file — README.md first, then conventions.md. This spec is the shape; the Markdown is the meaning."
+servers:
+  # The deployment host is deliberately absent from this pinned copy. No host ships in
+  # a tarball, and contracts/ is one `files` mistake away from being published — see
+  # docs/plans/phase-1-foundations.md §4. The consuming project supplies the base URL
+  # from its own environment; the SDK has no fallback.
+  - url: "{baseUrl}"
+    description: Supplied by the consuming project from its own environment.
+    variables:
+      baseUrl:
+        default: https://auth.example.com
+        description: Documentation placeholder, not a usable default.
+security:
+  - applicationKey: []
+components:
+  securitySchemes:
+    adminKey:
+      type: "http"
+      scheme: "bearer"
+      description: "aad_ operator key"
+    applicationKey:
+      type: "http"
+      scheme: "bearer"
+      description: "ask_ secret application key"
+    websiteKey:
+      type: "http"
+      scheme: "bearer"
+      description: "apk_ publishable website key"
+    cronBearer:
+      type: "http"
+      scheme: "bearer"
+      description: "CRON_SECRET"
+    sessionToken:
+      type: "apiKey"
+      in: "header"
+      name: "X-Session-Token"
+      description: "A person's session"
+  parameters:
+    Limit:
+      name: "limit"
+      in: "query"
+      required: false
+      description: "Page size, 1-200. Default 50. Out of range is a 400, never a clamp."
+      schema:
+        type: "integer"
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: "cursor"
+      in: "query"
+      required: false
+      description: "Opaque keyset cursor. Pass a next_cursor back verbatim; malformed is a 400, never a restart from page one."
+      schema:
+        type: "string"
+  responses:
+    Problem:
+      description: "RFC 9457 problem document"
+      content:
+        "application/problem+json":
+          schema:
+            "$ref": "#/components/schemas/Problem"
+  schemas:
+    Problem:
+      type: "object"
+      required:
+        - "type"
+        - "title"
+        - "status"
+        - "detail"
+        - "instance"
+        - "request_id"
+      properties:
+        type:
+          type: "string"
+          description: "urn:auth-service:problem:<slug>, a closed set. Branch on this."
+        title:
+          type: "string"
+          description: "From a status map. Never branch on it."
+        status:
+          type: "integer"
+        detail:
+          type: "string"
+          description: "Prose. Will be reworded. Never branch on it."
+        instance:
+          type: "string"
+        request_id:
+          type: "string"
+          format: "uuid"
+        code:
+          type: "string"
+          description: "The branchable sub-reason, where one applies."
+        errors:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              pointer:
+                type: "string"
+              code:
+                type: "string"
+              detail:
+                type: "string"
+    Collection:
+      type: "object"
+      required:
+        - "data"
+        - "next_cursor"
+      description: "Every collection. There is no total, service-wide."
+      properties:
+        data:
+          type: "array"
+          items: {}
+        next_cursor:
+          type:
+            - "string"
+            - "null"
+    AuthorizeDecision:
+      type: "object"
+      required:
+        - "decision"
+      properties:
+        decision:
+          type: "string"
+          enum:
+            - "allow"
+            - "deny"
+          description: "The one enum in this API that cannot grow. Hard-code both values."
+    Subscription:
+      type: "object"
+      properties:
+        public_id:
+          type: "string"
+          format: "uuid"
+        organization:
+          type: "string"
+          format: "uuid"
+        website:
+          type:
+            - "string"
+            - "null"
+          format: "uuid"
+        plan:
+          type: "string"
+        status:
+          type: "string"
+          enum:
+            - "active"
+            - "past_due"
+            - "canceled"
+            - "expired"
+        period_start:
+          type: "string"
+          format: "date-time"
+        period_end:
+          type: "string"
+          format: "date-time"
+          description: "Exclusive."
+        past_due_at:
+          type:
+            - "string"
+            - "null"
+          format: "date-time"
+        created_at:
+          type: "string"
+          format: "date-time"
+        updated_at:
+          type: "string"
+          format: "date-time"
+    WebhookEndpoint:
+      type: "object"
+      properties:
+        public_id:
+          type: "string"
+          format: "uuid"
+        organization:
+          type: "string"
+          format: "uuid"
+        url:
+          type: "string"
+          format: "uri"
+        description:
+          type:
+            - "string"
+            - "null"
+        subscribed_events:
+          type:
+            - "array"
+            - "null"
+          items:
+            type: "string"
+          description: "null means every type. [] is a 400."
+        contract_version:
+          type: "integer"
+        enabled:
+          type: "boolean"
+        disabled_reason:
+          type:
+            - "string"
+            - "null"
+        consecutive_failures:
+          type: "integer"
+        secret_last4:
+          type: "string"
+        secret_fingerprint:
+          type: "string"
+    CustomerSessionVerdict:
+      type: "object"
+      required:
+        - "valid"
+        - "customer"
+        - "expires_at"
+      description: "An invalid session is 200 with valid:false, not a 401."
+      properties:
+        valid:
+          type: "boolean"
+        customer:
+          type:
+            - "object"
+            - "null"
+        expires_at:
+          type:
+            - "string"
+            - "null"
+          format: "date-time"
+paths:
+  "/api/cron/subscriptions-expire":
+    get:
+      tags:
+        - "scheduler"
+      summary: "Read subscriptions expire"
+      security:
+        - cronBearer: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+  "/api/cron/sweep":
+    get:
+      tags:
+        - "scheduler"
+      summary: "Read sweep"
+      security:
+        - cronBearer: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+  "/api/cron/webhooks-drain":
+    get:
+      tags:
+        - "scheduler"
+      summary: "Read webhooks drain"
+      security:
+        - cronBearer: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+  "/healthz":
+    get:
+      tags:
+        - "client"
+      summary: "Read healthz"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+  "/v1/admin/applications":
+    get:
+      tags:
+        - "operator"
+      summary: "Read applications"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on applications"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/applications/{applicationId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read applications"
+      parameters:
+        - name: "applicationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/applications/{applicationId}/permissions":
+    get:
+      tags:
+        - "operator"
+      summary: "Read permissions"
+      parameters:
+        - name: "applicationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on permissions"
+      parameters:
+        - name: "applicationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/assignments":
+    get:
+      tags:
+        - "operator"
+      summary: "Read assignments"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "role"
+          in: "query"
+          required: false
+          description: "A role public_id. An unknown or malformed id is an empty page, not a 404."
+          schema:
+            type: "string"
+            format: "uuid"
+        - name: "membership"
+          in: "query"
+          required: false
+          description: "A membership public_id — what this member holds."
+          schema:
+            type: "string"
+            format: "uuid"
+        - name: "customer"
+          in: "query"
+          required: false
+          description: "A customer public_id — what this customer holds."
+          schema:
+            type: "string"
+            format: "uuid"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on assignments"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: assignment_exists · role_organization_mismatch"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/assignments/{assignmentId}":
+    delete:
+      tags:
+        - "operator"
+      summary: "Delete assignments"
+      parameters:
+        - name: "assignmentId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "204":
+          description: "No content. The response has no body."
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/audit":
+    get:
+      tags:
+        - "operator"
+      summary: "Read audit"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "actor_type"
+          in: "query"
+          required: false
+          description: "Who acted. There is no action filter: read and match action on the rows."
+          schema:
+            type: "string"
+            enum:
+              - "admin_key"
+              - "application_key"
+              - "platform_user"
+              - "customer"
+              - "cli"
+              - "system"
+        - name: "from"
+          in: "query"
+          required: false
+          description: "Inclusive lower bound on created_at. ISO 8601 with an explicit offset."
+          schema:
+            type: "string"
+            format: "date-time"
+        - name: "until"
+          in: "query"
+          required: false
+          description: "Exclusive upper bound, so consecutive windows tile exactly."
+          schema:
+            type: "string"
+            format: "date-time"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/customers":
+    get:
+      tags:
+        - "operator"
+      summary: "Read customers"
+      parameters:
+        - name: "website"
+          in: "query"
+          required: true
+          description: "REQUIRED. There is no cross-website customer listing; omitting it is a 400 naming the parameter."
+          schema:
+            type: "string"
+            format: "uuid"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/customers/{customerId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read customers"
+      parameters:
+        - name: "customerId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "operator"
+      summary: "Update customers"
+      parameters:
+        - name: "customerId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/event-types":
+    get:
+      tags:
+        - "operator"
+      summary: "Read event types"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/features":
+    get:
+      tags:
+        - "operator"
+      summary: "Read features"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "application"
+          in: "query"
+          required: false
+          description: "One application's features. An unknown or malformed id is an empty page."
+          schema:
+            type: "string"
+            format: "uuid"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on features"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/features/{featureId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read features"
+      parameters:
+        - name: "featureId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/features/{featureId}/permissions":
+    get:
+      tags:
+        - "operator"
+      summary: "Read permissions"
+      parameters:
+        - name: "featureId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    put:
+      tags:
+        - "operator"
+      summary: "Replace permissions"
+      parameters:
+        - name: "featureId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: permission_unknown"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/health":
+    get:
+      tags:
+        - "operator"
+      summary: "Read health"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/keys":
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on keys"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    get:
+      tags:
+        - "operator"
+      summary: "Read keys"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "allowlist"
+          in: "query"
+          required: false
+          description: "The drill-down behind unrestricted_admin_keys. Both states narrow to an ACTIVE key; the unfiltered listing does not."
+          schema:
+            type: "string"
+            enum:
+              - "empty"
+              - "present"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/keys/{publicId}":
+    delete:
+      tags:
+        - "operator"
+      summary: "Delete keys"
+      parameters:
+        - name: "publicId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/me":
+    get:
+      tags:
+        - "operator"
+      summary: "Read me"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/organizations":
+    get:
+      tags:
+        - "operator"
+      summary: "Read organizations"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "external_ref"
+          in: "query"
+          required: false
+          description: "absent is the drill-down behind organizations_without_external_ref. There is deliberately no third value meaning all."
+          schema:
+            type: "string"
+            enum:
+              - "absent"
+              - "present"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on organizations"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/organizations/{organizationId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read organizations"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "operator"
+      summary: "Update organizations"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/organizations/{organizationId}/keys":
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on keys"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    get:
+      tags:
+        - "operator"
+      summary: "Read keys"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/organizations/{organizationId}/keys/{keyId}":
+    delete:
+      tags:
+        - "operator"
+      summary: "Delete keys"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - name: "keyId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/organizations/{organizationId}/members":
+    get:
+      tags:
+        - "operator"
+      summary: "Read members"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on members"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: membership_exists"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/organizations/{organizationId}/members/{membershipId}":
+    delete:
+      tags:
+        - "operator"
+      summary: "Delete members"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - name: "membershipId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/organizations/{organizationId}/webhook-endpoints":
+    get:
+      tags:
+        - "operator"
+      summary: "Read webhook endpoints"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on webhook endpoints"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: endpoint_limit_reached"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/overrides":
+    get:
+      tags:
+        - "operator"
+      summary: "Read overrides"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on overrides"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: override_exists"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: permission_unknown"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/overrides/{overrideId}":
+    delete:
+      tags:
+        - "operator"
+      summary: "Delete overrides"
+      parameters:
+        - name: "overrideId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "204":
+          description: "No content. The response has no body."
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/permission-checks":
+    get:
+      tags:
+        - "operator"
+      summary: "Read permission checks"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/plans":
+    get:
+      tags:
+        - "operator"
+      summary: "Read plans"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "status"
+          in: "query"
+          required: false
+          description: "A bad value is a 400 invalid_enum."
+          schema:
+            type: "string"
+            enum:
+              - "active"
+              - "retired"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on plans"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/plans/{planId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read plans"
+      parameters:
+        - name: "planId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "operator"
+      summary: "Update plans"
+      parameters:
+        - name: "planId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/plans/{planId}/features":
+    get:
+      tags:
+        - "operator"
+      summary: "Read features"
+      parameters:
+        - name: "planId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    put:
+      tags:
+        - "operator"
+      summary: "Replace features"
+      parameters:
+        - name: "planId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: feature_unknown"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/roles":
+    get:
+      tags:
+        - "operator"
+      summary: "Read roles"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "organization"
+          in: "query"
+          required: false
+          description: "An organization public_id, or the literal none for the system roles — the ones with no tenant."
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on roles"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/roles/{roleId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read roles"
+      parameters:
+        - name: "roleId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "operator"
+      summary: "Update roles"
+      parameters:
+        - name: "roleId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: system_role_immutable"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    delete:
+      tags:
+        - "operator"
+      summary: "Delete roles"
+      parameters:
+        - name: "roleId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "204":
+          description: "No content. The response has no body."
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: role_in_use"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: system_role_immutable"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/roles/{roleId}/permissions":
+    get:
+      tags:
+        - "operator"
+      summary: "Read permissions"
+      parameters:
+        - name: "roleId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    put:
+      tags:
+        - "operator"
+      summary: "Replace permissions"
+      parameters:
+        - name: "roleId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: permission_unknown"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/subscriptions":
+    get:
+      tags:
+        - "operator"
+      summary: "Read subscriptions"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "organization"
+          in: "query"
+          required: false
+          description: "An organization public_id. An unknown handle is an empty page."
+          schema:
+            type: "string"
+            format: "uuid"
+        - name: "website"
+          in: "query"
+          required: false
+          description: "A website public_id."
+          schema:
+            type: "string"
+            format: "uuid"
+        - name: "status"
+          in: "query"
+          required: false
+          description: "A bad value is a 400 invalid_enum."
+          schema:
+            type: "string"
+            enum:
+              - "active"
+              - "past_due"
+              - "canceled"
+              - "expired"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on subscriptions"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: plan_retired"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/subscriptions/{subscriptionId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read subscriptions"
+      parameters:
+        - name: "subscriptionId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "operator"
+      summary: "Update subscriptions"
+      parameters:
+        - name: "subscriptionId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: plan_retired · subscription_transition_invalid"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/subscriptions/{subscriptionId}/history":
+    get:
+      tags:
+        - "operator"
+      summary: "Read history"
+      parameters:
+        - name: "subscriptionId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-deliveries":
+    get:
+      tags:
+        - "operator"
+      summary: "Read webhook deliveries"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "status"
+          in: "query"
+          required: false
+          description: "The health tiles drill down through exactly this filter."
+          schema:
+            type: "string"
+            enum:
+              - "pending"
+              - "delivered"
+              - "dead_lettered"
+        - name: "endpoint"
+          in: "query"
+          required: false
+          description: "An endpoint public_id. An unknown handle is an empty page, not a 400."
+          schema:
+            type: "string"
+            format: "uuid"
+        - name: "event_type"
+          in: "query"
+          required: false
+          description: "Joins through the event, because the type is a property of the fact. A bad value is a 400 invalid_enum."
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-deliveries/{deliveryId}/redeliver":
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on redeliver"
+      parameters:
+        - name: "deliveryId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-endpoints":
+    get:
+      tags:
+        - "operator"
+      summary: "Read webhook endpoints"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "enabled"
+          in: "query"
+          required: false
+          description: "A bad value is a 400. false is the drill-down behind disabled_endpoints."
+          schema:
+            type: "boolean"
+        - name: "event_type"
+          in: "query"
+          required: false
+          description: "Includes the wildcard endpoints: subscribed_events null means every type, so this lists those too."
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-endpoints/{endpointId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read webhook endpoints"
+      parameters:
+        - name: "endpointId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "operator"
+      summary: "Update webhook endpoints"
+      parameters:
+        - name: "endpointId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    delete:
+      tags:
+        - "operator"
+      summary: "Delete webhook endpoints"
+      parameters:
+        - name: "endpointId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "204":
+          description: "No content. The response has no body."
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-endpoints/{endpointId}/disable":
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on disable"
+      parameters:
+        - name: "endpointId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-endpoints/{endpointId}/enable":
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on enable"
+      parameters:
+        - name: "endpointId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-endpoints/{endpointId}/rotate-secret":
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on rotate secret"
+      parameters:
+        - name: "endpointId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-endpoints/{endpointId}/test":
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on test"
+      parameters:
+        - name: "endpointId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/webhook-events":
+    get:
+      tags:
+        - "operator"
+      summary: "Read webhook events"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "event_type"
+          in: "query"
+          required: false
+          description: "One type from GET /v1/admin/event-types. A bad value is a 400 invalid_enum."
+          schema:
+            type: "string"
+        - name: "organization"
+          in: "query"
+          required: false
+          description: "An organization public_id. An unknown handle is an empty page, not a 400."
+          schema:
+            type: "string"
+            format: "uuid"
+        - name: "from"
+          in: "query"
+          required: false
+          description: "Inclusive lower bound on occurred_at — when the fact became true, not when the row was written."
+          schema:
+            type: "string"
+            format: "date-time"
+        - name: "until"
+          in: "query"
+          required: false
+          description: "Exclusive upper bound on occurred_at."
+          schema:
+            type: "string"
+            format: "date-time"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/websites":
+    get:
+      tags:
+        - "operator"
+      summary: "Read websites"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+        - name: "organization"
+          in: "query"
+          required: false
+          description: "An organization public_id. An unknown or malformed id is an empty page."
+          schema:
+            type: "string"
+            format: "uuid"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on websites"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/websites/{websiteId}":
+    get:
+      tags:
+        - "operator"
+      summary: "Read websites"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/admin/websites/{websiteId}/keys":
+    post:
+      tags:
+        - "operator"
+      summary: "Create or act on keys"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - adminKey: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight · key_exists"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/auth/logout":
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on logout"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "204":
+          description: "No content. The response has no body."
+          headers:
+            "Set-Cookie":
+              description: "A cookie this response sets. The service documentation names it and its attributes."
+              schema:
+                type: "string"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/auth/me":
+    get:
+      tags:
+        - "client"
+      summary: "Read me"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/authorize":
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on authorize"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/customer-sessions/verify":
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on verify"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/customers":
+    get:
+      tags:
+        - "client"
+      summary: "Read customers"
+      parameters:
+        - name: "website"
+          in: "query"
+          required: true
+          description: "REQUIRED. Absent, malformed, and names a website your organization does not own are ONE answer: 404. A 400 would confirm the id exists."
+          schema:
+            type: "string"
+            format: "uuid"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on customers"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/customers/{customerId}":
+    get:
+      tags:
+        - "client"
+      summary: "Read customers"
+      parameters:
+        - name: "customerId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - name: "website"
+          in: "query"
+          required: true
+          description: "REQUIRED, and the same 404 for absent, malformed and not-yours."
+          schema:
+            type: "string"
+            format: "uuid"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/features":
+    get:
+      tags:
+        - "client"
+      summary: "Read features"
+      parameters:
+        - name: "organization_id"
+          in: "query"
+          required: true
+          description: "REQUIRED. A 404 for an organization that is not the caller's — a 403 would confirm it exists."
+          schema:
+            type: "string"
+            format: "uuid"
+        - name: "website_id"
+          in: "query"
+          required: false
+          description: "Narrows to one website. A 404 when it belongs to somebody else."
+          schema:
+            type: "string"
+            format: "uuid"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/organizations":
+    get:
+      tags:
+        - "client"
+      summary: "Read organizations"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on organizations"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/organizations/{organizationId}":
+    get:
+      tags:
+        - "client"
+      summary: "Read organizations"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/organizations/{organizationId}/invitations":
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on invitations"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+        "502":
+          "$ref": "#/components/responses/Problem"
+          description: "code: provider_unavailable"
+    get:
+      tags:
+        - "client"
+      summary: "Read invitations"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/organizations/{organizationId}/invitations/{invitationId}":
+    delete:
+      tags:
+        - "client"
+      summary: "Delete invitations"
+      parameters:
+        - name: "organizationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - name: "invitationId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/organizations/switch":
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on switch"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/permissions":
+    post:
+      tags:
+        - "client"
+      summary: "Read permissions"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/plans":
+    get:
+      tags:
+        - "client"
+      summary: "Read plans"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/providers/customer-google/callback":
+    get:
+      tags:
+        - "provider callback"
+      summary: "Read callback"
+      parameters:
+        - name: "code"
+          in: "query"
+          required: false
+          description: "Google's authorization code. Absent on a denial."
+          schema:
+            type: "string"
+        - name: "state"
+          in: "query"
+          required: true
+          description: "The signed state, bound to this website."
+          schema:
+            type: "string"
+        - name: "error"
+          in: "query"
+          required: false
+          description: "Present when the person cancelled."
+          schema:
+            type: "string"
+      security: []
+      responses:
+        "302":
+          description: "Redirect. The Location header carries the target."
+          headers:
+            "Set-Cookie":
+              description: "A cookie this response sets. The service documentation names it and its attributes."
+              schema:
+                type: "string"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: oauth_denied · oauth_email_unverified · oauth_state_invalid"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: login_method_disabled"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+        "502":
+          "$ref": "#/components/responses/Problem"
+          description: "code: provider_unavailable"
+  "/v1/providers/customer-magic-link/approve":
+    post:
+      tags:
+        - "provider callback"
+      summary: "Approve a sign-in with the matching code"
+      security: []
+      requestBody:
+        required: true
+        content:
+          "application/x-www-form-urlencoded":
+            schema:
+              type: "object"
+              required: ["token", "code"]
+              properties:
+                token:
+                  type: "string"
+                  description: "The token from the emailed link."
+                code:
+                  type: "string"
+                  description: "The six digits shown on the device that started the sign-in."
+      responses:
+        "200":
+          description: "Approved. An HTML confirmation page."
+          content:
+            "text/html":
+              schema:
+                type: "string"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: token_consumed · token_expired · token_invalid"
+  "/v1/providers/customer-magic-link/callback":
+    get:
+      tags:
+        - "provider callback"
+      summary: "Read callback"
+      parameters:
+        - name: "token"
+          in: "query"
+          required: true
+          description: "The customer link token. A separate token table from the platform click, deliberately."
+          schema:
+            type: "string"
+      security: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: token_consumed · token_expired · token_invalid"
+  "/v1/providers/google/callback":
+    get:
+      tags:
+        - "provider callback"
+      summary: "Read callback"
+      parameters:
+        - name: "code"
+          in: "query"
+          required: false
+          description: "Google's authorization code. Absent on a denial."
+          schema:
+            type: "string"
+        - name: "state"
+          in: "query"
+          required: true
+          description: "The signed state. A MAC over what was received is verified before anything else."
+          schema:
+            type: "string"
+        - name: "error"
+          in: "query"
+          required: false
+          description: "Present when the person cancelled: answers 409 oauth_denied."
+          schema:
+            type: "string"
+      security: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: oauth_denied · oauth_email_unverified · oauth_state_invalid"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+        "502":
+          "$ref": "#/components/responses/Problem"
+          description: "code: provider_unavailable"
+  "/v1/providers/magic-link/approve":
+    post:
+      tags:
+        - "provider callback"
+      summary: "Approve a sign-in with the matching code"
+      security: []
+      requestBody:
+        required: true
+        content:
+          "application/x-www-form-urlencoded":
+            schema:
+              type: "object"
+              required: ["token", "code"]
+              properties:
+                token:
+                  type: "string"
+                  description: "The token from the emailed link."
+                code:
+                  type: "string"
+                  description: "The six digits shown on the device that started the sign-in."
+      responses:
+        "200":
+          description: "Approved. An HTML confirmation page."
+          content:
+            "text/html":
+              schema:
+                type: "string"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: token_consumed · token_expired · token_invalid"
+  "/v1/providers/magic-link/callback":
+    get:
+      tags:
+        - "provider callback"
+      summary: "Read callback"
+      parameters:
+        - name: "token"
+          in: "query"
+          required: true
+          description: "The link token. This is the whole input to the click, and the approval page is the response."
+          schema:
+            type: "string"
+      security: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: token_consumed · token_expired · token_invalid"
+  "/v1/public/auth/google/start":
+    post:
+      tags:
+        - "browser"
+      summary: "Create or act on start"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/public/auth/magic-link":
+    post:
+      tags:
+        - "browser"
+      summary: "Create or act on magic link"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "202":
+          description: "Accepted. The work is booked, not done."
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+        "502":
+          "$ref": "#/components/responses/Problem"
+          description: "code: provider_unavailable"
+  "/v1/public/auth/magic-link/{handle}/status":
+    get:
+      tags:
+        - "browser"
+      summary: "Read status"
+      parameters:
+        - name: "handle"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/public/auth/magic-link/exchange":
+    post:
+      tags:
+        - "browser"
+      summary: "Create or act on exchange"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: token_consumed · token_expired · token_invalid"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/public/customers/auth/google/start":
+    post:
+      tags:
+        - "browser"
+      summary: "Create or act on start"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: login_method_disabled · oauth_not_configured"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/public/customers/auth/magic-link":
+    post:
+      tags:
+        - "browser"
+      summary: "Create or act on magic link"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "202":
+          description: "Accepted. The work is booked, not done."
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: login_method_disabled"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+        "502":
+          "$ref": "#/components/responses/Problem"
+          description: "code: provider_unavailable"
+  "/v1/public/customers/auth/magic-link/{handle}/status":
+    get:
+      tags:
+        - "browser"
+      summary: "Read status"
+      parameters:
+        - name: "handle"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/public/customers/auth/magic-link/exchange":
+    post:
+      tags:
+        - "browser"
+      summary: "Exchange a customer login request for a session cookie"
+      description: |
+        Answers 204 with NO BODY. The session is the Set-Cookie header and nothing else:
+        no customer id and no website id are returned. A backend must read the token out of
+        the header and then call POST /v1/customer-sessions/verify to learn who signed in.
+        The platform equivalent at /v1/public/auth/magic-link/exchange answers 200 with a
+        body, which is the asymmetry that crashed the T-24 smoke runner on 2026-08-27.
+      security:
+        - websiteKey: []
+      responses:
+        "204":
+          description: "Signed in. No body; the session is in Set-Cookie."
+          headers:
+            "Set-Cookie":
+              description: |
+                __Host-lamido_customer_session=<token>; Path=/; HttpOnly; Secure;
+                SameSite=Lax; Max-Age=<the website's session lifetime>
+              schema:
+                type: "string"
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: token_consumed · token_expired · token_invalid"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/public/invitations/{token}":
+    get:
+      tags:
+        - "browser"
+      summary: "Read invitations"
+      parameters:
+        - name: "token"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: invitation_consumed · invitation_expired · invitation_revoked"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/public/invitations/{token}/accept":
+    post:
+      tags:
+        - "browser"
+      summary: "Create or act on accept"
+      parameters:
+        - name: "token"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: invitation_consumed · invitation_expired · invitation_revoked"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/public/invitations/{token}/decline":
+    post:
+      tags:
+        - "browser"
+      summary: "Create or act on decline"
+      parameters:
+        - name: "token"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - websiteKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: invitation_consumed · invitation_expired · invitation_revoked"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/sessions":
+    get:
+      tags:
+        - "client"
+      summary: "Read sessions"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/sessions/{publicId}":
+    delete:
+      tags:
+        - "client"
+      summary: "Delete sessions"
+      parameters:
+        - name: "publicId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/subscriptions":
+    get:
+      tags:
+        - "client"
+      summary: "Read subscriptions"
+      parameters:
+        - name: "organization_id"
+          in: "query"
+          required: true
+          description: "REQUIRED. A 404 for an organization that is not the caller's."
+          schema:
+            type: "string"
+            format: "uuid"
+        - name: "website_id"
+          in: "query"
+          required: false
+          description: "Narrows to one website."
+          schema:
+            type: "string"
+            format: "uuid"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - applicationKey: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites":
+    get:
+      tags:
+        - "client"
+      summary: "Read websites"
+      parameters:
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on websites"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites/{websiteId}":
+    get:
+      tags:
+        - "client"
+      summary: "Read websites"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "client"
+      summary: "Update websites"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: domain_not_verified"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites/{websiteId}/branding":
+    get:
+      tags:
+        - "client"
+      summary: "Read branding"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "client"
+      summary: "Update branding"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites/{websiteId}/domains":
+    get:
+      tags:
+        - "client"
+      summary: "Read domains"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on domains"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: domain_taken"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites/{websiteId}/domains/{domainId}":
+    delete:
+      tags:
+        - "client"
+      summary: "Delete domains"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - name: "domainId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites/{websiteId}/domains/{domainId}/verify":
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on verify"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - name: "domainId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites/{websiteId}/keys":
+    post:
+      tags:
+        - "client"
+      summary: "Create or act on keys"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "409":
+          "$ref": "#/components/responses/Problem"
+          description: "code: idempotency_body_mismatch · idempotency_in_flight"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    get:
+      tags:
+        - "client"
+      summary: "Read keys"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites/{websiteId}/keys/{keyId}":
+    delete:
+      tags:
+        - "client"
+      summary: "Delete keys"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+        - name: "keyId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+  "/v1/websites/{websiteId}/login-settings":
+    get:
+      tags:
+        - "client"
+      summary: "Read login settings"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"
+    patch:
+      tags:
+        - "client"
+      summary: "Update login settings"
+      parameters:
+        - name: "websiteId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+      security:
+        - applicationKey: []
+          sessionToken: []
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema: {}
+        "400":
+          "$ref": "#/components/responses/Problem"
+        "401":
+          "$ref": "#/components/responses/Problem"
+        "403":
+          "$ref": "#/components/responses/Problem"
+        "404":
+          "$ref": "#/components/responses/Problem"
+        "422":
+          "$ref": "#/components/responses/Problem"
+          description: "code: no_active_organization"
+        "429":
+          "$ref": "#/components/responses/Problem"
+          description: "code: rate_limited"

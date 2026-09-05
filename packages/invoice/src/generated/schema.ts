@@ -55,7 +55,8 @@ export interface paths {
          *     its admin equivalent. No API key: the token authorises access to this one invoice.
          *
          *     **No browser tripwire here** — a browser is the entire point of this surface.
-         *     The PDF is re-fetched from the provider on every request; nothing is stored.
+         *     Served from the local `invoice_pdfs` archive when this service already holds the
+         *     document, and fetched from the provider when it does not.
          */
         get: operations["getPublicInvoicePdf"];
         put?: never;
@@ -260,10 +261,11 @@ export interface paths {
          * Provider catalog — the credential-form contract
          * @description Read this instead of hardcoding provider knowledge in the admin UI.
          *
-         *     **This is the one payload on the service that is camelCase.** `configIdPrefix`,
-         *     `configFields`, `envFallback`, `testDescription` and the config keys
-         *     `blockId` / `bankAccountId` were deliberately not renamed, because those are the
-         *     literal keys stored in `provider_credentials.config` and sent to Billingo.
+         *     **Member names are snake_case; the `config_fields[].key` values are not.** The keys —
+         *     `blockId`, `bankAccountId` — are the provider's own, stored in
+         *     `provider_credentials.config` and sent to Billingo verbatim, so a client must post each
+         *     value back under `config[<key>]` exactly as given here. The four member names were
+         *     camelCase until 2026-08-20.
          *
          *     Scope: `credentials:read`.
          */
@@ -285,9 +287,12 @@ export interface paths {
         };
         /**
          * List every admin key
-         * @description Active and revoked, newest first. **Unpaginated** — the query string is not read at
-         *     all, so `?limit=` is silently ignored rather than rejected. No `total`.
-         *     Scope: `admin:manage`.
+         * @description Active and revoked, newest first. **Unpaginated** — `?limit=` is silently ignored
+         *     rather than rejected. No `total`. Scope: `admin:manage`.
+         *
+         *     `?allowlist=empty` is the drill-down for `unrestricted_admin_keys` on
+         *     `GET /v1/admin/health`, and it binds that count's own predicate — so it filters to
+         *     **active** keys, unlike the unfiltered list.
          */
         get: operations["listAdminKeys"];
         put?: never;
@@ -441,6 +446,52 @@ export interface paths {
         get: operations["listAllIntegrations"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/integrations/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test every credential matching a filter
+         * @description The weekly sweep in one request. NEW AT 706dc63 — before it, a sweep was one
+         *     `POST .../clients/{public_id}/integrations/{config_id}/test` per row.
+         *
+         *     THE BODY IS THE FILTER VOCABULARY OF `GET /v1/admin/integrations`, as JSON rather
+         *     than as a query string: the same names, the same values, compiled by the same
+         *     predicate the listing uses.
+         *
+         *     A THROTTLED CREDENTIAL ANSWERS 200 INSIDE THE BATCH, NEVER A 429 FOR THE REQUEST.
+         *     `CREDENTIAL_TEST_LIMIT` is 10 per client per window and it protects the PROVIDER's
+         *     login rather than ours, so `consume()` runs once per credential BEFORE its outbound
+         *     call and a spent bucket becomes one result row with `status: throttled` and a
+         *     `retry_after`. One busy client must not abort a sweep across the other six.
+         *
+         *     READ `meta.throttled` BEFORE BELIEVING `meta.failed`. `failed` is the number an
+         *     operator acts on; `throttled` is the number that says the sweep is not finished.
+         *     Without it, a batch that tested nothing looks identical to a batch where everything
+         *     passed.
+         *
+         *     A THROTTLED CREDENTIAL IS NOT STAMPED. `last_test_status` stays as it was, because a
+         *     throttle says how often we asked and not whether the credential works — writing
+         *     `failed` there would corrupt `failing_credentials` on the health strip, which is the
+         *     count this sweep exists to drive down.
+         *
+         *     NO CURSOR. The cap is 50 because each matched credential is one live login at the
+         *     provider rather than one more row read, and the tests run SEQUENTIALLY for the same
+         *     reason. A sweep over more than 50 is more than one request, and the second request is
+         *     expressed as a filter — `last_test_status: untested` — rather than as a page.
+         */
+        post: operations["testIntegrationsBulk"];
         delete?: never;
         options?: never;
         head?: never;
@@ -653,6 +704,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/invoices/{public_id}/revoke-download-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke one invoice's public PDF links
+         * @description Raises the invoice's `download_token_version`, which joins the download token's
+         *     signature — so every link minted for **this** invoice before the call answers `403`,
+         *     and no other invoice is touched. Scope: `invoices:write`.
+         *
+         *     Before this existed the only revocation was changing `DOWNLOAD_LINK_SECRET`, which
+         *     voids every link for every client. That lever still exists and is now the blunt one.
+         *
+         *     **No status guard**: a `canceled` or `failed` invoice can leak a link exactly like a
+         *     `created` one, so there is no `422` here. **No un-revoke**: nothing lowers the
+         *     version, because a reused version would re-validate the link it was raised to kill.
+         */
+        post: operations["revokeInvoiceDownloadLinks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/invoices/{public_id}/cancel": {
         parameters: {
             query?: never;
@@ -846,7 +926,8 @@ export interface paths {
          *     picker built on this route cannot go stale. `webhook.ping` is deliberately absent.
          *
          *     `sensitive_blocks` is `[]` on every entry here and will stay that way: this service
-         *     stores no personal data, so there is nothing for an `include_*` flag to switch on.
+         *     stores no partner name or address. The one gated block is `pdf_url`, behind
+         *     `include_pdf_url`.
          */
         get: operations["listEventTypes"];
         put?: never;
@@ -1685,20 +1766,20 @@ export interface components {
             credential: components["schemas"]["Credential"];
         };
         /**
-         * @description The credential-form contract. **The only camelCase payload on this service** — see
-         *     the operation description for why.
+         * @description The credential-form contract. Member names are snake_case; the `config_fields[].key`
+         *     values are the provider's and stay as they are — see the operation description.
          */
         ProviderDescriptor: {
             name: components["schemas"]["Provider"];
             label: string;
             /** @description A config id for this provider must start with this. */
-            configIdPrefix: string;
+            config_id_prefix: string;
             /** @description How to label and explain the single write-only secret field. */
             secret: {
                 label: string;
                 help: string;
             };
-            configFields: {
+            config_fields: {
                 key: string;
                 label: string;
                 /** @enum {string} */
@@ -1710,9 +1791,9 @@ export interface components {
              * @description Env var names used when no DB credential row exists. `<CONFIGID>` is the
              *     upper-cased config id: `billingo_acme` → `BILLINGO_ACME_API_KEY`.
              */
-            envFallback: string[];
+            env_fallback: string[];
             /** @description What `POST …/test` actually checks for this provider. */
-            testDescription: string;
+            test_description: string;
         };
         /** @enum {string} */
         AdminScope: "clients:read" | "clients:write" | "credentials:read" | "credentials:write" | "invoices:read" | "invoices:write" | "stats:read" | "audit:read" | "admin:manage" | "*";
@@ -1755,8 +1836,25 @@ export interface components {
              *     ]
              */
             scopes: components["schemas"]["AdminScope"][];
-            /** @default [] */
+            /**
+             * @description Empty means unrestricted — valid from any address.
+             * @default []
+             */
             allowed_ips: string[];
+            /**
+             * @description The caller's acknowledgement that a key with no allowlist answers from anywhere.
+             *     **Required to be `true` when `NODE_ENV=production` and `allowed_ips` is
+             *     empty**, else `400` with `code: unrestricted_admin_key`. Outside production the
+             *     gate is off.
+             *
+             *     **Not stored, and never returned on a read.** It records a decision about this
+             *     request, not a property of the key. The lasting record is the audit entry — which
+             *     carries it only when it actually applied — and the lasting signal is
+             *     `unrestricted_admin_keys` on `GET /v1/admin/health`, both derived from
+             *     `allowed_ips` being empty.
+             * @default false
+             */
+            allow_any_ip: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -1766,6 +1864,16 @@ export interface components {
             scopes?: components["schemas"]["AdminScope"][];
             allowed_ips?: string[];
             active?: boolean;
+            /**
+             * @description Qualifies an `allowed_ips: []` in the same body, exactly as on the mint — the
+             *     posture gate refuses a **change** to unrestricted, not the state. A `PATCH` that
+             *     does not mention `allowed_ips` is unaffected even on an already-unrestricted key.
+             *
+             *     **Does not count as a field to update**: a `PATCH` carrying it alone is a `400`
+             *     ("No fields to update"). Not stored.
+             * @default false
+             */
+            allow_any_ip: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -1781,10 +1889,11 @@ export interface components {
         /** @description **Always returned with HTTP 200.** Every count is absent in the degraded body. */
         AdminHealth: {
             /**
-             * @description `attention` when any **actionable** count is above zero. Two are deliberately
-             *     excluded: `unroutable_inbound_events` and `clients_without_external_ref`, both of
-             *     which describe a correct configuration. A strip that says `attention` every day
-             *     for something nobody should act on is a strip nobody reads.
+             * @description `attention` when any **actionable** count is above zero. Three are deliberately
+             *     excluded: `unroutable_inbound_events`, `clients_without_external_ref` and
+             *     `unrestricted_admin_keys`, all of which describe a correct configuration. A strip
+             *     that says `attention` every day for something nobody should act on is a strip
+             *     nobody reads.
              * @enum {string}
              */
             status: "ok" | "attention" | "degraded";
@@ -1831,7 +1940,8 @@ export interface components {
             /**
              * @description Due and not yet attempted. On a service with **no cron** this is what says the
              *     queue has stopped moving; the remedy is `pnpm db:webhooks-drain`. Drill down:
-             *     `GET /v1/admin/webhook-deliveries?status=pending`.
+             *     `GET /v1/admin/webhook-deliveries?status=overdue` — the same predicate this count
+             *     uses. `?status=pending` is the wider set.
              */
             overdue_webhook_deliveries?: number;
             /**
@@ -1841,6 +1951,16 @@ export interface components {
              *     half-provisioned account.
              */
             clients_without_external_ref?: number;
+            /**
+             * @description **Active** `iad_` keys with an empty `allowed_ips`, which means valid from any
+             *     address. **Does not move `status`**: an unrestricted key is the correct
+             *     configuration for a sibling service on rotating Vercel egress, so this is
+             *     normally and permanently non-zero. What it is for is the credential sweep — a
+             *     number that went from 2 to 3 is a key somebody minted. Drill down:
+             *     `GET /v1/admin/admin-keys?allowlist=empty`, which binds the same predicate, so
+             *     the count and the list cannot disagree.
+             */
+            unrestricted_admin_keys?: number;
             /**
              * @description **A payment succeeded and no invoice was issued.** An inbound event this service
              *     could have acted on and deliberately did not — unpaired account, hop cap, chain
@@ -1989,8 +2109,12 @@ export interface components {
             target_status: string;
             contract_version: number;
             /**
-             * @description Blocks behind an `include_*` flag. **Always empty in this service** — it stores no
-             *     personal data, so there is nothing to gate.
+             * @description Blocks behind an `include_*` flag. `invoice.created` carries `["pdf_url"]`;
+             *     the other two types are empty. The payload holds no partner name or address —
+             *     `invoices` stores `partner_ref` only — but `pdf_url` is a bearer URL and the
+             *     document behind it carries the buyer's name, address and tax number, so the
+             *     block is sensitive even though every member is ASCII. Gated by
+             *     `webhook_endpoints.include_pdf_url`.
              */
             sensitive_blocks: string[];
             /** @description Whether a sibling Lamido service acts on it. */
@@ -2010,6 +2134,14 @@ export interface components {
             description: string | null;
             /** @description Pinned at creation. Not patchable. */
             contract_version: number;
+            /**
+             * @description Whether this receiver gets `data.invoice.pdf_url`. **Defaults to `false`** as of
+             *     migration `0013`, which also set every endpoint that already existed to `false`.
+             *     `false` means the receiver fetches the document from
+             *     `GET /v1/admin/invoices/{public_id}/pdf` with its own `iad_` key instead.
+             *     **Patchable**, unlike `contract_version`.
+             */
+            include_pdf_url: boolean;
             /** @description `null` means every type, including ones added later. Never an empty array. */
             subscribed_events: components["schemas"]["WebhookEventType"][] | null;
             enabled: boolean;
@@ -2151,7 +2283,7 @@ export interface components {
     };
     responses: {
         /**
-         * @description The invoice PDF, re-fetched from the provider. `Content-Disposition` carries the
+         * @description The invoice PDF, from the local archive or the provider. `Content-Disposition` carries the
          *     provider's own filename — the invoice number for szamlazz, the document id for
          *     Billingo.
          */
@@ -2493,6 +2625,7 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["Pdf"];
+            400: components["responses"]["ValidationError"];
             /**
              * @description Token missing, malformed, tampered with, or expired. Also the response after
              *     `DOWNLOAD_LINK_SECRET` is rotated, which revokes every outstanding link.
@@ -2661,6 +2794,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getInvoicePdf: {
@@ -2720,6 +2854,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             /** @description `code: not_downloadable`. */
             422: components["responses"]["WrongState"];
+            429: components["responses"]["RateLimited"];
         };
     };
     cancelInvoice: {
@@ -2813,6 +2948,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listProviders: {
@@ -2839,11 +2975,18 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listAdminKeys: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description `empty` returns only **active** keys with no IP allowlist. Any other value is a
+                 *     400.
+                 */
+                allowlist?: "empty";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2863,8 +3006,10 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     createAdminKey: {
@@ -2890,9 +3035,11 @@ export interface operations {
                     "application/json": components["schemas"]["AdminKeyWithSecret"];
                 };
             };
+            /** @description code: unrestricted_admin_key */
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     revokeAdminKey: {
@@ -2925,6 +3072,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             /** @description `code: self_revocation` — refusing to revoke the calling key. */
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
     };
@@ -2957,12 +3105,14 @@ export interface operations {
                     "application/json": components["schemas"]["AdminKey"];
                 };
             };
+            /** @description code: unrestricted_admin_key */
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /** @description `code: self_deactivation` — refusing to deactivate the calling key. */
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
             /**
              * @description Also returned when `{id}` is not a uuid — this route does not validate the path
              *     parameter, so a malformed id reaches Postgres.
@@ -3008,6 +3158,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     createClient: {
@@ -3036,6 +3187,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getClient: {
@@ -3064,6 +3216,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     deleteClient: {
@@ -3097,6 +3250,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             /** @description `code: client_has_invoices` — deactivate instead. */
             409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
         };
     };
     updateClient: {
@@ -3129,6 +3283,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     rotateClientKey: {
@@ -3157,6 +3312,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listAllIntegrations: {
@@ -3204,6 +3360,69 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    testIntegrationsBulk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    active?: boolean;
+                    allowed?: boolean;
+                    provider?: string;
+                    /** Format: uuid */
+                    client?: string;
+                    /** @enum {string} */
+                    last_test_status?: "untested" | "ok" | "failed";
+                    /**
+                     * @description Capped at 50, not the listing's 200. Each row is a live provider login.
+                     * @default 25
+                     */
+                    limit?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description One row per matched credential, plus the sweep's three counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            config_id: string;
+                            /** @description Null only on a `skipped` row, where the owning client is missing. */
+                            client_public_id: string | null;
+                            /** @enum {string} */
+                            status: "tested" | "throttled" | "skipped";
+                            /** @description Present on `tested` only. */
+                            ok?: boolean;
+                            /** @description Present on `tested` and `skipped`. */
+                            message?: string;
+                            /** @description Present on `throttled` only. Seconds. */
+                            retry_after?: number;
+                            credential?: components["schemas"]["Credential"];
+                        }[];
+                        meta: {
+                            tested: number;
+                            /** @description Tested and not ok. The number an operator acts on. */
+                            failed: number;
+                            /** @description Not tested because the client's bucket was spent. THE NUMBER THAT SAYS THE SWEEP IS NOT FINISHED. */
+                            throttled: number;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listClientIntegrations: {
@@ -3231,9 +3450,12 @@ export interface operations {
                     };
                 };
             };
+            /** @description code: missing_path_param */
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
             /**
              * @description Also returned when `{public_id}` is not a uuid — the nested integrations router
              *     does not validate the parent path parameter.
@@ -3273,6 +3495,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     upsertClientIntegration: {
@@ -3325,6 +3548,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     deleteClientIntegration: {
@@ -3354,10 +3578,12 @@ export interface operations {
                     "application/json": components["schemas"]["Credential"];
                 };
             };
+            /** @description code: missing_path_param */
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     testClientIntegration: {
@@ -3387,6 +3613,7 @@ export interface operations {
                     "application/json": components["schemas"]["CredentialTestResult"];
                 };
             };
+            /** @description code: missing_path_param */
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
@@ -3398,6 +3625,7 @@ export interface operations {
              *     grouping the worklist by client.
              */
             429: components["responses"]["ProviderThrottled"];
+            502: components["responses"]["ProviderError"];
         };
     };
     listAllInvoices: {
@@ -3450,6 +3678,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listStuckInvoices: {
@@ -3491,6 +3720,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getAnyInvoice: {
@@ -3519,6 +3749,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getAnyInvoicePdf: {
@@ -3577,6 +3808,66 @@ export interface operations {
             404: components["responses"]["NotFound"];
             /** @description `code: not_downloadable`. */
             422: components["responses"]["WrongState"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    revokeInvoiceDownloadLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The invoice's UUIDv7 external id. A malformed value is a `400`. */
+                public_id: components["parameters"]["InvoicePublicId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Written to the audit trail. Required for the same reason a cancel's is:
+                     *     this invalidates links a customer may be holding, and six months later
+                     *     the audit entry is the only account of why.
+                     */
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The AdminInvoice object, plus two members it carries nowhere else. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInvoice"] & {
+                        /**
+                         * @description The invoice's new version. Every link minted before this call is now
+                         *     a `403`. Returned **only** here — it is not a member of
+                         *     `AdminInvoice` anywhere else.
+                         */
+                        download_token_version: number;
+                        /**
+                         * @description Webhook deliveries for this invoice still `pending` or
+                         *     `dead_lettered`, whose stored payload still carries the URL this
+                         *     call just killed. `delivered` rows are excluded — those bytes are
+                         *     already in a receiver's hands.
+                         *
+                         *     **Reported, not enforced.** A non-zero count does not refuse the
+                         *     call: revoking a leaked link is urgent and draining the outbox is a
+                         *     separate decision. Drain with `pnpm db:webhooks-drain`, or accept
+                         *     that those receivers get a link and a `403`.
+                         */
+                        undelivered_events: number;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     cancelAnyInvoice: {
@@ -3677,6 +3968,7 @@ export interface operations {
              *     exist.
              */
             422: components["responses"]["WrongState"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getStatsOverview: {
@@ -3709,6 +4001,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getStatsTimeseries: {
@@ -3755,6 +4048,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getStatsClients: {
@@ -3791,6 +4085,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listAuditEntries: {
@@ -3843,6 +4138,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     receivePaymentServiceEvent: {
@@ -3938,6 +4234,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listWebhookEndpoints: {
@@ -3969,6 +4266,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listClientWebhookEndpoints: {
@@ -3995,9 +4293,11 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     createWebhookEndpoint: {
@@ -4028,6 +4328,15 @@ export interface operations {
                     subscribed_events?: components["schemas"]["WebhookEventType"][] | null;
                     /** @description Pinned at creation and never patchable. Default when omitted: the latest. */
                     contract_version?: number;
+                    /**
+                     * @description Whether this receiver gets `data.invoice.pdf_url`. **Default when
+                     *     omitted: false**, as of migration `0013` — the link is opt-in, because
+                     *     it is a bearer URL to a document carrying the buyer's name, address and
+                     *     tax number. Send `true` only for a receiver that cannot authenticate;
+                     *     one that can should fetch the PDF from
+                     *     `GET /v1/admin/invoices/{public_id}/pdf` with its own `iad_` key.
+                     */
+                    include_pdf_url?: boolean;
                 };
             };
         };
@@ -4050,6 +4359,9 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description code: endpoint_limit_reached */
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getWebhookEndpoint: {
@@ -4073,9 +4385,11 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookEndpoint"];
                 };
             };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     deleteWebhookEndpoint: {
@@ -4097,9 +4411,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     patchWebhookEndpoint: {
@@ -4119,6 +4435,12 @@ export interface operations {
                     url?: string;
                     description?: string | null;
                     subscribed_events?: components["schemas"]["WebhookEventType"][] | null;
+                    /**
+                     * @description Takes effect on the **next** event. Nothing rewrites a payload already
+                     *     stored in `webhook_events`, but the strip is applied at render time, so
+                     *     a redelivery of an older event also arrives without the link.
+                     */
+                    include_pdf_url?: boolean;
                 };
             };
         };
@@ -4136,6 +4458,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     rotateWebhookEndpointSecret: {
@@ -4163,9 +4486,11 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     enableWebhookEndpoint: {
@@ -4189,9 +4514,11 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookEndpoint"];
                 };
             };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     disableWebhookEndpoint: {
@@ -4229,6 +4556,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
         };
     };
     testWebhookEndpoint: {
@@ -4262,6 +4590,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -4274,6 +4603,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            429: components["responses"]["RateLimited"];
         };
     };
     listWebhookEvents: {
@@ -4310,6 +4640,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listWebhookDeliveries: {
@@ -4320,7 +4651,7 @@ export interface operations {
                 client_public_id?: string;
                 endpoint_public_id?: string;
                 event_type?: components["schemas"]["WebhookEventType"];
-                status?: "pending" | "delivered" | "dead_lettered" | "all";
+                status?: "pending" | "overdue" | "delivered" | "dead_lettered" | "all";
                 /**
                  * @description Deliveries bound for a sibling Lamido service, recognised by the
                  *     `…/v1/hooks/{source_service}` URL shape. `true` is the drill-down behind the
@@ -4349,6 +4680,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     redeliverWebhookDelivery: {
@@ -4371,9 +4703,13 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookDelivery"];
                 };
             };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description code: endpoint_disabled · secret_missing */
+            422: components["responses"]["WrongState"];
+            429: components["responses"]["RateLimited"];
         };
     };
     listInboundEvents: {
@@ -4412,6 +4748,7 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["RateLimited"];
         };
     };
     getLandingPage: {

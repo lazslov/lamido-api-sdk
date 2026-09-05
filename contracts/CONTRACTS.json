@@ -2,19 +2,39 @@
   "knowledgeBaseRepo": "lazslov/knowledge-base",
   "contracts": {
     "content-service": {
-      "kbCommit": "9b8228c",
-      "sourceCommit": "eb0b88d",
-      "verified": "2026-08-18"
+      "kbCommit": "714f2ee",
+      "sourceCommit": "0048426",
+      "verified": "2026-09-04"
     },
     "invoice-service": {
-      "kbCommit": "9b8228c",
-      "sourceCommit": "7fdc5ec",
-      "verified": "2026-08-20"
+      "kbCommit": "714f2ee",
+      "sourceCommit": "706dc63",
+      "verified": "2026-09-04"
     },
     "payment-service": {
-      "kbCommit": "9b8228c",
-      "sourceCommit": "2cd0a4e",
-      "verified": "2026-08-17"
+      "kbCommit": "714f2ee",
+      "sourceCommit": "e3828d2",
+      "verified": "2026-09-04"
+    },
+    "auth-service": {
+      "kbCommit": "714f2ee",
+      "sourceCommit": "bbeb4d4",
+      "verified": "2026-09-03"
+    },
+    "booking-service": {
+      "kbCommit": "714f2ee",
+      "sourceCommit": "18846e1",
+      "verified": "2026-09-04"
+    },
+    "email-service": {
+      "kbCommit": "714f2ee",
+      "sourceCommit": "23051b9",
+      "verified": "2026-09-04"
+    },
+    "webshop-service": {
+      "kbCommit": "714f2ee",
+      "sourceCommit": "529003d",
+      "verified": "2026-09-04"
     }
   }
 }
