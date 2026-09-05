@@ -578,6 +578,28 @@ decisions the next-work plan's §5 left to the maintainer were taken like this:
   the version this release actually publishes. **The lesson for the next release: apply every
   changeset in one `release:version` run, or collapse afterwards.**
 
+- **The four live suites have run, and provisioning them found a production defect in auth-service.**
+  The tenants were created on 2026-09-05 through each service's admin tier, with the admin keys the
+  local `lamido-mcp` checkout holds — that server is a client of the seven services, so its
+  credentials are exactly what provisioning needs and no MCP protocol is involved.
+
+  **`POST /v1/admin/organizations/{id}/members` answered `500`.** Root cause: `emitEvent` copies
+  `organizations.external_ref` — free `text` — into `webhook_events.account_id`, which is a `uuid`
+  column. A non-UUID pairing therefore fails the event insert, and because emission runs inside the
+  writer's transaction it takes the **whole request** down rather than staying in the event layer.
+  Seating the first member is step 2 of the documented bootstrap, and auth-service's own
+  `examples.http` §0.1 sets `external_ref: "crm-4471"` — so the documented path produces a tenant
+  whose event layer is broken. Filed as [auth-service T-70](https://github.com/lazslov/auth-service/pull/82).
+
+  Two things about the diagnosis worth keeping. **The first hypothesis was wrong** — the error
+  shape matched `requireSystemRole`'s throw, and the roles turned out to exist; the log store is
+  what settled it, and it carries the error's *name* only, never its message, by observability
+  rule. And **the deployed commit was `bbeb4d4`, identical to the local checkout**, which is the
+  only reason reading the source proved anything about what ran.
+
+  The SDK's own tenant is deliberately **unpaired** (`external_ref: null`), which is the state the
+  one working production organization is in.
+
 - **The live suite gained four negative-only files, and the release now needs eleven more secrets.**
   Until the four scratch tenants exist on the `release` environment, `LIVE_REQUIRE_CONFIGURED` fails
   the release naming them. That is the gate doing its job, and it is the first thing the next release
