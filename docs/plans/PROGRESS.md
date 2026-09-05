@@ -284,9 +284,16 @@ exit criteria; this section holds only what is shared.
       classifier, and the ones the SDK declares a type for are key-checked in both directions.
 - [x] `pnpm verify` green: 1753 unit tests in 108 files, 48 Node 20.19 baseline cases against
       `dist/`, nine clean tarballs, zero transitive runtime dependencies.
-- [ ] Scratch tenants for auth, booking, email and webshop, and their eleven secrets on the `release`
-      environment. **The next release fails on `LIVE_REQUIRE_CONFIGURED` until this is done.**
-- [ ] `pnpm test:live` run against those tenants, for the four new files.
+- [x] Scratch tenants for auth, booking, email and webshop. Provisioned 2026-09-05 through each
+      service's own admin tier, using the admin keys the local `lamido-mcp` checkout holds. One
+      tenant per service, named `SDK live probe` / slug `sdk_live`, on production — the estate has
+      no second environment, and `live-testing.md` asks for tenants a GitHub runner can reach.
+- [x] `pnpm test:live` run against those tenants. **All seven services report `✓` and the four new
+      files contribute 19 passing cases** — every documented refusal the packages encode, verified
+      against the real services rather than against a stub.
+- [ ] The eleven secrets on the `release` environment. `.env.live` holds them; pushing them with
+      `./scripts/push-release-secrets.sh` is deliberately left to the maintainer. **The next release
+      fails on `LIVE_REQUIRE_CONFIGURED` until that runs.**
 - [ ] Published, with each of the four at `1.0.0`.
 
 ## Carried-forward items
