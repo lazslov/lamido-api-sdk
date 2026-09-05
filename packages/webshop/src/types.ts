@@ -7,14 +7,19 @@
  * `has_unavailable_items`. The SDK does not camelCase them: these are the strings in the service's
  * own docs and in every `curl` an integrator will paste while debugging.
  *
- * Three shapes are hand-written rather than aliased, each recorded in `docs/plans/phase-9-webshop.md`:
+ * Three shapes are hand-written rather than aliased, each recorded in `docs/plans/phase-9-webshop.md`.
+ * **Two of the three were written to correct the contract, and the contract now agrees** — they are
+ * kept for the `readonly` members and the prose, not because they diverge, and `type-safety.test.ts`
+ * holds each against the generated schema so the copy cannot drift back:
  *
- * - {@link CartLine} — the contract still spells the line `name`; the service renamed it
- *   `variant_name` and added `product_public_id`, `product_slug` and `product_name`. The Markdown wins.
- * - {@link Order} and {@link CheckoutInput} — the contract's `billing_address` collapses to a
- *   non-null `Address` through an `allOf` artefact; the service documents `null` as "same as shipping".
- * - {@link OrderStatus} on an order — widened, because the knowledge base says not to hard-code the
- *   reachable set.
+ * - {@link CartLine} — the contract spelled the line `name` and lacked `product_public_id`,
+ *   `product_slug` and `product_name`. **Fixed upstream at `525fe1e`** (webshop-service T-36); the
+ *   generated schema now declares all eleven members with the same names.
+ * - {@link Order} and {@link CheckoutInput} — the contract's `billing_address` collapsed to a
+ *   non-null `Address` through an `allOf` artefact, erasing the documented `null`. **Fixed upstream
+ *   in the same commit** (T-37); the generated type reads `Address | null`.
+ * - {@link OrderStatus} on an order — **still a real divergence**, and deliberate: widened, because
+ *   the knowledge base says not to hard-code the reachable set.
  */
 
 import type { components } from "./generated/schema.js";

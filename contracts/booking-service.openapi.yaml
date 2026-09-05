@@ -3114,7 +3114,7 @@ paths:
           description: Noted. Empty body, whether or not any work was queued.
 
   /api/cron/jobs:
-    get: &cronJobs
+    get:
       tags: [internal]
       operationId: cronDrainJobs
       summary: Drain the job queue
@@ -3130,7 +3130,7 @@ paths:
         The drain is bounded by time, not by count: falling behind must show up as a rising
         `due_jobs` on admin health, never as a timeout.
       security: [{ cronSecret: [] }]
-      responses:
+      responses: &cronJobsResponses
         '200':
           description: What was drained.
           content:
@@ -3142,10 +3142,24 @@ paths:
                   succeeded: { type: integer }
                   failed: { type: integer }
         '401': { $ref: '#/components/responses/Unauthorized' }
-    post: *cronJobs
+    post:
+      tags: [internal]
+      operationId: cronDrainJobsByHand
+      summary: Drain the job queue, by hand
+      x-internal: true
+      description: |
+        The same handler as the `GET` above, and the same fail-closed rule. Both exist because
+        Vercel's scheduler issues `GET` while a human triggering a drain by hand reaches for
+        `POST`.
+
+        **It carries its own `operationId` rather than sharing the `GET`'s.** One anchor covered
+        both until T-19, so the id resolved twice — which OpenAPI forbids, and which made a
+        generated client uncompilable.
+      security: [{ cronSecret: [] }]
+      responses: *cronJobsResponses
 
   /api/cron/calendar:
-    get: &cronCalendar
+    get:
       tags: [internal]
       operationId: cronSyncCalendars
       summary: Poll calendars and renew watches
@@ -3154,7 +3168,7 @@ paths:
         The floor under the push channel. Enqueues a pull for every active connection and a
         renewal for every watch nearing expiry. Fails closed, like every cron here.
       security: [{ cronSecret: [] }]
-      responses:
+      responses: &cronCalendarResponses
         '200':
           description: What was enqueued.
           content:
@@ -3164,10 +3178,19 @@ paths:
                 properties:
                   enqueued: { type: integer }
         '401': { $ref: '#/components/responses/Unauthorized' }
-    post: *cronCalendar
+    post:
+      tags: [internal]
+      operationId: cronSyncCalendarsByHand
+      summary: Poll calendars and renew watches, by hand
+      x-internal: true
+      description: |
+        The same handler as the `GET` above. See `cronDrainJobsByHand` for why it carries its
+        own `operationId`.
+      security: [{ cronSecret: [] }]
+      responses: *cronCalendarResponses
 
   /api/cron/maintenance:
-    get: &cronMaintenance
+    get:
       tags: [internal]
       operationId: cronMaintenance
       summary: Housekeeping
@@ -3178,7 +3201,7 @@ paths:
         **It deletes no tenant data.** Retention and erasure are CLIs, run by a human, dry-run
         by default — a scheduled deleter is the thing this service deliberately does not have.
       security: [{ cronSecret: [] }]
-      responses:
+      responses: &cronMaintenanceResponses
         '200':
           description: What was done.
           content:
@@ -3187,7 +3210,16 @@ paths:
                 type: object
                 additionalProperties: true
         '401': { $ref: '#/components/responses/Unauthorized' }
-    post: *cronMaintenance
+    post:
+      tags: [internal]
+      operationId: cronMaintenanceByHand
+      summary: Housekeeping, by hand
+      x-internal: true
+      description: |
+        The same handler as the `GET` above. See `cronDrainJobsByHand` for why it carries its
+        own `operationId`.
+      security: [{ cronSecret: [] }]
+      responses: *cronMaintenanceResponses
 
 components:
   securitySchemes:
@@ -3924,7 +3956,7 @@ components:
           description: The only response carrying a plaintext key, and it carries it **once**.
           required: [key]
           properties:
-            key: { type: string, example: bsk_YOUR_BSK_KEY }
+            key: { type: string, example: bsk_YOUR_SECRET_KEY }
     AdminKey:
       type: object
       required: [public_id, label, last4, scopes, allowed_ips, last_used_at, revoked_at, created_at]

@@ -1,6 +1,6 @@
 {
   "name": "@lazslov/email",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Consumer SDK for email-service: template-only transactional mail on the tenant tier, and its delivery events.",
   "license": "MIT",
   "repository": {

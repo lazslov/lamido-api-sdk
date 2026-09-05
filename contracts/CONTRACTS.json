@@ -2,39 +2,39 @@
   "knowledgeBaseRepo": "lazslov/knowledge-base",
   "contracts": {
     "content-service": {
-      "kbCommit": "714f2ee",
+      "kbCommit": "6e23aec",
       "sourceCommit": "0048426",
       "verified": "2026-09-04"
     },
     "invoice-service": {
-      "kbCommit": "714f2ee",
+      "kbCommit": "6e23aec",
       "sourceCommit": "706dc63",
       "verified": "2026-09-04"
     },
     "payment-service": {
-      "kbCommit": "714f2ee",
+      "kbCommit": "6e23aec",
       "sourceCommit": "e3828d2",
       "verified": "2026-09-04"
     },
     "auth-service": {
-      "kbCommit": "714f2ee",
-      "sourceCommit": "bbeb4d4",
-      "verified": "2026-09-03"
+      "kbCommit": "6e23aec",
+      "sourceCommit": "97d9934",
+      "verified": "2026-09-05"
     },
     "booking-service": {
-      "kbCommit": "714f2ee",
-      "sourceCommit": "18846e1",
-      "verified": "2026-09-04"
+      "kbCommit": "6e23aec",
+      "sourceCommit": "ac0e373",
+      "verified": "2026-09-05"
     },
     "email-service": {
-      "kbCommit": "714f2ee",
+      "kbCommit": "6e23aec",
       "sourceCommit": "23051b9",
       "verified": "2026-09-04"
     },
     "webshop-service": {
-      "kbCommit": "714f2ee",
-      "sourceCommit": "529003d",
-      "verified": "2026-09-04"
+      "kbCommit": "6e23aec",
+      "sourceCommit": "525fe1e",
+      "verified": "2026-09-05"
     }
   }
 }

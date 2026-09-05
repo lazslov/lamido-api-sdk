@@ -536,25 +536,43 @@ decisions the next-work plan's §5 left to the maintainer were taken like this:
   forbids. The runner and the "every example is claimed" rule are unchanged.
 - **The CI runtime-baseline job links every `packages/*` directory** instead of a named list, so a
   tenth package needs no workflow edit.
-- **Two upstream defects surfaced, and both are worked around visibly rather than absorbed.**
+- **Two upstream defects surfaced, both were worked around visibly rather than absorbed, and
+  both are now fixed upstream.** The record of each is kept because *what the workaround cost is
+  the argument for filing rather than absorbing* — an absorbed defect has no exit.
 
-  **booking-service's contract declares three `operationId`s twice.** Its `openapi.yaml` shares one
+  **booking-service's contract declared three `operationId`s twice.** Its `openapi.yaml` shared one
   operation object between a path's `get` and its `post` through a YAML anchor
-  (`get: &cronJobs … post: *cronJobs`), and the alias copies the `operationId` with everything
-  else. OpenAPI requires that id to be unique, so the resolved document is invalid and
-  `openapi-typescript` faithfully emits `cronDrainJobs`, `cronSyncCalendars` and `cronMaintenance`
-  twice each — `TS2300`, and the repository stops type-checking. All three are `x-internal` cron
-  routes no consumer calls. `scripts/lib/dedupe-operations.ts` drops a repeat **only when the two
-  blocks are byte-identical** and throws otherwise, so a genuine collision still reaches a human.
-  The fix belongs upstream: give the aliased `post` its own id.
+  (`get: &cronJobs … post: *cronJobs`), and the alias copied the `operationId` with everything
+  else. OpenAPI requires that id to be unique, so the resolved document was invalid and
+  `openapi-typescript` faithfully emitted `cronDrainJobs`, `cronSyncCalendars` and `cronMaintenance`
+  twice each — `TS2300`, and the repository stopped type-checking.
 
-  **booking-service's contract also carries a credential-shaped example**, `example:
+  **Fixed upstream at `ac0e373`** (booking-service T-41): the anchors moved onto `responses`, and
+  each `post` carries its own `…ByHand` id. `scripts/lib/dedupe-operations.ts` and its test are
+  **deleted** — a regeneration against every one of the seven pinned contracts now drops nothing,
+  which is the check that made the removal safe rather than hopeful.
+
+  **Deleted rather than kept as a general guard, deliberately.** It dropped a repeat *silently*
+  when the two blocks were byte-identical, which is precisely how the defect survived a phase: the
+  SDK tolerated an invalid contract without saying so on every build. The guard now lives where it
+  belongs — booking-service's own `openapi.test.ts` asserts `operationId` uniqueness, and that
+  assertion was **itself a tautology** (`expect(new Set(ids).size).toBe(new Set(ids).size)`) until
+  its T-43. Against the pre-fix contract the repaired assertion names all three ids and fails
+  115 vs 118. *A workaround that is silent is a second place the defect can live.*
+
+  **booking-service's contract also carried a credential-shaped example**, `example:
   bsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`, which reached a published `.d.ts` as an `@example` tag and
   failed the leak guard and the tarball audit. It is a placeholder, and *the guard cannot know that
   and must not learn to make exceptions* — the doc-example extractor has said so since phase 7.
-  `redactExampleCredentials` now rewrites it on import, exactly as `redactExampleHosts` rewrites a
+  `redactExampleCredentials` rewrites it on import, exactly as `redactExampleHosts` rewrites a
   host, and the two sanitisers and the guard share **one** prefix list (`credentialPrefixes`) so the
   copy that drifts cannot be the sanitiser.
+
+  **Fixed upstream in the same commit** — the example is `bsk_YOUR_SECRET_KEY` now, and the
+  importer reports `0 credential example(s) rewritten` for every service. **`redactExampleCredentials`
+  stays**, and the asymmetry with the deleted deduper is the point: this one **reports what it
+  rewrote on every import**, so a contract that starts shipping a credential-shaped example says so
+  in the build log rather than being quietly laundered. A workaround earns its keep by being noisy.
 
 - **`ProblemFieldError.code` became optional, and `@lazslov/api-core` took a major for it.** Six
   services declare a field error `required: [pointer, code, detail]`; **booking-service's contract
