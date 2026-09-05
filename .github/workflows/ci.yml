@@ -112,15 +112,17 @@ jobs:
           name: dist
           path: packages
 
-      # Three of the five built entry points import `@lazslov/api-core` as a bare specifier, so Node
+      # Seven of the nine built entry points import `@lazslov/api-core` as a bare specifier, so Node
       # needs somewhere to resolve it — and this job deliberately runs no `pnpm install`, because
       # pnpm 11 refuses to start below Node 22.13 and this matrix goes down to 20.19. Hand-linking
       # the workspace is enough precisely because no published package has a runtime dependency,
       # which `deps:audit` in `verify` asserts against the resolved graph before this job runs.
+      # Every directory under packages/ is linked, so a new package needs no edit here.
       - name: Link the workspace packages
         run: |
           mkdir -p node_modules/@lazslov
-          for pkg in api-core content invoice payment; do
+          for dir in packages/*/; do
+            pkg=$(basename "$dir")
             ln -sfn "../../packages/$pkg" "node_modules/@lazslov/$pkg"
           done
 

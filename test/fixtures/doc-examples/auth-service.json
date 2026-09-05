@@ -1,0 +1,397 @@
+[
+  {
+    "file": "admin-api.md",
+    "line": 291,
+    "context": "5. The fourteen webhook routes",
+    "json": {
+      "public_id": "019f0a10-…",
+      "organization": "019f0a10-…",
+      "url": "https://redacted.example.com/lamido",
+      "description": "production receiver",
+      "subscribed_events": null,
+      "contract_version": 1,
+      "enabled": true,
+      "disabled_reason": null,
+      "consecutive_failures": 0,
+      "secret_last4": "9f2a",
+      "secret_fingerprint": "…"
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 58,
+    "context": "`POST /v1/authorize` — may this principal do this?",
+    "json": {
+      "principal": {
+        "kind": "user",
+        "session_token": "<the person's session token>"
+      },
+      "organization_id": "019f0a10-…",
+      "website_id": "019f0a10-…",
+      "permission": "shop.orders.refund"
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 112,
+    "context": "`POST /v1/authorize` — may this principal do this?",
+    "json": {
+      "decision": "allow"
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 135,
+    "context": "`POST /v1/permissions` — the whole set, for a UI",
+    "json": {
+      "principal": {
+        "kind": "user",
+        "session_token": "<the person's session token>"
+      },
+      "organization_id": "019f0a10-…",
+      "website_id": "019f0a10-…"
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 174,
+    "context": "3. Entitlements — what has this tenant paid for?",
+    "json": {
+      "public_id": "019f0a10-…",
+      "organization": "019f0a10-…",
+      "website": null,
+      "plan": "starter",
+      "status": "active",
+      "period_start": "2026-08-01T00:00:00.000Z",
+      "period_end": "2026-09-01T00:00:00.000Z",
+      "past_due_at": null,
+      "created_at": "…",
+      "updated_at": "…"
+    }
+  },
+  {
+    "file": "client-api.md",
+    "line": 230,
+    "context": "`POST /v1/customer-sessions/verify` — is this browser session real?",
+    "json": {
+      "website": "<the website public_id>",
+      "token": "<the customer session token>"
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 111,
+    "context": "The browser tripwire",
+    "json": {
+      "type": "urn:auth-service:problem:forbidden",
+      "title": "Forbidden",
+      "status": 403,
+      "detail": "This API tier is server-side only and must not be called from a browser.",
+      "instance": "/v1/auth/me",
+      "request_id": "019fe8ee-fc09-71eb-bca3-25225321ffe3"
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 142,
+    "context": "Success",
+    "json": {
+      "data": [],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 168,
+    "context": "Failures — RFC 9457 problem details",
+    "json": {
+      "errors": [
+        {
+          "pointer": "/email",
+          "code": "invalid",
+          "detail": "Invalid email"
+        },
+        {
+          "pointer": "/redirect",
+          "code": "unknown_field",
+          "detail": "Unrecognised field \"redirect\"."
+        }
+      ],
+      "type": "urn:auth-service:problem:validation",
+      "title": "Bad Request",
+      "status": 400,
+      "detail": "The request body failed validation.",
+      "instance": "/v1/public/auth/magic-link",
+      "request_id": "019fe8ee-fb3c-743e-b953-13d0f2abc7cc"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 65,
+    "context": "POST {{host}}/v1/admin/organizations/{{boot_org}}/members",
+    "json": {
+      "email": "owner@acme.example",
+      "role": "owner"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 151,
+    "context": "POST {{host}}/v1/public/auth/magic-link/exchange",
+    "json": {
+      "login_request": "{{login_request}}",
+      "exchange_code": "{{exchange_code}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 165,
+    "context": "POST {{host}}/v1/public/auth/magic-link/exchange",
+    "json": {
+      "login_request": "{{login_request}}",
+      "exchange_code": "{{exchange_code}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 174,
+    "context": "POST {{host}}/v1/public/auth/google/start",
+    "json": {
+      "return_url": "https://redacted.example.com/account"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 217,
+    "context": "POST {{host}}/v1/public/customers/auth/magic-link/exchange",
+    "json": {
+      "login_request": "{{customer_login_request}}",
+      "exchange_code": "{{customer_exchange_code}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 239,
+    "context": "POST {{host}}/v1/public/customers/auth/google/start",
+    "json": {
+      "return_url": "https://redacted.example.com/account"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 356,
+    "context": "POST {{host}}/v1/organizations/switch",
+    "json": {
+      "organization_id": "{{org}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 426,
+    "context": "PATCH {{host}}/v1/websites/{{website}}",
+    "json": {
+      "name": "Acme Shop (EU)"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 523,
+    "context": "PATCH {{host}}/v1/websites/{{website}}/login-settings",
+    "json": {
+      "magic_link_enabled": true,
+      "google_enabled": true,
+      "google_client_id": "acme-shop.apps.googleusercontent.com",
+      "google_client_secret": "GOCSPX-your-tenant-secret",
+      "redirect_urls": [
+        "https://redacted.example.com/account"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 544,
+    "context": "PATCH {{host}}/v1/websites/{{website}}/branding",
+    "json": {
+      "sender_name": "Acme Shop",
+      "reply_to": "support@example.com"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 623,
+    "context": "POST {{host}}/v1/admin/keys",
+    "json": {
+      "label": "sibling-service",
+      "scopes": [
+        "audit:read"
+      ],
+      "allow_any_ip": true
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 668,
+    "context": "PATCH {{host}}/v1/admin/organizations/{{admin_org}}",
+    "json": {
+      "external_ref": "crm-4471"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 760,
+    "context": "POST {{host}}/v1/admin/applications/{{application}}/permissions",
+    "json": {
+      "key": "shop.orders.refund"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 793,
+    "context": "PATCH {{host}}/v1/admin/roles/{{role}}",
+    "json": {
+      "name": "Support agent (tier 1)"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 807,
+    "context": "PUT {{host}}/v1/admin/roles/{{role}}/permissions",
+    "json": {
+      "permissions": [
+        "shop.orders.refund"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 916,
+    "context": "PUT {{host}}/v1/admin/features/{{feature}}/permissions",
+    "json": {
+      "permissions": [
+        "shop.orders.refund"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 942,
+    "context": "PATCH {{host}}/v1/admin/plans/{{plan}}",
+    "json": {
+      "name": "Pro (2026)"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 955,
+    "context": "PUT {{host}}/v1/admin/plans/{{plan}}/features",
+    "json": {
+      "features": [
+        "shop.refunds"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 992,
+    "context": "PATCH {{host}}/v1/admin/subscriptions/{{subscription}}",
+    "json": {
+      "status": "past_due"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1025,
+    "context": "PATCH {{host}}/v1/admin/customers/{{customer}}",
+    "json": {
+      "status": "deactivated"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1081,
+    "context": "PATCH {{host}}/v1/admin/webhook-endpoints/{{endpoint}}",
+    "json": {
+      "description": "production receiver (eu)"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1105,
+    "context": "POST {{host}}/v1/admin/webhook-endpoints/{{endpoint}}/disable",
+    "json": {
+      "reason": "receiver returning 405 since 2026-08-26"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1201,
+    "context": "POST {{host}}/v1/authorize",
+    "json": {
+      "principal": {
+        "kind": "user",
+        "session_token": "{{session}}"
+      },
+      "organization_id": "{{org}}",
+      "permission": "shop.orders.refund"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1229,
+    "context": "POST {{host}}/v1/permissions",
+    "json": {
+      "principal": {
+        "kind": "user",
+        "session_token": "{{session}}"
+      },
+      "organization_id": "{{org}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1296,
+    "context": "POST {{host}}/v1/customer-sessions/verify",
+    "json": {
+      "website": "{{website}}",
+      "token": "{{customer_session_token}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1360,
+    "context": "POST {{host}}/v1/hooks/payment-service",
+    "json": {
+      "anything": true
+    }
+  },
+  {
+    "file": "webhooks.md",
+    "line": 72,
+    "context": "3. The envelope",
+    "json": {
+      "event_id": "019f0a10-0000-7000-8000-0000000000a1",
+      "event_type": "subscription.activated",
+      "contract_version": 1,
+      "occurred_at": "2026-08-14T09:14:31.204Z",
+      "service": "auth-service",
+      "account_id": "7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46",
+      "tenant": {
+        "kind": "organization",
+        "public_id": "019f0a10-0000-7000-8000-0000000000b2"
+      },
+      "correlation_id": "019f0a10-0000-7000-8000-0000000000a1",
+      "causation_id": null,
+      "hop": 0,
+      "data": {
+        "subscription": {
+          "public_id": "019f0a10-0000-7000-8000-0000000000c3",
+          "status": "active",
+          "plan": "starter",
+          "website": null,
+          "period_start": "2026-08-01T00:00:00.000Z",
+          "period_end": "2026-09-01T00:00:00.000Z"
+        }
+      }
+    }
+  }
+]

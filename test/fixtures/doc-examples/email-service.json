@@ -1,0 +1,269 @@
+[
+  {
+    "file": "admin-api.md",
+    "line": 263,
+    "context": "`POST /v1/admin/oauth/google/disconnect`",
+    "json": {
+      "tenant": "0191f3b1-…",
+      "config_id": "primary_mailbox"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 269,
+    "context": "`POST /v1/admin/oauth/google/disconnect`",
+    "json": {
+      "disconnected": true,
+      "revoked_at_google": true
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 140,
+    "context": "4. Failures — RFC 9457 problem details",
+    "json": {
+      "type": "urn:email-service:problem:conflict",
+      "title": "Conflict",
+      "status": 409,
+      "detail": "guest@example.com is on this tenant's suppression list.",
+      "instance": "/v1/messages",
+      "code": "recipient_suppressed",
+      "request_id": "0194c7a1-8f3e-7a2b-9c4d-1e5f6a7b8c9d"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 95,
+    "context": "PATCH {{base}}/v1/admin/tenants/{{tenantId}}/settings",
+    "json": {
+      "daily_quota_transactional": 2000,
+      "monthly_quota_transactional": 50000,
+      "attachment_max_bytes": 3145728,
+      "retention_days_variables": 30,
+      "tracking_opens_enabled": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 112,
+    "context": "POST {{base}}/v1/admin/tenants/{{tenantId}}/keys",
+    "json": {
+      "label": "prod"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 178,
+    "context": "POST {{base}}/v1/messages",
+    "json": {
+      "stream": "transactional",
+      "template": {
+        "key": "order.confirmation"
+      },
+      "to": "guest@example.com",
+      "variables": {
+        "orderNumber": "A-2291",
+        "total": {
+          "amount": "38100",
+          "currency": "HUF"
+        },
+        "items": [
+          "2 × Cappuccino — 1 780 Ft",
+          "1 × Túrós batyu — 690 Ft"
+        ],
+        "recipientName": "Kovács Anna"
+      },
+      "metadata": {
+        "order_id": "A-2291"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 225,
+    "context": "POST {{base}}/v1/messages",
+    "json": {
+      "template": {
+        "key": "order.confirmation"
+      },
+      "to": "guest@example.com",
+      "variables": {}
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 233,
+    "context": "POST {{base}}/v1/messages",
+    "json": {
+      "template": {
+        "key": "order.confirmation"
+      },
+      "to": "somebody-else@example.com",
+      "variables": {
+        "orderNumber": "A-9999",
+        "total": {
+          "amount": "100",
+          "currency": "HUF"
+        },
+        "items": [
+          "1 × X"
+        ]
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 245,
+    "context": "POST {{base}}/v1/messages",
+    "json": {
+      "template": {
+        "key": "nope.not_a_template"
+      },
+      "to": "guest@example.com",
+      "variables": {}
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 254,
+    "context": "POST {{base}}/v1/messages",
+    "json": {
+      "template": {
+        "key": "order.confirmation"
+      },
+      "to": "guest@example.com",
+      "variables": {},
+      "subjekt": "typo"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 268,
+    "context": "POST {{base}}/v1/messages",
+    "json": {
+      "stream": "marketing",
+      "template": {
+        "key": "generic.notification"
+      },
+      "to": "guest@example.com",
+      "variables": {}
+    }
+  },
+  {
+    "file": "operations.md",
+    "line": 209,
+    "context": "Logging, alerts and heartbeats",
+    "json": {
+      "request_id": "0191f3c5-…",
+      "event": "http.request",
+      "route": "/v1/messages/:publicId",
+      "method": "GET",
+      "status": 200,
+      "duration_ms": 14,
+      "tier": "tenant",
+      "time": "2026-08-17T09:02:00.114Z",
+      "service": "email-service",
+      "env": "production",
+      "level": "info",
+      "message": "Request handled"
+    }
+  },
+  {
+    "file": "tenant-api.md",
+    "line": 107,
+    "context": "1. `POST /v1/messages`",
+    "json": {
+      "stream": "transactional",
+      "template": {
+        "key": "order.confirmation",
+        "version": 1
+      },
+      "to": "guest@example.com",
+      "variables": {
+        "orderNumber": "A-2291",
+        "totalGross": "38100"
+      },
+      "metadata": {
+        "order_id": "A-2291"
+      }
+    }
+  },
+  {
+    "file": "tenant-api.md",
+    "line": 183,
+    "context": "The response",
+    "json": {
+      "public_id": "0194c7a1-8f3e-7a2b-9c4d-1e5f6a7b8c9d",
+      "status": "queued",
+      "stream": "transactional",
+      "template": {
+        "key": "order.confirmation",
+        "version": 1
+      },
+      "to": "guest@example.com",
+      "subject": "Your order A-2291",
+      "from": {
+        "email": "hello@mail.kavezopelda.hu",
+        "name": "Kávézó Pelda"
+      },
+      "provider": "resend",
+      "provider_message_id": null,
+      "attachment_count": 0,
+      "attempts": 0,
+      "error_code": null,
+      "metadata": {
+        "order_id": "A-2291"
+      },
+      "created_at": "2026-08-09T09:14:03.221Z"
+    }
+  },
+  {
+    "file": "tenant-api.md",
+    "line": 262,
+    "context": "Errors",
+    "json": {
+      "type": "urn:email-service:problem:conflict",
+      "title": "Conflict",
+      "status": 409,
+      "detail": "guest@example.com is on this tenant's suppression list.",
+      "instance": "/v1/messages",
+      "code": "recipient_suppressed",
+      "request_id": "0194c7a1-8f3e-7a2b-9c4d-1e5f6a7b8c9d"
+    }
+  },
+  {
+    "file": "tenant-api.md",
+    "line": 370,
+    "context": "5. `POST /v1/oauth/google/start`",
+    "json": {
+      "authorize_url": "https://redacted.example.com/o/oauth2/v2/auth?…",
+      "expires_at": "2026-09-04T11:32:00.000Z"
+    }
+  },
+  {
+    "file": "webhooks.md",
+    "line": 73,
+    "context": "2. The envelope",
+    "json": {
+      "schema_version": 1,
+      "event_id": "0194c7a1-8f3e-7a2b-9c4d-1e5f6a7b8c9d",
+      "event_type": "message.delivered",
+      "occurred_at": "2026-08-09T09:14:09.412Z",
+      "service": "email-service",
+      "account_id": "acct_01H9…",
+      "correlation_id": "0194c7a1-0000-7000-8000-000000000001",
+      "hop": 0,
+      "data": {
+        "public_id": "0194c7a1-…",
+        "status": "delivered",
+        "template": {
+          "key": "order.confirmation",
+          "version": 1
+        },
+        "metadata": {
+          "order_id": "A-2291"
+        }
+      }
+    }
+  }
+]

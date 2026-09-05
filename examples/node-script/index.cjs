@@ -13,8 +13,9 @@
  *    for it, the very first `require` below would throw — which is the fixture half of phase 6's
  *    peer-dependency criterion.
  * 3. **A consumer boots with an EMPTY environment.** No `CONTENT_SERVICE_*`, no `INVOICE_SERVICE_*`, no
- *    `PAYMENT_SERVICE_*`. Every `tryCreate…` answers `null` and nothing throws, which is how a new
- *    contributor runs a client project and how a keyless CI build stays green.
+ *    `PAYMENT_SERVICE_*`, and none of the four newer services' variables either. Every `tryCreate…`
+ *    answers `null` and nothing throws, which is how a new contributor runs a client project and how a
+ *    keyless CI build stays green.
  */
 
 "use strict";
@@ -31,7 +32,7 @@ function check(claim, assertion) {
   proved.push(claim);
 }
 
-// ── 1. require() resolves, on all four packages and all three subpaths ────────────────────────────
+// ── 1. require() resolves, on all eight packages and every subpath ────────────────────────────────
 
 const core = require("@lazslov/api-core");
 const content = require("@lazslov/content");
@@ -39,9 +40,25 @@ const contentFields = require("@lazslov/content/fields");
 const invoice = require("@lazslov/invoice");
 const payment = require("@lazslov/payment");
 const paymentNext = require("@lazslov/payment/next");
+const auth = require("@lazslov/auth");
+const booking = require("@lazslov/booking");
+const email = require("@lazslov/email");
+const webshop = require("@lazslov/webshop");
 
-check("all four packages resolve through the require condition", () => {
-  for (const [name, mod] of Object.entries({ core, content, invoice, payment })) {
+/** The `./next` route handlers, one per service that emits webhooks. */
+const webhookHandlers = {
+  "@lazslov/payment/next": [paymentNext, "createPaymentWebhookHandler"],
+  "@lazslov/auth/next": [require("@lazslov/auth/next"), "createAuthWebhookHandler"],
+  "@lazslov/booking/next": [require("@lazslov/booking/next"), "createBookingWebhookHandler"],
+  "@lazslov/email/next": [require("@lazslov/email/next"), "createEmailWebhookHandler"],
+  "@lazslov/webshop/next": [require("@lazslov/webshop/next"), "createWebshopWebhookHandler"],
+};
+
+// `@lazslov/telemetry` is deliberately absent: it is consumed by the services, not by a client
+// project, so a consumer smoke has nothing to prove about it.
+check("all eight consumer packages resolve through the require condition", () => {
+  const packages = { core, content, invoice, payment, auth, booking, email, webshop };
+  for (const [name, mod] of Object.entries(packages)) {
     assert.equal(typeof mod.VERSION, "string", `${name} has no VERSION`);
   }
 });
@@ -51,9 +68,12 @@ check("the ./fields subpath resolves and carries the field layer", () => {
   assert.equal(typeof contentFields.asText, "function");
 });
 
-check("@lazslov/payment/next resolves with no framework installed", () => {
-  // This package's handler is a plain Request → Response, which is why it declares no peer dependency.
-  assert.equal(typeof paymentNext.createPaymentWebhookHandler, "function");
+check("every ./next webhook handler resolves with no framework installed", () => {
+  // Each handler is a plain Request → Response, which is why none of these packages declares a peer
+  // dependency on next.
+  for (const [entry, [mod, name]] of Object.entries(webhookHandlers)) {
+    assert.equal(typeof mod[name], "function", `${entry} has no ${name}`);
+  }
 });
 
 check("no main entry's shipped CJS requires next, on any package", () => {
@@ -73,7 +93,11 @@ check("no main entry's shipped CJS requires next, on any package", () => {
     "@lazslov/content/fields",
     "@lazslov/invoice",
     "@lazslov/payment",
-    "@lazslov/payment/next",
+    "@lazslov/auth",
+    "@lazslov/booking",
+    "@lazslov/email",
+    "@lazslov/webshop",
+    ...Object.keys(webhookHandlers),
   ]) {
     const built = readFileSync(require.resolve(entry), "utf8");
     assert.equal(requiresNext.test(built), false, `${entry} requires next`);
@@ -87,7 +111,9 @@ check("no main entry's shipped CJS requires next, on any package", () => {
 // ── 2. An empty environment degrades rather than crashing ────────────────────────────────────────
 
 for (const variable of Object.keys(process.env)) {
-  if (/^(CONTENT|INVOICE|PAYMENT)_SERVICE_/.test(variable)) delete process.env[variable];
+  if (/^(CONTENT|INVOICE|PAYMENT|AUTH|BOOKING|EMAIL|WEBSHOP)_(SERVICE_)?/.test(variable)) {
+    delete process.env[variable];
+  }
 }
 
 check("every tryCreate… answers null with no environment at all", () => {
@@ -95,6 +121,13 @@ check("every tryCreate… answers null with no environment at all", () => {
   assert.equal(content.tryCreateContentClient(), null);
   assert.equal(invoice.tryCreateInvoiceClient(), null);
   assert.equal(payment.tryCreatePaymentClient(), null);
+  assert.equal(auth.tryCreateAuthPublicClient(), null);
+  assert.equal(auth.tryCreateAuthClient(), null);
+  assert.equal(booking.tryCreateBookingPublicClient(), null);
+  assert.equal(booking.tryCreateBookingClient(), null);
+  assert.equal(email.tryCreateEmailClient(), null);
+  assert.equal(webshop.tryCreateWebshopPublicClient(), null);
+  assert.equal(webshop.tryCreateWebshopClient(), null);
 });
 
 check("the strict constructors report the variable to set, on a status: 0 error", () => {
@@ -103,6 +136,10 @@ check("the strict constructors report the variable to set, on a status: 0 error"
     content.createContentClient,
     invoice.createInvoiceClient,
     payment.createPaymentClient,
+    auth.createAuthClient,
+    booking.createBookingClient,
+    email.createEmailClient,
+    webshop.createWebshopClient,
   ]) {
     let caught = null;
     try {

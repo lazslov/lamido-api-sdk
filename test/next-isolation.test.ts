@@ -65,10 +65,14 @@ describe("the subpaths that do import next", () => {
     expect([...specifiers]).toEqual(["next/cache"]);
   });
 
-  it("is not @lazslov/payment/next, whose handler is a plain Request → Response", () => {
-    // Which is why that package declares no peer dependency at all.
-    for (const { file, text } of sourcesOf("payment")) {
-      expect(text, file).not.toMatch(importsNext);
-    }
-  });
+  it.each(packageDirs.filter((dir) => dir !== "content"))(
+    "is not @lazslov/%s/next, whose handler is a plain Request → Response",
+    (dir) => {
+      // Every other `./next` subpath carries a webhook route handler that takes a `Request` and
+      // answers a `Response` — which is why none of those packages declares a peer dependency at all.
+      for (const { file, text } of sourcesOf(dir)) {
+        expect(text, file).not.toMatch(importsNext);
+      }
+    },
+  );
 });

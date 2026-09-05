@@ -30,10 +30,12 @@ export default defineConfig({
   },
   resolve: {
     alias: Object.fromEntries(
-      ["api-core", "content", "invoice", "payment"].map((name) => [
-        `@lazslov/${name}`,
-        fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
-      ]),
+      ["api-core", "auth", "booking", "content", "email", "invoice", "payment", "webshop"].map(
+        (name) => [
+          `@lazslov/${name}`,
+          fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
+        ],
+      ),
     ),
   },
 });

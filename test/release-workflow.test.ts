@@ -39,6 +39,46 @@ const directives = workflow
   .filter((line) => !line.trimStart().startsWith("#"))
   .join("\n");
 
+describe("the secrets the release needs", () => {
+  /** Every `secrets.NAME` the workflow reads. */
+  const read = new Set(
+    [...directives.matchAll(/\$\{\{\s*secrets\.([A-Z0-9_]+)\s*\}\}/g)].map((match) => match[1]),
+  );
+
+  /** Every name `scripts/push-release-secrets.sh` pushes. */
+  const pushed = new Set(
+    readFileSync(path.join(repoRoot, "scripts", "push-release-secrets.sh"), "utf8")
+      .split(/REQUIRED=\(|\n\)/)[1]
+      ?.split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#")) ?? [],
+  );
+
+  it("is the same set the push script sets", () => {
+    // The script's own comment claims this. Nothing checked it, and a name the workflow reads and
+    // the script never pushes fails the release at the step that needs it — which is late, and is
+    // exactly how phase 9's four new services would have been discovered.
+    expect([...pushed].sort()).toEqual([...read].sort());
+  });
+
+  it("covers every service the live suite can run", () => {
+    // A service whose base URL is absent skips silently for a developer and fails the release under
+    // `LIVE_REQUIRE_CONFIGURED`. Deriving the list from `live/config.ts` would restate it; naming
+    // the base URLs here is the shorter claim, and each one implies its keys.
+    for (const name of [
+      "CONTENT_SERVICE_BASE_URL",
+      "INVOICE_SERVICE_BASE_URL",
+      "PAYMENT_SERVICE_URL",
+      "AUTH_SERVICE_BASE_URL",
+      "BOOKING_SERVICE_BASE_URL",
+      "EMAIL_SERVICE_BASE_URL",
+      "WEBSHOP_SERVICE_BASE_URL",
+    ]) {
+      expect(read, `${name} is not read by the release workflow`).toContain(name);
+    }
+  });
+});
+
 /** Where a command appears in the workflow, for ordering assertions. */
 function positionOf(command: string): number {
   const index = directives.indexOf(command);

@@ -92,6 +92,35 @@ export const paymentTarget = target("payment-service", "PAYMENT_SERVICE_URL", {
   merchant: "PAYMENT_SERVICE_KEY",
 });
 
+/** auth-service's target: the `apk_` browser key and the `ask_` application key. */
+export const authTarget = target("auth-service", "AUTH_SERVICE_BASE_URL", {
+  publishable: "AUTH_SERVICE_PUBLISHABLE_KEY",
+  application: "AUTH_SERVICE_APPLICATION_KEY",
+});
+
+/** booking-service's target: the `bpk_` browser key and the `bsk_` tenant key. */
+export const bookingTarget = target("booking-service", "BOOKING_SERVICE_BASE_URL", {
+  publishable: "BOOKING_SERVICE_PUBLISHABLE_KEY",
+  secret: "BOOKING_SERVICE_SECRET_KEY",
+});
+
+/** email-service's target. Both names are the ones the knowledge base documents. */
+export const emailTarget = target("email-service", "EMAIL_SERVICE_BASE_URL", {
+  api: "EMAIL_SERVICE_API_KEY",
+});
+
+/**
+ * webshop-service's target: the `wpk_` public key and the `wsk_` storefront key.
+ *
+ * @remarks
+ * `WEBSHOP_SECRET_KEY` is the name the knowledge base's own integration snippet reads, so the SDK
+ * keeps it rather than harmonising it with the other services' `_SERVICE_` names.
+ */
+export const webshopTarget = target("webshop-service", "WEBSHOP_SERVICE_BASE_URL", {
+  publishable: "WEBSHOP_PUBLISHABLE_KEY",
+  secret: "WEBSHOP_SECRET_KEY",
+});
+
 /**
  * Whether this run is allowed to create anything.
  *
@@ -142,7 +171,15 @@ export async function failure<E>(call: () => Promise<unknown>): Promise<E> {
 }
 
 /** Every target, for the summary. */
-const targets = [contentTarget, invoiceTarget, paymentTarget];
+const targets = [
+  contentTarget,
+  invoiceTarget,
+  paymentTarget,
+  authTarget,
+  bookingTarget,
+  emailTarget,
+  webshopTarget,
+];
 
 /**
  * Why a service's cases were skipped, phrased for someone who expected them to run.

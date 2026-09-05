@@ -19,9 +19,16 @@ export const contractsManifest = path.join(contractsDir, "CONTRACTS.json");
  */
 export interface ServiceDescriptor {
   /** Knowledge-base folder name, and the key used in `CONTRACTS.json`. */
-  readonly id: "content-service" | "invoice-service" | "payment-service";
+  readonly id:
+    | "content-service"
+    | "invoice-service"
+    | "payment-service"
+    | "auth-service"
+    | "booking-service"
+    | "email-service"
+    | "webshop-service";
   /** Workspace directory under `packages/`. */
-  readonly pkg: "content" | "invoice" | "payment";
+  readonly pkg: "content" | "invoice" | "payment" | "auth" | "booking" | "email" | "webshop";
   /**
    * Host written into the pinned contract's `servers` template default, replacing
    * the deployment host. Documentation-only; never a fallback the SDK would use.
@@ -29,15 +36,42 @@ export interface ServiceDescriptor {
   readonly exampleHost: string;
 }
 
-/** The three contract-backed service packages, in the order the phases build them. */
+/**
+ * The seven contract-backed service packages, in the order the phases build them.
+ *
+ * @remarks
+ * Phases 3–5 built the first three; phase 9 added the other four. Every gate that inspects a
+ * contract iterates this list, so a service missing here is a service nothing checks.
+ */
 export const services: readonly ServiceDescriptor[] = [
   { id: "content-service", pkg: "content", exampleHost: "https://content.example.com" },
   { id: "invoice-service", pkg: "invoice", exampleHost: "https://invoice.example.com" },
   { id: "payment-service", pkg: "payment", exampleHost: "https://payment.example.com" },
+  { id: "auth-service", pkg: "auth", exampleHost: "https://auth.example.com" },
+  { id: "booking-service", pkg: "booking", exampleHost: "https://booking.example.com" },
+  { id: "email-service", pkg: "email", exampleHost: "https://email.example.com" },
+  { id: "webshop-service", pkg: "webshop", exampleHost: "https://webshop.example.com" },
 ];
 
-/** Every published package directory name, core first — the order `pnpm -r` builds them in. */
-export const packageDirs = ["api-core", "content", "invoice", "payment", "telemetry"] as const;
+/**
+ * Every published package directory name, core first — the order `pnpm -r` builds them in.
+ *
+ * @remarks
+ * Hand-maintained, and that once cost a package its audits: `@lazslov/telemetry` shipped through
+ * gates that never inspected it because it was absent here. `test/package-shape.test.ts` now
+ * compares this list against the workspace, so the omission fails a test instead of a release.
+ */
+export const packageDirs = [
+  "api-core",
+  "auth",
+  "booking",
+  "content",
+  "email",
+  "invoice",
+  "payment",
+  "telemetry",
+  "webshop",
+] as const;
 
 /** Absolute path of a package directory. */
 export function packagePath(dir: string): string {
