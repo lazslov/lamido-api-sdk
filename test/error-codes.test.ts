@@ -1,17 +1,21 @@
 import type { LamidoApiError, ProblemType } from "@lazslov/api-core";
+import type { AuthApiError, AuthProblemCode } from "@lazslov/auth";
+import type { BookingApiError, BookingProblemCode } from "@lazslov/booking";
 import type { ContentApiError } from "@lazslov/content";
+import type { EmailApiError, EmailProblemCode } from "@lazslov/email";
 import type { InvoiceApiError, InvoiceProblemCode } from "@lazslov/invoice";
 import type { PaymentApiError, PaymentConflictCode } from "@lazslov/payment";
+import type { WebshopApiError, WebshopProblemCode } from "@lazslov/webshop";
 import { describe, expect, it } from "vitest";
 
 /**
- * The three services' error unions are now **one** union, and it is exhaustively narrowable.
+ * The seven services' error unions are **one** union, and it is exhaustively narrowable.
  *
  * @remarks
- * This suite used to prove the same property three times, once per service, because each package
- * shipped its own closed set of codes. They have collapsed: all three answer with an RFC 9457
- * problem document over one shared slug set, verbatim and by contract, so a site with all three
- * packages installed writes **one** translator rather than three that must agree.
+ * This suite used to prove the same property once per service, because each package shipped its own
+ * closed set of codes. They have collapsed: every service answers with an RFC 9457 problem document
+ * over one shared slug set, verbatim and by contract, so a site with several packages installed
+ * writes **one** translator rather than several that must agree.
  *
  * The property that makes "branch on `type`, never on the message" practical rather than advisory
  * is unchanged: the translator below ends in a `never`-typed default, so if the estate gains a slug
@@ -70,7 +74,7 @@ describe("the estate's one problem slug set", () => {
     expect(absent).toBeTypeOf("string");
   });
 
-  it("carries no service namespace, so one switch covers all three packages", () => {
+  it("carries no service namespace, so one switch covers every package", () => {
     // The URN differs per service — `urn:content-service:problem:conflict` against
     // `urn:payment-service:problem:conflict` — and the SDK lifts the slug out of it. Branching on
     // the full URN would be three translators again.
@@ -80,13 +84,22 @@ describe("the estate's one problem slug set", () => {
   });
 });
 
-describe("the three error classes share the union", () => {
+describe("every error class shares the union", () => {
   /**
-   * One translator, three services. This is the point of the change, and it is a **compile-time**
-   * assertion: the function below only type-checks because all three classes carry the same
-   * `type` field over the same union.
+   * One translator, seven services. This is the point of the design, and it is a **compile-time**
+   * assertion: the function below only type-checks because every class carries the same `type`
+   * field over the same union.
    */
-  function translate(error: ContentApiError | InvoiceApiError | PaymentApiError): string {
+  function translate(
+    error:
+      | AuthApiError
+      | BookingApiError
+      | ContentApiError
+      | EmailApiError
+      | InvoiceApiError
+      | PaymentApiError
+      | WebshopApiError,
+  ): string {
     return explainShared(error.type);
   }
 
@@ -119,5 +132,21 @@ describe("the per-service `code` extensions stay separate", () => {
     // @ts-expect-error — payment's codes are not invoice's, and mixing them is a real bug.
     const wrong: InvoiceProblemCode = "refund_exceeds_remaining";
     expect(wrong).toBeTypeOf("string");
+  });
+
+  it("keeps the four newer services' sets distinct too", () => {
+    // Each is the closed set that service documents. They overlap in wording — `idempotency_in_flight`
+    // is auth's and booking's alike — and the sets are still separate types, because a code one
+    // service can send is not a code another one can.
+    const authCode: AuthProblemCode = "oauth_state_invalid";
+    const bookingCode: BookingProblemCode = "slot_taken";
+    const emailCode: EmailProblemCode = "recipient_suppressed";
+    const webshopCode: WebshopProblemCode = "cart_converted";
+
+    expect([authCode, bookingCode, emailCode, webshopCode]).toHaveLength(4);
+
+    // @ts-expect-error — a booking conflict is not an email one, whatever the words look like.
+    const mixed: EmailProblemCode = "slot_taken";
+    expect(mixed).toBeTypeOf("string");
   });
 });

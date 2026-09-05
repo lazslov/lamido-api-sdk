@@ -1,12 +1,13 @@
 # Lamido API SDK — build plan
 
-A consumer-side TypeScript SDK for the three services documented in this repository,
-published to npm and installed into client-website projects.
+A consumer-side TypeScript SDK for the services documented in the knowledge base — three in the
+original plan, seven since phase 9 — published to npm and installed into client-website projects.
 
 **Audience of the SDK:** a website being built for a client, and the editor UI that ships
 with it. Not operator tooling.
 
-**Status:** all eight phases built; nothing published. Live checklist: [PROGRESS.md](PROGRESS.md).
+**Status:** phases 1–8 built and published; phase 9 built, unpublished. Live checklist:
+[PROGRESS.md](PROGRESS.md).
 
 ---
 
@@ -26,6 +27,11 @@ lazslov/lamido-api-sdk             (new repo — pnpm workspace)
 
 Each service package depends on `@lazslov/api-core` and on **nothing else**. Core depends on
 nothing. See [phase-1](phase-1-foundations.md) for the dependency policy.
+
+> **Four more consumer packages joined in phase 9** — `@lazslov/auth`, `@lazslov/booking`,
+> `@lazslov/email` and `@lazslov/webshop` — on the same terms: one directory each under `packages/`,
+> `@lazslov/api-core` as the only dependency, consumer tiers only. The tree above is the original
+> decision; [PROGRESS.md](PROGRESS.md) lists what exists today.
 
 > **A fifth package joined after this decision, and it is not a consumer SDK.**
 > `@lazslov/telemetry` is the estate's shared log envelope, sink, alert channel and request
@@ -125,6 +131,12 @@ Names marked *proposed* are new and get written back into the relevant doc folde
 | `PAYMENT_SERVICE_URL` | payment | **documented** ([merchant-api](../payment-service/merchant-api.md#what-the-operator-gives-you)) — note: `_URL`, not `_BASE_URL`, unlike the other two |
 | `PAYMENT_SERVICE_KEY` | payment | **documented** (same) |
 | `PAYMENT_SERVICE_WEBHOOK_SECRET` | payment | **documented** ([merchant-api](../payment-service/merchant-api.md#nextjs-route-handler)) |
+| `AUTH_SERVICE_BASE_URL`, `AUTH_SERVICE_PUBLISHABLE_KEY`, `AUTH_SERVICE_APPLICATION_KEY`, `AUTH_SERVICE_WEBHOOK_SECRET` | auth | *proposed* (phase 9) — the knowledge base names no variable for this service |
+| `BOOKING_SERVICE_BASE_URL`, `BOOKING_SERVICE_PUBLISHABLE_KEY`, `BOOKING_SERVICE_SECRET_KEY`, `BOOKING_SERVICE_WEBHOOK_SECRET` | booking | *proposed* (phase 9) |
+| `EMAIL_SERVICE_BASE_URL`, `EMAIL_SERVICE_API_KEY` | email | **documented** ([conventions §1](../email-service/conventions.md#1-surfaces), [workflows §1](../email-service/workflows.md)) |
+| `EMAIL_SERVICE_WEBHOOK_SECRET` | email | *proposed* (phase 9) |
+| `WEBSHOP_SECRET_KEY` | webshop | **documented** ([workflows §1](../webshop-service/workflows.md#1-integrating-a-storefront-from-a-node-backend)) — the integration snippet's own name, kept |
+| `WEBSHOP_SERVICE_BASE_URL`, `WEBSHOP_PUBLISHABLE_KEY`, `WEBSHOP_WEBHOOK_SECRET` | webshop | *proposed* (phase 9) |
 
 The SDK never reads these itself by hard-coded name in core. Each service package declares
 its own names in one place, and a consumer may override them — so a site talking to two
@@ -180,6 +192,7 @@ Each file is self-contained and states its own dependencies and exit criteria.
 | 6 | [Framework adapters](phase-6-next-adapters.md) | 3, 5 | `…/next` subpaths: cache modes, route handlers |
 | 7 | [Verification](phase-7-verification.md) | 2–6 | live-tenant contract tests, HMAC fixtures, leak audit |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | 7 | versioning, publishing, the drift protocol |
+| 9 | [`@lazslov/auth`](phase-9-auth.md) · [`@lazslov/booking`](phase-9-booking.md) · [`@lazslov/email`](phase-9-email.md) · [`@lazslov/webshop`](phase-9-webshop.md) | 2, 8 | the four remaining services' consumer tiers, each with webhooks and a `./next` route handler |
 
 Phases 3, 4 and 5 are independent of each other and can be built in any order or in
 parallel. Phase 6 needs 3 and 5 (invoice has no webhook and no cache story —

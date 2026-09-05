@@ -58,9 +58,11 @@ describe.each(packageDirs)("packages/%s", (dir) => {
 describe("the provenance requirement", () => {
   it("reads the commits from CONTRACTS.json rather than restating them", () => {
     // Two copies would drift, and the copy that drifted would be this one — which fails open,
-    // passing a changelog that names last quarter's contract.
-    expect(requiredCommits).toHaveLength(4);
-    expect(new Set(requiredCommits).size).toBe(4);
+    // passing a changelog that names last quarter's contract. One knowledge-base commit plus one
+    // source commit per pinned service; every pin comes from the same knowledge-base checkout.
+    const pinned = Object.keys(manifest.contracts).length;
+    expect(requiredCommits).toHaveLength(1 + pinned);
+    expect(new Set(requiredCommits).size).toBe(1 + pinned);
   });
 
   it("fails a changelog whose top entry has no provenance", () => {

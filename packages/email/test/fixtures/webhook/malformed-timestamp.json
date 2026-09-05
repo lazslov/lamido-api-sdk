@@ -1,0 +1,13 @@
+{
+  "name": "malformed-timestamp",
+  "describes": "a timestamp that is not a run of digits",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"schema_version\":1,\"event_id\":\"0194c7a1-8f3e-7a2b-9c4d-1e5f6a7b8c9d\",\"event_type\":\"message.delivered\",\"occurred_at\":\"2026-08-09T09:14:09.412Z\",\"service\":\"email-service\",\"account_id\":\"acct_EXAMPLE\",\"correlation_id\":\"0194c7a1-0000-7000-8000-000000000001\",\"hop\":0,\"data\":{\"public_id\":\"0194c7a1-0000-7000-8000-000000000002\",\"status\":\"delivered\",\"template\":{\"key\":\"order.confirmation\",\"version\":1},\"metadata\":{\"order_id\":\"A-2291\"}}}",
+  "timestamp": "not-a-timestamp",
+  "signature": "sha256=27a76fe28a6eca50b6c5ff843d3e7d2b391df52ffe3ae8e9d6c2ab62466250e8",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": false,
+    "reason": "malformed_timestamp"
+  }
+}

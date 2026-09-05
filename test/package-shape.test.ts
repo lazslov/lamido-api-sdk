@@ -1,14 +1,27 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { packageDirs, packagePath } from "../scripts/lib/paths.js";
+import { packageDirs, packagePath, repoRoot } from "../scripts/lib/paths.js";
 import { checkTarball, type PackedManifest } from "../scripts/lib/tarball-rules.js";
 
 /**
- * The published shape of all four packages, checked from source. `publint`, `attw` and
+ * The published shape of every package, checked from source. `publint`, `attw` and
  * `audit-tarballs` check the built artefact; this suite catches a bad manifest before a
- * build has to happen, and is the one place the four packages are compared to each other.
+ * build has to happen, and is the one place the packages are compared to each other.
  */
+
+describe("packageDirs", () => {
+  it("names every directory under packages/, so no package can ship uninspected", () => {
+    // `pnpm publish -r` walks the workspace; the audits walk this list. The two disagreed once —
+    // `@lazslov/telemetry` shipped through gates that never inspected it — and this is what makes
+    // that omission a failing test rather than a published surprise.
+    const onDisk = readdirSync(path.join(repoRoot, "packages"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+    expect([...packageDirs].sort()).toEqual(onDisk);
+  });
+});
 
 /** Read one package's manifest. */
 function manifestOf(dir: string): PackedManifest & Record<string, unknown> {
@@ -82,9 +95,15 @@ describe.each(packageDirs)("packages/%s", (dir) => {
   });
 
   it("declares only the subpaths its phase has built", () => {
+    // `./next` carries a webhook route handler wherever the service emits events, and a
+    // consumer looks for a route handler there.
     const subpaths: Record<string, string[]> = {
+      auth: [".", "./next"],
+      booking: [".", "./next"],
       content: [".", "./fields", "./next"],
+      email: [".", "./next"],
       payment: [".", "./next"],
+      webshop: [".", "./next"],
     };
     expect(Object.keys(manifest.exports as Record<string, unknown>)).toEqual(
       subpaths[dir] ?? ["."],

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { scanText } from "../scripts/lib/forbidden-strings.js";
 import {
+  redactExampleCredentials,
   redactExampleHosts,
   replaceServersBlock,
   sanitizeContract,
@@ -62,6 +64,40 @@ describe("redactExampleHosts", () => {
   });
 });
 
+describe("redactExampleCredentials", () => {
+  it("rewrites the placeholder key upstream writes, because the guard cannot tell it apart", () => {
+    // booking-service's contract carries this one, and it reaches a published `.d.ts` as an
+    // `@example` tag. The `x` characters make it obviously fake to a human and not to the scanner.
+    const result = redactExampleCredentials(
+      "key: { type: string, example: bsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx }",
+    );
+    expect(result.rewrites).toBe(1);
+    expect(result.yaml).toContain("bsk_YOUR_BSK_KEY");
+    expect(scanText(result.yaml)).toEqual([]);
+  });
+
+  it("leaves a tail the guard already accepts alone, so the diff does not churn", () => {
+    const already = "example: csk_YOUR_SECRET_KEY_HERE";
+    expect(redactExampleCredentials(already)).toEqual({ yaml: already, rewrites: 0 });
+  });
+
+  it("rewrites every tier, so a new service needs no new rule", () => {
+    const result = redactExampleCredentials(
+      ["a: apk_aaaaaaaaaaaaaaaa", "b: wsk_bbbbbbbbbbbbbbbb", "c: whsec_cccccccccccccccc"].join(
+        "\n",
+      ),
+    );
+    expect(result.rewrites).toBe(3);
+    expect(scanText(result.yaml)).toEqual([]);
+  });
+
+  it("leaves a short token alone, which is what the guard does too", () => {
+    // Under twelve characters of payload is not a credential shape either scanner objects to.
+    const short = "prefix: bsk_short";
+    expect(redactExampleCredentials(short)).toEqual({ yaml: short, rewrites: 0 });
+  });
+});
+
 describe("sanitizeContract", () => {
   it("leaves no trace of the deployment host anywhere", () => {
     const result = sanitizeContract(
@@ -76,5 +112,23 @@ describe("sanitizeContract", () => {
     expect(result.serversReplaced).toBe(true);
     expect(result.hostRewrites).toBe(1);
     expect(result.yaml).not.toContain("lamido.hu");
+  });
+
+  it("leaves nothing the leak guard would reject, which is the whole contract of this module", () => {
+    // Both families at once, because the two transforms run in sequence and the second reads the
+    // first's output. A contract that survives this is a contract that can be committed.
+    const result = sanitizeContract(
+      [
+        "servers:",
+        "  - url: https://booking.lamido.hu",
+        "",
+        "callback: https://acme.hu/hooks",
+        "key: { type: string, example: bsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx }",
+      ].join("\n"),
+      "https://booking.example.com",
+    );
+
+    expect(result.credentialRewrites).toBe(1);
+    expect(scanText(result.yaml)).toEqual([]);
   });
 });

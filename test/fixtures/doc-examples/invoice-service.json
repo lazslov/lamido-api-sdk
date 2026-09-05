@@ -1,7 +1,7 @@
 [
   {
     "file": "admin-api.md",
-    "line": 183,
+    "line": 192,
     "context": "`GET /v1/admin/me`",
     "json": {
       "id": "b21f0a3e-4c11-4b8a-9f01-2d33ee9a7c40",
@@ -17,7 +17,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 205,
+    "line": 214,
     "context": "`GET /v1/admin/health`",
     "json": {
       "status": "attention",
@@ -32,39 +32,40 @@
       "dead_lettered_deliveries_cross_service": 0,
       "overdue_webhook_deliveries": 0,
       "clients_without_external_ref": 1,
+      "unrestricted_admin_keys": 2,
       "refused_inbound_events": 0,
       "unroutable_inbound_events": 2
     }
   },
   {
     "file": "admin-api.md",
-    "line": 287,
+    "line": 298,
     "context": "`GET /v1/admin/providers`",
     "json": {
       "data": [
         {
           "name": "szamlazz",
           "label": "szamlazz.hu (Számla Agent)",
-          "configIdPrefix": "szamlazz_",
+          "config_id_prefix": "szamlazz_",
           "secret": {
             "label": "Agent kulcs",
             "help": "Számla Agent key from szamlazz.hu → Beállítások → Számla Agent."
           },
-          "configFields": [],
-          "envFallback": [
+          "config_fields": [],
+          "env_fallback": [
             "<CONFIGID>_AGENT_KEY"
           ],
-          "testDescription": "Queries a deliberately nonexistent invoice and inspects the szlahu_error_code header. An auth-class code means the key is wrong; anything else (including not-found) means it authenticated. Issues nothing. Heuristic — szamlazz has no read-only ping endpoint."
+          "test_description": "Queries a deliberately nonexistent invoice and inspects the szlahu_error_code header. An auth-class code means the key is wrong; anything else (including not-found) means it authenticated. Issues nothing. Heuristic — szamlazz has no read-only ping endpoint."
         },
         {
           "name": "billingo",
           "label": "Billingo (v3)",
-          "configIdPrefix": "billingo_",
+          "config_id_prefix": "billingo_",
           "secret": {
             "label": "API key",
             "help": "Billingo API key from Beállítások → API kulcsok."
           },
-          "configFields": [
+          "config_fields": [
             {
               "key": "blockId",
               "label": "Számlatömb (block) id",
@@ -80,12 +81,12 @@
               "help": "Numeric id of the bank account shown on the invoice."
             }
           ],
-          "envFallback": [
+          "env_fallback": [
             "<CONFIGID>_API_KEY",
             "<CONFIGID>_BLOCK_ID",
             "<CONFIGID>_BANK_ACCOUNT_ID"
           ],
-          "testDescription": "Calls GET /partners to verify the API key, then checks that the configured blockId and bankAccountId actually exist on the account. Issues nothing."
+          "test_description": "Calls GET /partners to verify the API key, then checks that the configured blockId and bankAccountId actually exist on the account. Issues nothing."
         }
       ],
       "next_cursor": null
@@ -93,7 +94,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 360,
+    "line": 391,
     "context": "`POST /v1/admin/admin-keys`",
     "json": {
       "label": "reporting",
@@ -101,12 +102,13 @@
         "clients:read",
         "stats:read"
       ],
-      "allowed_ips": []
+      "allowed_ips": [],
+      "allow_any_ip": true
     }
   },
   {
     "file": "admin-api.md",
-    "line": 372,
+    "line": 404,
     "context": "`POST /v1/admin/admin-keys`",
     "json": {
       "id": "e0a4b7c1-9d22-4e10-8f31-77bb0c1d2e33",
@@ -124,7 +126,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 423,
+    "line": 490,
     "context": "`GET /v1/admin/clients`",
     "json": {
       "data": [
@@ -150,7 +152,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 451,
+    "line": 518,
     "context": "`POST /v1/admin/clients`",
     "json": {
       "name": "Acme Kft",
@@ -160,7 +162,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 463,
+    "line": 530,
     "context": "`POST /v1/admin/clients`",
     "json": {
       "public_id": "019839b0-1c2d-7e3f-8a41-556677889900",
@@ -176,7 +178,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 559,
+    "line": 626,
     "context": "The Credential object",
     "json": {
       "id": "77aa11bb-22cc-33dd-44ee-55ff66aa77bb",
@@ -200,7 +202,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 616,
+    "line": 683,
     "context": "`GET /v1/admin/integrations`",
     "json": {
       "data": [
@@ -232,7 +234,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 713,
+    "line": 846,
     "context": "`PUT /v1/admin/clients/{public_id}/integrations/{config_id}`",
     "json": {
       "provider": "szamlazz",
@@ -242,7 +244,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 772,
+    "line": 905,
     "context": "`POST /v1/admin/clients/{public_id}/integrations/{config_id}/test`",
     "json": {
       "ok": false,
@@ -263,7 +265,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 911,
+    "line": 1061,
     "context": "`GET /v1/admin/invoices/{public_id}/download-link`",
     "json": {
       "url": "https://invoice.example.com/v1/public/invoices/019839c2-…/pdf?token=1786917843.Qm9ndXNTaWc",
@@ -272,7 +274,15 @@
   },
   {
     "file": "admin-api.md",
-    "line": 931,
+    "line": 1083,
+    "context": "`POST /v1/admin/invoices/{public_id}/revoke-download-links`",
+    "json": {
+      "reason": "link was pasted into a public ticket"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 1128,
     "context": "`POST /v1/admin/invoices/{public_id}/cancel`",
     "json": {
       "reason": "customer canceled the order"
@@ -280,7 +290,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 994,
+    "line": 1191,
     "context": "`POST /v1/admin/invoices/{public_id}/reconcile`",
     "json": {
       "action": "attach",
@@ -293,7 +303,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 1044,
+    "line": 1241,
     "context": "`GET /v1/admin/stats/overview`",
     "json": {
       "range": {
@@ -335,7 +345,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 1082,
+    "line": 1279,
     "context": "`GET /v1/admin/stats/timeseries`",
     "json": {
       "data": [
@@ -365,7 +375,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 1105,
+    "line": 1302,
     "context": "`GET /v1/admin/stats/clients`",
     "json": {
       "data": [
@@ -393,7 +403,7 @@
   },
   {
     "file": "admin-api.md",
-    "line": 1153,
+    "line": 1350,
     "context": "`GET /v1/admin/audit`",
     "json": {
       "data": [
@@ -539,7 +549,7 @@
   },
   {
     "file": "client-api.md",
-    "line": 681,
+    "line": 688,
     "context": "`GET /healthz`",
     "json": {
       "status": "ok"
@@ -547,7 +557,7 @@
   },
   {
     "file": "conventions.md",
-    "line": 212,
+    "line": 217,
     "context": "5. Success responses",
     "json": {
       "public_id": "019839c2-7f3a-7a11-b0c1-4d2e6f8a9b01",
@@ -556,7 +566,7 @@
   },
   {
     "file": "conventions.md",
-    "line": 262,
+    "line": 267,
     "context": "6. Errors — RFC 9457 Problem Details",
     "json": {
       "type": "urn:invoice-service:problem:validation",
@@ -576,7 +586,7 @@
   },
   {
     "file": "conventions.md",
-    "line": 461,
+    "line": 477,
     "context": "9. Money",
     "json": {
       "gross_amount_minor": "38100",
@@ -585,7 +595,7 @@
   },
   {
     "file": "examples.http",
-    "line": 49,
+    "line": 50,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "billingo",
@@ -618,7 +628,7 @@
   },
   {
     "file": "examples.http",
-    "line": 75,
+    "line": 76,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -649,7 +659,7 @@
   },
   {
     "file": "examples.http",
-    "line": 113,
+    "line": 114,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -674,7 +684,7 @@
   },
   {
     "file": "examples.http",
-    "line": 128,
+    "line": 129,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -701,7 +711,7 @@
   },
   {
     "file": "examples.http",
-    "line": 146,
+    "line": 147,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -726,7 +736,7 @@
   },
   {
     "file": "examples.http",
-    "line": 160,
+    "line": 161,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -752,7 +762,7 @@
   },
   {
     "file": "examples.http",
-    "line": 175,
+    "line": 176,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -777,7 +787,7 @@
   },
   {
     "file": "examples.http",
-    "line": 190,
+    "line": 191,
     "context": "POST {{base}}/v1/invoices",
     "json": {
       "provider": "szamlazz",
@@ -802,7 +812,7 @@
   },
   {
     "file": "examples.http",
-    "line": 309,
+    "line": 312,
     "context": "POST {{base}}/v1/admin/clients",
     "json": {
       "name": "Acme Kft",
@@ -812,7 +822,7 @@
   },
   {
     "file": "examples.http",
-    "line": 316,
+    "line": 319,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
     "json": {
       "provider": "billingo",
@@ -826,7 +836,7 @@
   },
   {
     "file": "examples.http",
-    "line": 328,
+    "line": 331,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/szamlazz_acme",
     "json": {
       "provider": "szamlazz",
@@ -836,7 +846,7 @@
   },
   {
     "file": "examples.http",
-    "line": 339,
+    "line": 342,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
     "json": {
       "provider": "billingo",
@@ -849,7 +859,7 @@
   },
   {
     "file": "examples.http",
-    "line": 346,
+    "line": 349,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/billingo_acme",
     "json": {
       "provider": "billingo",
@@ -859,7 +869,7 @@
   },
   {
     "file": "examples.http",
-    "line": 353,
+    "line": 356,
     "context": "PUT {{base}}/v1/admin/clients/{{clientPublicId}}/integrations/szamlazz_acme",
     "json": {
       "provider": "billingo",
@@ -872,7 +882,7 @@
   },
   {
     "file": "examples.http",
-    "line": 383,
+    "line": 386,
     "context": "PATCH {{base}}/v1/admin/clients/{{clientPublicId}}",
     "json": {
       "notes": "called about VAT rates"
@@ -880,7 +890,15 @@
   },
   {
     "file": "examples.http",
-    "line": 446,
+    "line": 448,
+    "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/revoke-download-links",
+    "json": {
+      "reason": "link was pasted into a public ticket"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 468,
     "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
     "json": {
       "action": "mark_failed",
@@ -889,7 +907,7 @@
   },
   {
     "file": "examples.http",
-    "line": 454,
+    "line": 476,
     "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
     "json": {
       "action": "attach",
@@ -902,7 +920,7 @@
   },
   {
     "file": "examples.http",
-    "line": 463,
+    "line": 485,
     "context": "POST {{base}}/v1/admin/invoices/{{invoicePublicId}}/reconcile",
     "json": {
       "action": "release",
@@ -911,7 +929,7 @@
   },
   {
     "file": "examples.http",
-    "line": 521,
+    "line": 550,
     "context": "POST {{base}}/v1/admin/admin-keys",
     "json": {
       "label": "reporting",
@@ -923,7 +941,29 @@
   },
   {
     "file": "examples.http",
-    "line": 528,
+    "line": 562,
+    "context": "POST {{base}}/v1/admin/admin-keys",
+    "json": {
+      "label": "email-service",
+      "scopes": [
+        "invoices:read"
+      ],
+      "allowed_ips": [],
+      "allow_any_ip": true
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 571,
+    "context": "POST {{base}}/v1/admin/admin-keys",
+    "json": {
+      "label": "forgot-the-opt-in",
+      "allowed_ips": []
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 578,
     "context": "PATCH {{base}}/v1/admin/admin-keys/{{adminKeyId}}",
     "json": {
       "allowed_ips": [
@@ -933,7 +973,24 @@
   },
   {
     "file": "examples.http",
-    "line": 559,
+    "line": 588,
+    "context": "PATCH {{base}}/v1/admin/admin-keys/{{adminKeyId}}",
+    "json": {
+      "allowed_ips": [],
+      "allow_any_ip": true
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 596,
+    "context": "PATCH {{base}}/v1/admin/admin-keys/{{adminKeyId}}",
+    "json": {
+      "allow_any_ip": true
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 627,
     "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
     "json": {
       "url": "https://acme.example.com/api/invoice-webhook",
@@ -942,7 +999,7 @@
   },
   {
     "file": "examples.http",
-    "line": 567,
+    "line": 635,
     "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
     "json": {
       "url": "https://acme.example.com/api/ledger-feed",
@@ -955,7 +1012,17 @@
   },
   {
     "file": "examples.http",
-    "line": 579,
+    "line": 656,
+    "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
+    "json": {
+      "url": "https://acme.example.com/api/authenticated-receiver",
+      "description": "Fetches PDFs with its own admin key",
+      "include_pdf_url": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 668,
     "context": "POST {{base}}/v1/admin/clients/{{clientId}}/webhook-endpoints",
     "json": {
       "url": "https://acme.example.com/api/nowhere",
@@ -964,7 +1031,7 @@
   },
   {
     "file": "examples.http",
-    "line": 604,
+    "line": 693,
     "context": "PATCH {{base}}/v1/admin/webhook-endpoints/{{endpointId}}",
     "json": {
       "url": "https://acme.example.com/api/invoice-webhook-v2"
@@ -972,7 +1039,23 @@
   },
   {
     "file": "examples.http",
-    "line": 617,
+    "line": 704,
+    "context": "PATCH {{base}}/v1/admin/webhook-endpoints/{{endpointId}}",
+    "json": {
+      "include_pdf_url": true
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 713,
+    "context": "PATCH {{base}}/v1/admin/webhook-endpoints/{{endpointId}}",
+    "json": {
+      "include_pdf_url": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 726,
     "context": "POST {{base}}/v1/admin/webhook-endpoints/{{endpointId}}/disable",
     "json": {
       "reason": "Receiver migrating to a new host"
@@ -980,7 +1063,7 @@
   },
   {
     "file": "examples.http",
-    "line": 735,
+    "line": 852,
     "context": "POST {{base}}/v1/hooks/payment-service",
     "json": {
       "event_id": "019e5b02-0000-7000-8000-000000000001",
@@ -1029,7 +1112,7 @@
   },
   {
     "file": "examples.http",
-    "line": 777,
+    "line": 894,
     "context": "POST {{base}}/v1/hooks/payment-servcie",
     "json": {}
   },

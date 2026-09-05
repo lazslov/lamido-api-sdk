@@ -1,5 +1,52 @@
 # @lazslov/api-core
 
+## 2.0.0
+
+Verified against knowledge base `714f2ee`: content-service `0048426`, invoice-service `706dc63`,
+payment-service `e3828d2`, auth-service `bbeb4d4`, booking-service `18846e1`,
+email-service `23051b9`, webshop-service `529003d`.
+
+### Major Changes
+
+- `ProblemFieldError.code` is optional.
+
+  **Why it changes.** Six of the seven services declare a field error as
+  `required: [pointer, code, detail]`. **booking-service declares `required: [pointer, detail]`**,
+  and its `conventions.md` §4 shows one with no `code` at all — so a required `code` was a type that
+  lies about one service in seven.
+
+  It lied _silently_, which is the part worth the major. `readProblem` has always filtered the
+  `errors` array on `pointer` alone, so a booking field error was carried through with the property
+  **absent** while the type promised a `string`. A consumer reading `error.errors[0].code` got
+  `undefined` with no compile error and no runtime error — a wrong label next to a form field, and
+  nothing to trace it to.
+
+  **Migration.** `code` now reads as `string | undefined`. Where you branch on it, fall back to
+  `detail`, which every service sends:
+
+  ```diff
+    for (const field of error.errors ?? []) {
+  -   showFieldError(field.pointer, field.code);
+  +   showFieldError(field.pointer, field.code ?? field.detail ?? "invalid");
+    }
+  ```
+
+  `pointer` is unchanged and is still the member to build a form on.
+
+### Patch Changes
+
+- Re-pin the contracts at knowledge base `714f2ee`, so the changelog inside each tarball names the
+  commits these packages were verified against — now including the four services that gained a
+  package in this release: auth-service, booking-service, email-service and webshop-service.
+
+  No public surface moves in the five packages that already existed. Every operation and schema
+  that changed upstream is outside what this SDK ships, and the regenerated types say so: two new
+  admin routes (`POST /v1/admin/integrations/test` and
+  `POST /v1/admin/invoices/{public_id}/revoke-download-links`), a `stats:read` admin scope,
+  `signing_state` on an admin health body, and `publicly_enumerable` on a dataset **field
+  descriptor** — which is dataset structure, written by staff, and referenced nowhere in
+  `@lazslov/content`.
+
 ## 1.0.1
 
 Verified against knowledge base `9b8228c`: content-service `eb0b88d`, invoice-service `7fdc5ec`,

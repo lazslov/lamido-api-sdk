@@ -494,6 +494,95 @@ Four things the plan could not have known, each found by the release rather than
   `ECONNREFUSED 127.0.0.1:3302`. Nothing published, because the live suite runs before the publish
   step, which is the ordering the workflow exists to guarantee.
 
+## Phase 9 decisions — the four remaining services
+
+Built 2026-09-04 against knowledge base `714f2ee`, on the maintainer's instruction that every
+Lamido service has an SDK. Four packages arrived at once: `@lazslov/auth`, `@lazslov/booking`,
+`@lazslov/email` and `@lazslov/webshop`, each with its own `docs/plans/phase-9-<pkg>.md`. The
+decisions the next-work plan's §5 left to the maintainer were taken like this:
+
+- **All four, now, and email included.** A package that waits for its service to reach phase 8 is a
+  package nobody can integrate against meanwhile; the drift protocol exists to report movement. Email
+  ships because any backend that sends transactional mail is a consumer of the tenant tier — the
+  plan's doubt was about client *sites*, and the SDK's audience is client *projects*.
+- **`lamido-mcp` gets no package.** Its own folder says it is not a service but a client of the seven,
+  speaking a second protocol; an SDK for it would be an MCP client, which is a different product.
+- **Every new package has a `./next` subpath**, because every one of the four emits webhooks and the
+  route handler pattern from `@lazslov/payment/next` applies unchanged: a plain `Request → Response`,
+  no import of `next`, no peer dependency. `test/next-isolation.test.ts` now asserts that for every
+  package except content.
+- **The re-pin came with the packages, and it bumped the five existing ones.** Pinning four new
+  contracts at `714f2ee` moved the other three off `9b8228c` as well, and the provenance test requires
+  every shipped changelog to name the current pins — so `api-core`, `content`, `invoice`, `payment` and
+  `telemetry` each carry a patch entry, per the precedent of the `9b8228c` re-pin. Regenerating the
+  three existing schemas changed admin-tier shapes only; every existing suite passed unchanged.
+- **The provenance test derives its count from the manifest.** It asserted exactly four commits; with
+  seven pinned services that would have been a hand-maintained number, which is the failure mode the
+  telemetry lesson warned about.
+- **`packageDirs` is compared against the workspace.** Same lesson: `test/package-shape.test.ts`
+  fails when a directory under `packages/` is missing from the list, so an audit can no longer skip a
+  package silently.
+- **The leak guard learned eleven prefixes.** `apk|ask|aad|bpk|bsk|bad|esk|ead|wpk|wsk|wad` join the
+  credential pattern and the doc-example sanitiser. Publishable keys are included although they are not
+  secrets: a real one still names a tenant.
+- **Environment variable names follow the knowledge base where it names one, and the
+  `<SERVICE>_SERVICE_*` pattern where it does not.** So `EMAIL_SERVICE_BASE_URL` and
+  `EMAIL_SERVICE_API_KEY` (documented), `WEBSHOP_SECRET_KEY` (the name the KB's own integration snippet
+  reads — kept, per the payment `_URL` precedent), and `AUTH_SERVICE_*` / `BOOKING_SERVICE_*` /
+  `WEBSHOP_SERVICE_BASE_URL` / `WEBSHOP_PUBLISHABLE_KEY` / `WEBSHOP_WEBHOOK_SECRET` as the SDK's
+  proposals. Each package's `env.ts` says which is which.
+- **The doc-example suite was split into one module per service** under `test/lib/doc-examples/`.
+  One file for seven services' classifiers would have been the large monolithic file CLAUDE.md
+  forbids. The runner and the "every example is claimed" rule are unchanged.
+- **The CI runtime-baseline job links every `packages/*` directory** instead of a named list, so a
+  tenth package needs no workflow edit.
+- **Two upstream defects surfaced, and both are worked around visibly rather than absorbed.**
+
+  **booking-service's contract declares three `operationId`s twice.** Its `openapi.yaml` shares one
+  operation object between a path's `get` and its `post` through a YAML anchor
+  (`get: &cronJobs … post: *cronJobs`), and the alias copies the `operationId` with everything
+  else. OpenAPI requires that id to be unique, so the resolved document is invalid and
+  `openapi-typescript` faithfully emits `cronDrainJobs`, `cronSyncCalendars` and `cronMaintenance`
+  twice each — `TS2300`, and the repository stops type-checking. All three are `x-internal` cron
+  routes no consumer calls. `scripts/lib/dedupe-operations.ts` drops a repeat **only when the two
+  blocks are byte-identical** and throws otherwise, so a genuine collision still reaches a human.
+  The fix belongs upstream: give the aliased `post` its own id.
+
+  **booking-service's contract also carries a credential-shaped example**, `example:
+  bsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`, which reached a published `.d.ts` as an `@example` tag and
+  failed the leak guard and the tarball audit. It is a placeholder, and *the guard cannot know that
+  and must not learn to make exceptions* — the doc-example extractor has said so since phase 7.
+  `redactExampleCredentials` now rewrites it on import, exactly as `redactExampleHosts` rewrites a
+  host, and the two sanitisers and the guard share **one** prefix list (`credentialPrefixes`) so the
+  copy that drifts cannot be the sanitiser.
+
+- **`ProblemFieldError.code` became optional, and `@lazslov/api-core` took a major for it.** Six
+  services declare a field error `required: [pointer, code, detail]`; **booking-service's contract
+  declares `required: [pointer, detail]`** and its conventions §4 shows one with no `code`. So the
+  shared type lied about one service in seven — the same defect the `stornoNumber` decision named in
+  phase 4, and it failed *silently*: `readProblem` filters the array on `pointer` alone, so the
+  property arrived absent while the type promised a `string`.
+
+  **Done now rather than later because the coordination was already being paid for.** Nothing was
+  published at its current version when this landed — the four new packages were unreleased and the
+  five existing ones already carried pending bumps — so `2.0.0` cost one changeset instead of a
+  standalone major plus seven forced releases. A subclass could not have narrowed it: a property
+  that drops `code` is not assignable to the base's declaration.
+
+- **`changeset version` ran twice, and the second run had to be collapsed by hand.** The re-pin and
+  the core major were separate runs, so every dependent ended with two stacked entries — `2.0.1` and
+  `2.0.2` on content, and a `1.0.1` "Updated dependencies" entry on top of each **unpublished**
+  `1.0.0`. Only the top version can ever ship, so the lower entries described versions nobody could
+  install: a changelog entry for a version that never publishes is a lie in the file a consumer reads
+  to answer *which contract does my installed SDK believe in?*. Each package now carries one entry at
+  the version this release actually publishes. **The lesson for the next release: apply every
+  changeset in one `release:version` run, or collapse afterwards.**
+
+- **The live suite gained four negative-only files, and the release now needs eleven more secrets.**
+  Until the four scratch tenants exist on the `release` environment, `LIVE_REQUIRE_CONFIGURED` fails
+  the release naming them. That is the gate doing its job, and it is the first thing the next release
+  has to clear — see `docs/live-testing.md` §3b.
+
 ## Build tooling: the tsdown configs are `.mjs`
 
 Phase 1 chose `tsdown --config-loader tsx` because tsdown's native loader cannot resolve
@@ -558,6 +647,12 @@ extension of it.
   the doc-example fixtures brought those documents into scope. The SDK's extractor rewrites it, so nothing
   leaks from here, but the *knowledge base* still carries it. That is a fix for that repository, through
   its own PR flow, and it is not this repository's to make.
+- **Six knowledge-base findings are filed and none is fixed here.** They are
+  [T-19…T-24](https://github.com/lazslov/knowledge-base/pull/415) in that repository's
+  `docs/backlog.md`, mirrored to its Asana project per CLAUDE.md §7.4, and summarised in
+  [plans/next-work-2026-08-22.md §5b](plans/next-work-2026-08-22.md). T-19 is the pair this
+  repository carries a workaround for; the other five are documents disagreeing with their own
+  contract. The two workarounds go when T-19 closes.
 
 ## Settled since
 

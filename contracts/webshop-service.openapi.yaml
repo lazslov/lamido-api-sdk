@@ -1,0 +1,5055 @@
+openapi: 3.1.0
+
+# Machine-readable contract for webshop-service. THIS IS THE PUBLISHED COPY.
+#
+# THE SOURCE IS THE SERVICE REPOSITORY, at `openapi.yaml` in lazslov/webshop-service, where
+# `src/__tests__/openapi.test.ts` diffs it against Hono's routing table IN BOTH DIRECTIONS on every
+# CI run - 82 operations against 82 routes, 23 declared request bodies against 23 routes that read
+# one. This file is synced FROM there. Do not hand-edit it here; fix it there and re-sync.
+#
+# NO DIVERGENCE. This copy is content-identical to the source at `main` (18c4a9a), body for body,
+# from `info:` down. The one earlier divergence is gone: this copy carried `without_payment_credential`
+# inlined on the shops listing while the source had moved it into `components/parameters`, and the
+# source's form is what is here now.
+#
+# What moved in the 18c4a9a sync, and every one of these is a SHAPE a generated client will feel:
+#   1. `MinorAmount` LOST ITS SIGN. The pattern is `^(0|[1-9][0-9]{0,17})$`; no amount in this
+#      service is negative. `compare_at_price` is a `MinorAmount` now rather than a bare nullable
+#      string, so a negative struck-through price is a 400 where it used to be accepted.
+#   2. SIX NEW ADMIN SCOPES - `jobs:*`, `payments:*`, `shipping:*` - each sitting BESIDE the wider
+#      scope it split from. The wide one still works and is a compatibility grant with a stated end.
+#   3. The admin-key routes gained `allow_any_ip` on the mint, `?allowlist=empty` on the listing,
+#      and TWO 422 GUARDS on the revoke (`key_self_revoke`, `last_managing_key`).
+#   4. Admin health carries ELEVEN counts, not ten: `cross_service_dead_letters` and
+#      `unrestricted_admin_keys` are new, and ten of the eleven vanish when the database is degraded.
+#   5. `?event_type=` on the endpoints listing, `?cross_service=true` on the deliveries listing.
+#   6. `from`/`until` are STRICT ISO 8601 now - `"2026"` is a 400 where it used to be a window.
+#   7. The inbound receiver has a REPLAY WINDOW: `refused` / `stale` joins the closed reason set.
+#
+# AUTHORITY: this file is authoritative for SHAPES — types, enums, required fields, status codes.
+# The Markdown in the knowledge-base folder is authoritative for BEHAVIOUR — side effects, guard
+# order, retry safety, and every gotcha. If the two disagree, the Markdown wins and this file is the
+# bug. Where a shape here disagrees with the code, THE CODE WINS and both are bugs; the test above is
+# what stops that pair from lasting.
+#
+# Read conventions.md before generating a client. Five things it says that no schema can express:
+#   1. Money is a decimal string of MINOR units, and HUF has ZERO minor units.
+#   2. tax_total is CONTAINED IN grand_total, never added to it.
+#   3. A checkout's 201 is a `pending` order, NOT a paid one. It becomes `confirmed` only when
+#      payment-service delivers an event, asynchronously, which on this deployment can take a day.
+#   4. A 429 or a 502 from checkout STILL COMMITTED THE ORDER — the payment call happens after the
+#      transaction commits. Retry the SAME Idempotency-Key; that is the resume path.
+#   5. Every webhook retry rung is a FLOOR. The scheduled drain runs once a day.
+#
+# The two cron routes (/api/cron/webhooks-drain, /api/cron/sweeps) ARE here, at the end, each marked
+# `x-internal: true`. They are not an API surface and no consumer calls them; they are documented so
+# that the routing-table test has nothing to exempt. operations.md carries their behaviour.
+
+info:
+  title: webshop-service
+  version: 0.1.0
+  description: >-
+    Multi-tenant commerce engine: catalog, carts, pricing, checkout, orders, payments and an event
+    layer in both directions. Three bearer tiers - `wpk_` publishable (browser, catalog reads only),
+    `wsk_` secret (the storefront's backend), `wad_` admin (cross-shop operator) - plus one
+    signature-authenticated inbound receiver at `/v1/hooks/payment-service` that carries no bearer
+    key of ours. Phase 6 of 7. A checkout creates an order `pending` AND a payment at
+    payment-service, returning a `payment` block with a `gateway_url`; the order becomes `confirmed`
+    only when payment-service reports success, through the inbound receiver or the daily reconcile
+    poll. The audit trail is READABLE from phase 7 at `/v1/admin/audit-log`. There is still NO stats
+    surface and NO refund route.
+
+servers:
+  # The deployment host is deliberately absent from this pinned copy. No host ships in
+  # a tarball, and contracts/ is one `files` mistake away from being published — see
+  # docs/plans/phase-1-foundations.md §4. The consuming project supplies the base URL
+  # from its own environment; the SDK has no fallback.
+  - url: "{baseUrl}"
+    description: Supplied by the consuming project from its own environment.
+    variables:
+      baseUrl:
+        default: https://webshop.example.com
+        description: Documentation placeholder, not a usable default.
+
+tags:
+  - name: health
+    description: Unauthenticated liveness.
+  - name: public
+    description: The `wpk_` browser tier. Catalog reads only. See public-api.md for the CORS caveat.
+  - name: storefront
+    description: The `wsk_` consumer tier - the storefront's backend.
+  - name: admin
+    description: The `wad_` operator tier, cross-shop, narrowed by scopes.
+  - name: webhooks
+    description: >-
+      The event layer's operator surface - WH-9's fourteen routes, plus the queue's three and the
+      inbound ledger. See webhooks.md for the receiver-facing contract.
+  - name: hooks
+    description: >-
+      The inbound receiver. NOT a surface anyone but payment-service calls, and it carries no bearer
+      key - authentication is an HMAC signature over the raw request bytes.
+  - name: operations
+    description: >-
+      The platform's own scheduler, authenticated by `CRON_SECRET`. Every operation here is
+      `x-internal: true` - documented so that the test comparing this file with the routing table
+      needs no exemption list, and NOT part of any consumer contract. See operations.md.
+
+security:
+  - shopSecretKey: []
+
+paths:
+  /healthz:
+    get:
+      operationId: getLiveness
+      tags: [health]
+      summary: Liveness probe
+      description: >-
+        Unauthenticated and unversioned. NEVER answers 503: a degraded dependency is reported as
+        `status: "degraded"` in the body with a 200, so a monitor that checks `response.ok` before
+        reading the body still sees the reason. `configuration` is checked before the database, and
+        `database` reads `"unknown"` (not `"degraded"`) when the environment is incomplete.
+      security: []
+      responses:
+        '200':
+          description: Alive. Read the body for the diagnosis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Liveness'
+
+  /v1/public/products:
+    get:
+      operationId: listPublicProducts
+      tags: [public]
+      summary: List published products (browser tier)
+      description: >-
+        Only `published` products, with archived variants filtered out. Sets `ETag` and
+        `Cache-Control: public, s-maxage=60, stale-while-revalidate=300`. Send `If-None-Match` for
+        a 304. NOTE: the actual response carries no `Access-Control-Allow-Origin` header at this
+        commit, so a cross-origin browser read is blocked - see public-api.md.
+      security:
+        - shopPublishableKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: A page of published products.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            Vary:
+              $ref: '#/components/headers/Vary'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProductList'
+        '304':
+          description: The caller's validator matches. Empty body.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /v1/public/products/{id_or_slug}:
+    get:
+      operationId: getPublicProduct
+      tags: [public]
+      summary: One published product by public_id or slug (browser tier)
+      description: >-
+        A 404 here is cached with `Cache-Control: public, s-maxage=10` and carries no ETag, so a
+        newly published product may 404 for up to ten seconds.
+      security:
+        - shopPublishableKey: []
+      parameters:
+        - $ref: '#/components/parameters/idOrSlug'
+        - $ref: '#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: The product.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProduct'
+        '304':
+          description: The caller's validator matches. Empty body.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /v1/me:
+    get:
+      operationId: getStorefrontSelf
+      tags: [storefront]
+      summary: The calling shop and key
+      description: >-
+        `shop.status` is deliberately absent - a suspended shop's keys all answer 401, so a shop
+        that receives this response is active by definition.
+      responses:
+        '200':
+          description: The shop and the key presented.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorefrontSelf'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/products:
+    get:
+      operationId: listStorefrontProducts
+      tags: [storefront]
+      summary: List published products (secret tier)
+      description: >-
+        Identical visibility and shape to the public tier, from the same implementation. No cache
+        headers of any kind are set here.
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+      responses:
+        '200':
+          description: A page of published products.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProductList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/products/{id_or_slug}:
+    get:
+      operationId: getStorefrontProduct
+      tags: [storefront]
+      summary: One published product by public_id or slug (secret tier)
+      parameters:
+        - $ref: '#/components/parameters/idOrSlug'
+      responses:
+        '200':
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProduct'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/carts:
+    post:
+      operationId: createCart
+      tags: [storefront]
+      summary: Create a cart
+      description: >-
+        NOT idempotent: each call makes a new cart. `currency` is absent from the schema on purpose -
+        a cart copies the shop's currency and may not choose. A cart is not scoped to a customer or
+        a session; both fields are labels you attach for your own use.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartCreate'
+      responses:
+        '201':
+          description: The new cart, priced, with an empty `items` array.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/carts/{public_id}:
+    get:
+      operationId: getCart
+      tags: [storefront]
+      summary: Read a cart, priced
+      description: An expired or converted cart still READS. Only writes are refused.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The cart, priced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/carts/{public_id}/items:
+    post:
+      operationId: addCartItem
+      tags: [storefront]
+      summary: Add a variant, or increase its existing line
+      description: >-
+        NOT idempotent - it ADDS. Two calls of `quantity: 2` make 4. Adding a variant already in the
+        cart increases that line, and the 99 cap applies to the resulting LINE, not the request.
+        Another shop's `variant_id` answers 422 `variant_unavailable`, not 404, because the id
+        arrived in the body.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemCreate'
+      responses:
+        '200':
+          description: The whole cart, priced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/carts/{public_id}/items/{item_public_id}:
+    patch:
+      operationId: setCartItemQuantity
+      tags: [storefront]
+      summary: Set a line's quantity
+      description: Idempotent - `quantity` is absolute, not a delta.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+        - $ref: '#/components/parameters/itemPublicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemUpdate'
+      responses:
+        '200':
+          description: The whole cart, priced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+    delete:
+      operationId: deleteCartItem
+      tags: [storefront]
+      summary: Remove a line
+      description: Answers 200 with the recalculated cart, not 204. An expired cart refuses this.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+        - $ref: '#/components/parameters/itemPublicId'
+      responses:
+        '200':
+          description: The whole cart, priced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/carts/{public_id}/coupon:
+    post:
+      operationId: applyCartCoupon
+      tags: [storefront]
+      summary: Apply or replace the cart's single coupon code
+      description: >-
+        A cart holds at most one code, so this POST is safely repeatable. The coupon is judged now
+        AND again at checkout. A refused coupon leaves any existing code untouched.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartCoupon'
+      responses:
+        '200':
+          description: The whole cart, priced, with the coupon applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+    delete:
+      operationId: removeCartCoupon
+      tags: [storefront]
+      summary: Remove the cart's coupon code
+      description: No validation of any kind. Removing a code that was never set is a safe no-op.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The whole cart, priced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/carts/{public_id}/shipping-options:
+    get:
+      operationId: listCartShippingOptions
+      tags: [storefront]
+      summary: The shop's active shipping methods
+      description: >-
+        IGNORES THE CART ENTIRELY - no weight, no destination, no value banding. It hangs off the
+        cart so that carriage can depend on the cart later without moving the route. Only `active`
+        methods are listed, and that is not a caller-controlled filter.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+      responses:
+        '200':
+          description: A page of shipping options.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingOptionList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/carts/{public_id}/shipping-method:
+    put:
+      operationId: setCartShippingMethod
+      tags: [storefront]
+      summary: Choose carriage, or clear the choice
+      description: >-
+        The `shipping_method_id` key must be PRESENT; `null` clears the choice. A withdrawn method
+        or another shop's answers 422 `shipping_method_inactive`.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartShippingMethod'
+      responses:
+        '200':
+          description: The whole cart, priced, with `shipping_total` folded in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/carts/{public_id}/checkout:
+    post:
+      operationId: checkoutCart
+      tags: [storefront]
+      summary: Turn the cart into an order
+      description: >-
+        THE ONLY ENDPOINT THAT TAKES `Idempotency-Key`, AND IT IS REQUIRED. Everything happens in
+        one transaction or nothing does. Every 400 and 422 RELEASES the key, so you may fix the
+        request and retry with the same key; only a committed order replays. A replay returns the
+        frozen bytes verbatim with `Idempotent-Replay: true`.
+
+        Nothing about money is in the payload - totals come from the cart. The order is created
+        `pending`, and a payment IS created at payment-service after the transaction commits: the
+        201 carries a `payment` block with a `gateway_url` to redirect the buyer to. The order does
+        NOT become `paid` here - that happens asynchronously when payment-service reports success.
+
+        CRITICAL: the payment call happens AFTER the commit, so a 429 or either 502 STILL LEFT A
+        REAL `pending` ORDER HOLDING STOCK. The correct reaction is to retry with the SAME
+        Idempotency-Key, which takes the resume path: the committed order is reloaded and only the
+        payment is retried. Starting a new cart strands the order, because the old cart is already
+        `converted` and a second checkout of it answers 422 `cart_converted`.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+        - $ref: '#/components/parameters/idempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+      responses:
+        '201':
+          description: >-
+            The order with `status: "pending"`, plus a `payment` block - which is `null` when the
+            shop holds no payment credential. On a replay the bytes are identical.
+          headers:
+            Idempotent-Replay:
+              $ref: '#/components/headers/IdempotentReplay'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+        '429':
+          $ref: '#/components/responses/PaymentThrottled'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/ProviderError'
+
+  /v1/orders:
+    get:
+      operationId: listStorefrontOrders
+      tags: [storefront]
+      summary: List this shop's orders
+      description: >-
+        Newest first. `from` is inclusive and `until` exclusive, and both test `created_at`. An
+        unknown `status` value is a 400 here - unlike the shops and products admin listings.
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/orderStatus'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/until'
+      responses:
+        '200':
+          description: A page of orders, each with its full `items` array.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/orders/{public_id}:
+    get:
+      operationId: getStorefrontOrder
+      tags: [storefront]
+      summary: One order
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/orders/{public_id}/cancel:
+    post:
+      operationId: cancelStorefrontOrder
+      tags: [storefront]
+      summary: Cancel a pending or payment_failed order
+      description: >-
+        The reservation is released in the SAME transaction as the status change. Calling it twice
+        is SAFE and answers 200 - a no-op transition writes a timeline row and moves no counter.
+        A `fulfilled` or `refunded` order answers 422 `order_terminal`.
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: 'The order, `status: "canceled"`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/admin/me:
+    get:
+      operationId: getAdminSelf
+      tags: [admin]
+      summary: The calling admin key
+      description: No scope required - a key must always be able to introspect itself.
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: The admin key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminKey'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/health:
+    get:
+      operationId: getAdminHealth
+      tags: [admin]
+      summary: Deep health check
+      description: >-
+        No scope required, and 200 even when degraded. ELEVEN counts, and ALL TEN QUERY-BACKED ONES
+        ARE ABSENT ENTIRELY when the database is degraded - a monitor must treat absent as "unknown", not
+        as zero, or it will report everything healthy during an outage.
+
+        Every count drills into a listing through the SAME EXPORTED PREDICATE (WH-26), so a number
+        here is a worklist rather than a hint. `oversold_orders` is the only one that means ACT.
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: The health report. Read `status`, not the HTTP code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminHealth'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/admin/shops:
+    get:
+      operationId: listShops
+      tags: [admin]
+      summary: List shops
+      description: >-
+        Scope `shops:read`. An UNRECOGNISED `status` value is SILENTLY IGNORED and returns an
+        unfiltered list - unlike the orders listing, which answers 400.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/shopStatus'
+        - $ref: '#/components/parameters/withoutExternalRef'
+      responses:
+        '200':
+          description: A page of shops.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createShop
+      tags: [admin]
+      summary: Provision a shop
+      description: >-
+        Scope `shops:write`. `currency` is set here and can NEVER be changed. `slug` is GLOBALLY
+        unique. `tax_rate_bps: 27` is accepted and means 0.27% - read the echoed value.
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShopCreate'
+      responses:
+        '201':
+          description: 'The shop, `status: "active"`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shop'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/shops/{public_id}:
+    get:
+      operationId: getShop
+      tags: [admin]
+      summary: One shop
+      description: Scope `shops:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The shop.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shop'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateShop
+      tags: [admin]
+      summary: Update a shop, including suspending it
+      description: >-
+        Scope `shops:write`. `currency` and `slug` are NOT patchable. Setting
+        `status: "suspended"` takes the storefront offline immediately: every call with any of that
+        shop's keys then answers 401, indistinguishably from a bad key.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShopUpdate'
+      responses:
+        '200':
+          description: The updated shop.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shop'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shops/{public_id}/keys:
+    get:
+      operationId: listShopKeys
+      tags: [admin]
+      summary: A shop's API keys
+      description: >-
+        Scope `shops:read`. UN-PAGINATED - no `limit`, no `cursor` - and still returns the list
+        envelope with `next_cursor: null`. Includes revoked keys. Never returns a plaintext key.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: Every key this shop holds, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopKeyList'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: mintShopKey
+      tags: [admin]
+      summary: Mint a shop key
+      description: >-
+        Scope `shops:write`. THE `key` MEMBER IN THIS RESPONSE IS THE ONLY TIME THE PLAINTEXT IS
+        EVER SHOWN. It is stored as a SHA-256 digest and cannot be recovered. No cap on keys per
+        shop.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShopKeyMint'
+      responses:
+        '201':
+          description: The key, including its plaintext exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MintedShopKey'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shops/{public_id}/keys/{key_id}/rotate:
+    post:
+      operationId: rotateShopKey
+      tags: [admin]
+      summary: Mint a replacement key and revoke this one
+      description: >-
+        Scope `shops:write`. THE OLD KEY STOPS WORKING THE INSTANT THIS RETURNS - there is no
+        overlap window. For a planned rotation, mint a second key alongside instead. Answers 201
+        with the NEW key and its plaintext.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+        - $ref: '#/components/parameters/keyId'
+      responses:
+        '201':
+          description: The new key, including its plaintext exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MintedShopKey'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shops/{public_id}/keys/{key_id}/revoke:
+    post:
+      operationId: revokeShopKey
+      tags: [admin]
+      summary: Revoke a shop key
+      description: Scope `shops:write`. Idempotent - revoking twice answers 200 and moves nothing.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+        - $ref: '#/components/parameters/keyId'
+      responses:
+        '200':
+          description: The revoked key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopKey'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shops/{public_id}/products:
+    post:
+      operationId: createProduct
+      tags: [admin]
+      summary: Create a product with its variants
+      description: >-
+        Scope `catalog:write`. Creation lives under the shop because it is the one catalog operation
+        that cannot infer a shop from an existing row. OMITTING `variants` CREATES ONE DEFAULT
+        VARIANT priced `"0"` with the product's own name - a product with no variant could never be
+        added to a cart. Product and variants are one transaction. Born `draft`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+      responses:
+        '201':
+          description: The product with its variants.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shops/{public_id}/coupons:
+    post:
+      operationId: createCoupon
+      tags: [admin]
+      summary: Create a coupon
+      description: >-
+        Scope `discounts:write`. `value` is BASIS POINTS for `percentage` and MINOR UNITS for
+        `fixed_amount`, always as a decimal string. `currency` is required for `fixed_amount` and
+        must equal the shop's. There is no delete - withdraw with `active: false`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CouponCreate'
+      responses:
+        '201':
+          description: The coupon.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coupon'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shops/{public_id}/shipping-methods:
+    post:
+      operationId: createShippingMethod
+      tags: [admin]
+      summary: Create a shipping method
+      description: >-
+        Scope `orders:write`, NOT a `shipping:*` pair - the estate's scope map is shared and lives
+        in lamido-admin. `price` is gross, like every price; `"0"` is free shipping. There is no
+        delete - withdraw with `active: false`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingMethodCreate'
+      responses:
+        '201':
+          description: The shipping method.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingMethod'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/admin-keys:
+    get:
+      operationId: listAdminKeys
+      tags: [admin]
+      summary: List admin keys
+      description: >-
+        Scope `admin:manage`. Un-paginated, newest first, includes revoked keys. `?allowlist=empty`
+        is the drill-down behind the `unrestricted_admin_keys` health count, through the same
+        predicate; it also drops revoked keys, because the count is of LIVE keys. Any other query
+        value is ignored and the unfiltered list is returned.
+      security:
+        - adminKey: []
+      parameters:
+        - name: allowlist
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [empty]
+          description: Only the literal `empty` filters. Anything else returns every key.
+      responses:
+        '200':
+          description: Every admin key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminKeyList'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: mintAdminKey
+      tags: [admin]
+      summary: Mint an admin key
+      description: >-
+        Scope `admin:manage`. OMITTING `scopes` GRANTS `["*"]` - the default is unrestricted. An
+        unknown scope member fails the whole request. `allowed_ips` is exact string matching with
+        NO CIDR SUPPORT; empty means unrestricted, and a non-empty list fails CLOSED when the caller
+        IP cannot be determined. The plaintext appears exactly once.
+
+        IN PRODUCTION AN EMPTY `allowed_ips` IS A 400 unless `allow_any_ip` is true. Outside
+        production the old default stands. The opt-in is its own member because `allowed_ips: []`
+        means "any address" and reads like "no address".
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminKeyMint'
+      responses:
+        '201':
+          description: The admin key, including its plaintext exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MintedAdminKey'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/admin-keys/{public_id}/revoke:
+    post:
+      operationId: revokeAdminKey
+      tags: [admin]
+      summary: Revoke an admin key
+      description: >-
+        Scope `admin:manage`. Idempotent. TWO GUARDS REFUSE THE CHANGE so the service cannot lock
+        itself out: a key CANNOT REVOKE ITSELF (`key_self_revoke`), and the LAST LIVE KEY HOLDING
+        `admin:manage` cannot be revoked (`last_managing_key`). Both are 422. Rotation is mint, move
+        the consumer, then revoke the old key, and that order satisfies both guards.
+
+        The bootstrap CLI enforces the second guard and not the first - it authenticates with the
+        database URL, so there is no calling key. That asymmetry is the recovery path.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The revoked key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminKey'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/admin/products:
+    get:
+      operationId: listAdminProducts
+      tags: [admin]
+      summary: List products across shops
+      description: >-
+        Scope `catalog:read`. Cross-shop by default; narrow with `?shop=`. An UNRECOGNISED `status`
+        value is SILENTLY IGNORED. Every product carries its variants including archived ones.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/shopFilter'
+        - $ref: '#/components/parameters/productStatus'
+      responses:
+        '200':
+          description: A page of products.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/products/{public_id}:
+    get:
+      operationId: getAdminProduct
+      tags: [admin]
+      summary: One product, with archived variants
+      description: Scope `catalog:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateProduct
+      tags: [admin]
+      summary: Update a product
+      description: >-
+        Scope `catalog:write`. `status` is ABSENT from the schema on purpose - it moves only through
+        the publish and archive verbs. `metadata` REPLACES the whole object; there is no merge.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdate'
+      responses:
+        '200':
+          description: The updated product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/products/{public_id}/publish:
+    post:
+      operationId: publishProduct
+      tags: [admin]
+      summary: Publish a product
+      description: >-
+        Scope `catalog:write`. Legal from `draft` and `archived`. A no-op (already published) is a
+        safe 200 that writes nothing at all - no status write, no audit row.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: 'The product, `status: "published"`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/admin/products/{public_id}/archive:
+    post:
+      operationId: archiveProduct
+      tags: [admin]
+      summary: Archive a product
+      description: >-
+        Scope `catalog:write`. Legal from `draft` and `published`, and NOT a dead end - an archived
+        product can be republished. Archiving makes every variant unbuyable IMMEDIATELY, including
+        lines already sitting in open carts, which flip to `unavailable: true` and block checkout.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: 'The product, `status: "archived"`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProduct'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/admin/products/{public_id}/variants:
+    post:
+      operationId: createVariant
+      tags: [admin]
+      summary: Add a variant to a product
+      description: >-
+        Scope `catalog:write`. Answers 201 with the VARIANT alone, not the product. `currency` must
+        equal the shop's; `sku` is unique per shop when present.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VariantCreate'
+      responses:
+        '201':
+          description: The new variant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminVariant'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/variants/{public_id}:
+    get:
+      operationId: getVariant
+      tags: [admin]
+      summary: One variant
+      description: Scope `catalog:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The variant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminVariant'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateVariant
+      tags: [admin]
+      summary: Update a variant, including its price
+      description: >-
+        Scope `catalog:write`. `status` is not patchable, so a variant's archive is one-way.
+        REPRICING CHANGES WHAT EVERY OPEN CART WILL BE CHARGED, because a cart reads the live price.
+        It changes no existing order - order lines copied their price at checkout.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VariantUpdate'
+      responses:
+        '200':
+          description: The updated variant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminVariant'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/variants/{public_id}/archive:
+    post:
+      operationId: archiveVariant
+      tags: [admin]
+      summary: Archive a variant
+      description: >-
+        Scope `catalog:write`. One-way - there is no un-archive, because `status` is not on the
+        variant patch schema. Nothing in the catalog is ever deleted.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: 'The variant, `status: "archived"`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminVariant'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/variants/{public_id}/inventory:
+    get:
+      operationId: getVariantInventory
+      tags: [admin]
+      summary: A variant's stock
+      description: >-
+        Scope `inventory:read`. A variant with no inventory row answers `tracked: false` with every
+        count null - NOT TRACKED, NOT SOLD OUT, and not a 404. Counts are decimal STRINGS because
+        the columns are bigint. `available` is computed as `quantity - reserved_quantity`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The stock report, tracked or untracked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inventory'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      operationId: setVariantInventory
+      tags: [admin]
+      summary: Set a variant's stock
+      description: >-
+        Scope `inventory:write`. SETS rather than adds, which is what makes it safe to repeat. The
+        first PUT on an untracked variant creates the row and imposes a ceiling where there was
+        none. `reserved_quantity` is NOT settable by anyone; setting `quantity` below it answers 422
+        `insufficient_stock` with the reserved count in the detail.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventorySet'
+      responses:
+        '200':
+          description: The stock report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inventory'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/admin/orders:
+    get:
+      operationId: listAdminOrders
+      tags: [admin]
+      summary: List orders across shops
+      description: >-
+        Scope `orders:read`. Cross-shop by default; narrow with `?shop=`. An unknown `status` IS a
+        400 here. Same serializer as the storefront tier - an operator and a buyer must not
+        disagree about what was bought.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/shopFilter'
+        - $ref: '#/components/parameters/orderStatus'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/until'
+      responses:
+        '200':
+          description: A page of orders.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/orders/{public_id}:
+    get:
+      operationId: getAdminOrder
+      tags: [admin]
+      summary: One order, from any shop
+      description: Scope `orders:read`. No `?shop=` needed.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/orders/{public_id}/fulfill:
+    post:
+      operationId: fulfillOrder
+      tags: [admin]
+      summary: Mark an order fulfilled
+      description: >-
+        Scope `orders:write`. Legal from `confirmed` ONLY - a `pending` order answers 422
+        `invalid_transition`. Fulfilment moves no stock: the reservation was committed when the payment
+        succeeded.
+
+        An order reaches `confirmed` only by consuming a `payment.succeeded` from payment-service, or
+        by the daily reconcile poll. THERE IS NO ROUTE ON ANY TIER THAT MAKES AN ORDER `confirmed`, so
+        if this refuses and you believe the order was paid, the fault is in the inbound path or the
+        queue - not in a missing route. See workflows.md's runbook.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: 'The order, `status: "fulfilled"`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/admin/orders/{public_id}/cancel:
+    post:
+      operationId: cancelAdminOrder
+      tags: [admin]
+      summary: Cancel an order as an operator
+      description: >-
+        Scope `orders:write`. Legal from `pending` and `payment_failed`. The reservation is released
+        in the SAME transaction. Cancelling twice answers 200.
+
+        `inventory.release_expired` now reclaims lapsed holds too, but IT RUNS DAILY - so this remains
+        the only way to reclaim stock from an abandoned checkout PROMPTLY.
+
+        CANCELLING DOES NOT CANCEL THE PAYMENT: this service tells payment-service nothing. A buyer who
+        cancels and then completes the gateway redirect produces an inbound `payment.succeeded` for a
+        `canceled` order, which is recorded as a NO-OP because `canceled` is terminal. The money is at
+        payment-service and a human resolves it there.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: 'The order, `status: "canceled"`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/StateRefusal'
+
+  /v1/admin/coupons:
+    get:
+      operationId: listCoupons
+      tags: [admin]
+      summary: List coupons across shops
+      description: >-
+        Scope `discounts:read`. An unrecognised `active` value is SILENTLY IGNORED. A coupon is
+        never serialised to a buyer - there is no consumer-tier coupon endpoint.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/shopFilter'
+        - $ref: '#/components/parameters/activeFilter'
+      responses:
+        '200':
+          description: A page of coupons.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouponList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/coupons/{public_id}:
+    get:
+      operationId: getCoupon
+      tags: [admin]
+      summary: One coupon
+      description: Scope `discounts:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The coupon.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coupon'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateCoupon
+      tags: [admin]
+      summary: Update a coupon
+      description: >-
+        Scope `discounts:write`. The two cross-field rules are evaluated against the RESULTING
+        coupon, not the patch, so changing only `type` to `fixed_amount` on a coupon with no
+        currency is refused. `usage_count` is on no schema - it moves only through a redemption.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CouponUpdate'
+      responses:
+        '200':
+          description: The updated coupon.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coupon'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shipping-methods:
+    get:
+      operationId: listShippingMethods
+      tags: [admin]
+      summary: List shipping methods across shops
+      description: Scope `orders:read`. An unrecognised `active` value is SILENTLY IGNORED.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/shopFilter'
+        - $ref: '#/components/parameters/activeFilter'
+      responses:
+        '200':
+          description: A page of shipping methods.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingMethodList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shipping-methods/{public_id}:
+    get:
+      operationId: getShippingMethod
+      tags: [admin]
+      summary: One shipping method
+      description: Scope `orders:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The shipping method.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingMethod'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateShippingMethod
+      tags: [admin]
+      summary: Update a shipping method
+      description: >-
+        Scope `orders:write`. WITHDRAWING A METHOD A CART HAS CHOSEN MAKES THAT CHECKOUT FAIL: the
+        cart quietly reads `shipping_method_id: null` and the checkout answers 422
+        `shipping_method_inactive`. Repricing changes what open carts will be charged.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShippingMethodUpdate'
+      responses:
+        '200':
+          description: The updated shipping method.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShippingMethod'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── The event layer: WH-9's fourteen ───────────────────────────────────────────────────────────
+  #
+  # The twelve non-shop-scoped routes sit at the ROOT of the admin tier, not under a `/webhooks`
+  # prefix: the names are copied from WH-9's table verbatim, because five services share one runbook
+  # and a prefix here would rename all twelve. There is no `/v1/admin/webhooks/*` path anywhere.
+
+  /v1/admin/event-types:
+    get:
+      operationId: listEventTypes
+      tags: [webhooks]
+      summary: The event catalogue as data
+      description: >-
+        WH-4. No shop, no filter, no pagination: it is the same for every caller. It exists so that a
+        trigger checkbox list in an operator UI is not a hardcoded array in a sixth repository that
+        must be edited whenever any of five services adds an event.
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: "The six types. `subscribed_events: null` on an endpoint means all of them."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventTypeList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/webhook-endpoints:
+    get:
+      operationId: listWebhookEndpoints
+      tags: [webhooks]
+      summary: Every shop's webhook endpoints
+      description: >-
+        Cross-shop by default. Scope `webhooks:read`. `?event_type=` answers "WHICH ENDPOINTS WOULD
+        THIS EVENT REACH?" through the EMITTER'S OWN fan-out predicate, so the listing and the
+        delivery cannot disagree - an endpoint with `subscribed_events: null` matches every type.
+        It does NOT filter on `enabled`: a disabled endpoint still carries its subscription, and is
+        usually what the operator is looking for. Combine with `?enabled=` for the fan-out set.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/shopFilter'
+        - $ref: '#/components/parameters/enabledFilter'
+        - $ref: '#/components/parameters/eventTypeFilter'
+      responses:
+        '200':
+          description: A page of endpoints. The secret is never here - only `secret_last4`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/shops/{public_id}/webhook-endpoints:
+    get:
+      operationId: listShopWebhookEndpoints
+      tags: [webhooks]
+      summary: One shop's webhook endpoints
+      description: 'WH-9 route 3. Scope `webhooks:read`.'
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/enabledFilter'
+      responses:
+        '200':
+          description: A page of this shop's endpoints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: createWebhookEndpoint
+      tags: [webhooks]
+      summary: Create a webhook endpoint
+      description: >-
+        WH-9 route 4, and the ONLY route that returns the endpoint's signing secret. Creation lives
+        under a shop because an endpoint belongs to a shop that cannot be inferred from an endpoint
+        that does not exist yet - the same shape as a product's or a coupon's create.
+
+        The URL is checked for deliverability at save time (DNS, and the SSRF guard) and CHECKED
+        AGAIN at delivery, because a save proves only what was true at one instant. Scope
+        `webhooks:write`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointCreate'
+      responses:
+        '201':
+          description: >-
+            The endpoint, WITH its plaintext `secret`. Shown exactly once, here, and by no read route
+            ever. Capture it now; a lost secret is rotated, not recovered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MintedWebhookEndpoint'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/EndpointLimit'
+
+  /v1/admin/webhook-endpoints/{id}:
+    get:
+      operationId: getWebhookEndpoint
+      tags: [webhooks]
+      summary: One webhook endpoint
+      description: 'Scope `webhooks:read`. No shop segment - the shop is read off the endpoint.'
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/endpointId'
+      responses:
+        '200':
+          description: The endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: updateWebhookEndpoint
+      tags: [webhooks]
+      summary: Update a webhook endpoint
+      description: >-
+        Scope `webhooks:write`. A changed `url` is re-checked for deliverability.
+
+        Toggling `include_customer` writes a SECOND, DEDICATED audit row
+        (`webhook_endpoint.set_include_customer`) on both enable and disable, as well as the generic
+        update row - because a generic row naming `include_customer` among five changed fields is not
+        an answer to "when did this endpoint start receiving customer addresses".
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/endpointId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointUpdate'
+      responses:
+        '200':
+          description: The updated endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: deleteWebhookEndpoint
+      tags: [webhooks]
+      summary: Delete a webhook endpoint
+      description: >-
+        THE ONLY HARD DELETE IN THIS SERVICE. Everything else archives, deactivates or revokes. It
+        cascades to this endpoint's deliveries; the `webhook_events` rows SURVIVE, because an event is
+        a record of something that happened and deleting a destination does not un-happen it. Scope
+        `webhooks:write`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/endpointId'
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, public_id]
+                properties:
+                  deleted:
+                    type: boolean
+                    const: true
+                  public_id:
+                    type: string
+                    format: uuid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/webhook-endpoints/{id}/rotate-secret:
+    post:
+      operationId: rotateWebhookEndpointSecret
+      tags: [webhooks]
+      summary: Rotate an endpoint's signing secret
+      description: >-
+        Mints a new `whsec_` and returns it ONCE. Scope `webhooks:write`.
+
+        CRITICAL: the old secret stops working immediately. Update the receiver in the same window or
+        every delivery fails its signature check at the receiver's end - which looks to them like an
+        attack rather than a rotation.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/endpointId'
+      responses:
+        '200':
+          description: The endpoint with its NEW plaintext `secret`. Shown exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MintedWebhookEndpoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/webhook-endpoints/{id}/enable:
+    post:
+      operationId: enableWebhookEndpoint
+      tags: [webhooks]
+      summary: Enable an endpoint
+      description: >-
+        Clears `disabled_reason` AND resets `consecutive_failures` to zero. Both, in one call: an
+        endpoint re-enabled with its counter still one below the threshold would auto-disable again on
+        the next single failure. Scope `webhooks:write`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/endpointId'
+      responses:
+        '200':
+          description: "The endpoint, `enabled: true`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/webhook-endpoints/{id}/disable:
+    post:
+      operationId: disableWebhookEndpoint
+      tags: [webhooks]
+      summary: Disable an endpoint
+      description: >-
+        Nothing more is delivered until it is re-enabled. Event rows are still WRITTEN - "did anything
+        happen at 12:46?" must not depend on whether there was somewhere to send it. Scope
+        `webhooks:write`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/endpointId'
+      responses:
+        '200':
+          description: "The endpoint, `enabled: false`, with a `disabled_reason`."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/webhook-endpoints/{id}/test:
+    post:
+      operationId: testWebhookEndpoint
+      tags: [webhooks]
+      summary: Send a webhook.ping
+      description: >-
+        Delivers the reserved `webhook.ping` SYNCHRONOUSLY, so the response tells you what the
+        receiver said. `webhook.ping` is in no catalogue and is not subscribable; it writes NO event
+        row and NO delivery row, and it BYPASSES THE LADDER entirely - so a failure here is a failure
+        now, not something that will be retried. Scope `webhooks:write`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/endpointId'
+      responses:
+        '200':
+          description: The ping's outcome. A 200 here means the CALL was made, not that it succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PingResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/webhook-events:
+    get:
+      operationId: listWebhookEvents
+      tags: [webhooks]
+      summary: The emitted events, newest first
+      description: >-
+        Immutable rows, written inside the transaction that made each fact true. `data.customer` is
+        STRIPPED on the way out of this listing regardless of any endpoint's `include_customer`.
+        `from` is inclusive and `until` exclusive, both against `occurred_at` - NOT `created_at`,
+        unlike every other listing in this spec. Scope `webhooks:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/shopFilter'
+        - $ref: '#/components/parameters/eventTypeFilter'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/until'
+      responses:
+        '200':
+          description: A page of events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEventList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/webhook-deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      tags: [webhooks]
+      summary: Delivery attempts and their outcomes
+      description: >-
+        One row per (event, endpoint) pair - NEVER two, because a redelivery RESETS the row rather
+        than inserting another. `?status=pending` and `?status=dead_lettered` use the same predicates
+        as the two health counts, and `?status=dead_lettered&cross_service=true` COMPOSES exactly the
+        `cross_service_dead_letters` predicate out of its two halves. Scope `webhooks:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/shopFilter'
+        - $ref: '#/components/parameters/endpointFilter'
+        - $ref: '#/components/parameters/eventTypeFilter'
+        - name: cross_service
+          in: query
+          required: false
+          description: >-
+            ONLY THE LITERAL `true` FILTERS - anything else returns the unfiltered list. It selects
+            deliveries whose event type this service declares as crossing a service boundary, which
+            is a declaration by THIS service about where an event is meant to go and never evidence
+            about the receiver.
+          schema:
+            type: string
+            enum: ['true']
+        - $ref: '#/components/parameters/deliveryStatusFilter'
+      responses:
+        '200':
+          description: A page of deliveries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/webhook-deliveries/{id}/redeliver:
+    post:
+      operationId: redeliverWebhookDelivery
+      tags: [webhooks]
+      summary: Resend a delivery
+      description: >-
+        Resets the delivery row to `pending` with `attempt: 0` and BURSTS THE QUEUE INLINE after the
+        response - so an operator sees something happen rather than waiting for the next daily cron
+        tick. This is one of the three drain triggers.
+
+        The response returns as soon as the job is queued: `redelivering: true` means "started", not
+        "delivered". Poll the delivery listing for the outcome. Scope `webhooks:write`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/deliveryId'
+      responses:
+        '200':
+          description: Queued and bursting. Not yet delivered.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [redelivering, public_id]
+                properties:
+                  redelivering:
+                    type: boolean
+                    const: true
+                  public_id:
+                    type: string
+                    format: uuid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── The queue's three. NOT part of WH-9's fourteen ─────────────────────────────────────────────
+  #
+  # SCOPE WARNING: all three use `admin:manage`, which ALSO mints and revokes admin keys. The
+  # estate's siblings use `jobs:read` / `jobs:write`; this service's scope enum does not carry them,
+  # and adding one needs a change to a scope map this repository does not own. There is no narrower
+  # scope to give a monitoring integration - prefer reading `due_jobs` and `dead_jobs` off
+  # `GET /v1/admin/health`, which needs no scope at all.
+
+  /v1/admin/jobs:
+    get:
+      operationId: listJobs
+      tags: [webhooks]
+      summary: The job queue
+      description: >-
+        Every kind of background work in one table. Scope `admin:manage` - see the warning above.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/jobTypeFilter'
+        - $ref: '#/components/parameters/jobStatusFilter'
+      responses:
+        '200':
+          description: A page of jobs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/jobs/{id}/retry:
+    post:
+      operationId: retryJob
+      tags: [webhooks]
+      summary: Requeue a job
+      description: >-
+        `attempts` RESETS TO ZERO. An operator retrying is asserting that whatever killed the job is
+        fixed; leaving the counter one rung below the cap would send it straight back to `dead` on the
+        next failure, which reads as "the retry button does not work".
+
+        It requeues; IT DOES NOT RUN THE JOB. The next drain does, and the scheduled drain is DAILY.
+        To make it happen now, POST `/api/cron/webhooks-drain` - or, for a webhook specifically, use
+        `.../redeliver`, which bursts inline. Scope `admin:manage`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/jobId'
+      responses:
+        '200':
+          description: The requeued job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/jobs/{id}/cancel:
+    post:
+      operationId: cancelJob
+      tags: [webhooks]
+      summary: Cancel a job
+      description: >-
+        Sets `canceled_at`. Cancellation is a COLUMN, not a delete, so the trail survives. A canceled
+        job is invisible to the drain and is excluded from the `dead_jobs` count. Scope `admin:manage`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/jobId'
+      responses:
+        '200':
+          description: The canceled job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/admin/inbound-events:
+    get:
+      operationId: listInboundEvents
+      tags: [webhooks]
+      summary: The inbound event ledger
+      description: >-
+        What arrived from payment-service and what was decided about it. READ-ONLY AND CROSS-SHOP: an
+        inbound event may have resolved to no shop at all, which is exactly what `unknown_account` is
+        for, so a shop-scoped listing could never show those.
+
+        THE LEDGER HOLDS NO PAYLOAD, on purpose. It records what a delivery was and what we did, never
+        its body: a refused signature must not leave unverified bytes in a table an operator browses,
+        and an accepted event is already described by the order it moved.
+
+        A BAD SIGNATURE WRITES NO ROW AT ALL - the ledger is keyed on `(source_service, event_id)`
+        and an unverified body may carry no readable `event_id` to key on. So a signature attack is
+        visible in the logs, not here. Scope `webhooks:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/reasonCodeFilter'
+        - $ref: '#/components/parameters/outcomeFilter'
+      responses:
+        '200':
+          description: A page of ledger rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundEventList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ── The audit trail (HR-19) ────────────────────────────────────────────────────────────────────
+
+  /v1/admin/audit-log:
+    get:
+      operationId: listAuditLog
+      tags: [admin]
+      summary: Who did what, newest first
+      description: >-
+        The trail every mutation has written since migration `0000`, readable from phase 7. Scope
+        `audit:read` AND NOTHING ELSE - reading who did what is a different privilege from doing it,
+        so an auditor's key opens this and changes nothing.
+
+        FILTERABLE BY `actor_type`, which HR-19 requires: a report that spans the admin and the
+        consumer tier must not be silently partial. The filter is a CLOSED ENUM and an unknown value
+        is a 400 rather than an empty page, because an empty page reads as "nothing happened".
+
+        `target_id` WITHOUT `target_type` IS A 400. Ids are unique per resource kind and nothing
+        else, so the pair is what identifies a target - and the unpaired query would scan without an
+        index and return another kind's history.
+
+        A MALFORMED TIMESTAMP IS A 400, never an ignored filter: a window silently widened to
+        "everything" is the one failure an audit query must not have.
+
+        `metadata` records WHICH KEYS CHANGED and never their values, allowlisted per action on the
+        way in. There is no amount, no address and no email on any row here.
+
+        READ-ONLY AT EVERY VERB. The table is append-only; a trail an operator can edit is not a
+        trail.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/actorTypeFilter'
+        - $ref: '#/components/parameters/auditActionFilter'
+        - $ref: '#/components/parameters/targetTypeFilter'
+        - $ref: '#/components/parameters/targetIdFilter'
+        - $ref: '#/components/parameters/from'
+        - $ref: '#/components/parameters/until'
+      responses:
+        '200':
+          description: A page of trail rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditRowList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ── The payment credential ─────────────────────────────────────────────────────────────────────
+
+  /v1/admin/shops/{public_id}/payment-credential:
+    put:
+      operationId: putPaymentCredential
+      tags: [admin]
+      summary: Set or replace a shop's payment-service credential
+      description: >-
+        One credential per shop. PUT rather than POST, and 200 rather than 201 EVEN THE FIRST TIME:
+        the resource is identified by the shop, so a second save replaces the same thing and
+        answering 201 twice would be a lie about what happened.
+
+        The `pmk_` prefix is VALIDATED here rather than assumed, because the failure it prevents is
+        silent: a key pasted without it authenticates against nothing at payment-service, and the
+        first symptom would be every checkout in that shop answering 502 hours later.
+
+        Replacing a credential RE-DRIVES NOTHING by itself; it fixes the next checkout. Scope
+        `shops:write` - a `payments:*` pair would fit better and needs a scope-map change this
+        repository does not own.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentCredentialRequest'
+      responses:
+        '200':
+          description: The readback - `last4` and a fingerprint. NEVER the secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentCredential'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      operationId: getPaymentCredential
+      tags: [admin]
+      summary: The credential readback
+      description: >-
+        `last4` plus a fingerprint, and that is the WHOLE readback. There is no route that reveals the
+        plaintext and the absence is the design rather than an omission. Scope `shops:read`.
+      security:
+        - adminKey: []
+      parameters:
+        - $ref: '#/components/parameters/publicId'
+      responses:
+        '200':
+          description: The credential metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentCredential'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: >-
+            404 "This shop has no payment credential." Also how you confirm one specific shop is
+            unprovisioned, rather than listing them all.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  # ── The inbound receiver ───────────────────────────────────────────────────────────────────────
+
+  /v1/hooks/payment-service:
+    post:
+      operationId: receivePaymentServiceEvent
+      tags: [hooks]
+      summary: Receive an event from payment-service
+      description: >-
+        NOT A SURFACE ANYONE ELSE CALLS, and it carries NO BEARER KEY of ours: payment-service
+        authenticates with an HMAC `X-Signature` over the RAW request bytes. Requiring one of our keys
+        as well would mean provisioning a credential in the direction the signature already covers.
+
+        EVERYTHING EXCEPT A BAD SIGNATURE ANSWERS 200, including events we decide to ignore. A 4xx to
+        an emitter means "retry this", and retrying an event we have decided to ignore produces eight
+        identical deliveries we ignore eight times. So a 200 means RECEIVED, not ACTED ON - read
+        `outcome` in the body.
+
+        The receiver does no domain work: it verifies, resolves the shop from `account_id` ALONE,
+        decides, records a ledger row and ENQUEUES. What a `payment.succeeded` means to an order is
+        decided by a job, off the response path, so a slow re-reservation cannot time out at
+        payment-service and become their retry storm.
+
+        Freshness is deliberately NOT enforced on the signature timestamp: an emitter's ladder can
+        legitimately deliver hours late on a sparse cron tier, and refusing it then would drop a real
+        payment. Replay is stopped by the ledger's unique index instead, whatever the clock says.
+      security: []
+      requestBody:
+        required: true
+        description: >-
+          The eleven-member event envelope. Parsed LENIENTLY - unknown members are ignored rather than
+          refused, because here an unknown key is the emitter adding a member and refusing it would
+          turn their additive change into our outage. That is the opposite of every other request body
+          in this spec.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboundEnvelope'
+      responses:
+        '200':
+          description: >-
+            Received. `outcome` carries the decision: `accepted` (recorded and queued), `ignored`
+            (recorded, no action - with a `reason_code`) or `refused` (recorded, hop limit reached).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundReceipt'
+        '400':
+          $ref: '#/components/responses/InboundRejected'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+
+  # ── The crons ──────────────────────────────────────────────────────────────────────────────────
+  #
+  # NOT AN API SURFACE, and documented here anyway, marked `x-internal: true`. No consumer calls
+  # them, they carry no version contract, and `operations.md` is where their behaviour lives.
+  #
+  # They are here because the alternative is an exemption list in the test that compares this file
+  # against the routing table — and the moment such a list exists, the cheapest way to make that
+  # test pass is to add a line to it. booking-service's specification makes the same choice for the
+  # same reason. A generator is told to skip them by `x-internal`.
+  #
+  # BOTH VERBS ARE REAL, on both routes. Vercel Cron issues GET; POST exists so an operator can
+  # drive a tick by hand with the same secret, because a runbook step that has to remember a verb is
+  # a runbook step somebody gets wrong at three in the morning.
+
+  /api/cron/webhooks-drain:
+    get:
+      operationId: cronWebhooksDrain
+      tags: [operations]
+      x-internal: true
+      summary: Drain the job queue
+      description: >-
+        Claims a batch of up to 50 due jobs and runs them inside a 45-second wall budget, stopping
+        BETWEEN jobs. It drains EVERY job type, not only deliveries: one queue, one claim, one loop.
+
+        ANSWERS 200 WITH A REPORT EVEN WHEN IT DID NOTHING. Falling behind has to be visible as a
+        rising `due_jobs` on admin health, never as a timeout.
+
+        DAILY on this deployment's cron tier, which is why every retry rung in `webhooks.md` is a
+        FLOOR rather than a promise. What makes an `order.created` arrive in milliseconds is the
+        checkout's own inline post-commit burst, not this.
+      security:
+        - cronSecret: []
+      responses:
+        '200':
+          description: What the tick claimed, ran and failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrainTickResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: cronWebhooksDrainByHand
+      tags: [operations]
+      x-internal: true
+      summary: Drain the job queue, driven by an operator
+      description: The same tick as the GET, for an operator holding the secret. Takes no body.
+      security:
+        - cronSecret: []
+      responses:
+        '200':
+          description: What the tick claimed, ran and failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrainTickResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/cron/sweeps:
+    get:
+      operationId: cronSweeps
+      tags: [operations]
+      x-internal: true
+      summary: Enqueue the retention and reconciliation sweeps, then drain
+      description: >-
+        Enqueues four jobs — lapsed reservation, expired cart, expired replay record and the payment
+        reconciliation poll — and then drains. It ENQUEUES RATHER THAN DOING THE WORK, so the sweeps
+        ride the same claim lease, the same ladder and the same admin surface as every other job.
+
+        Each sweep holds ONE LIVE JOB at a time under a unique key, so a tick that overlaps a slow
+        previous tick enqueues nothing instead of running the same sweep twice. `enqueued` therefore
+        lists what this tick actually added, which can be fewer than four.
+
+        `payment.reconcile` rides this tick rather than a third cron, because the deployment's tier
+        allows two. Its 30-minute age predicate is therefore a FLOOR: an order whose deliveries all
+        dead-lettered waits for the next morning.
+      security:
+        - cronSecret: []
+      responses:
+        '200':
+          description: What the tick enqueued, and what the drain that followed it did.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SweepsTickResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: cronSweepsByHand
+      tags: [operations]
+      x-internal: true
+      summary: Enqueue the sweeps, driven by an operator
+      description: The same tick as the GET, for an operator holding the secret. Takes no body.
+      security:
+        - cronSecret: []
+      responses:
+        '200':
+          description: What the tick enqueued, and what the drain that followed it did.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SweepsTickResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    shopPublishableKey:
+      type: http
+      scheme: bearer
+      description: >-
+        A `wpk_` publishable key. Public by design - it may ship in page source. Valid only on
+        `/v1/public/*`; on `/v1/*` it answers 403.
+    shopSecretKey:
+      type: http
+      scheme: bearer
+      description: >-
+        A `wsk_` secret key. Server-to-server only: any request carrying `Origin` or
+        `Sec-Fetch-Dest` answers 403 from the browser tripwire, before the key is looked up. Scopes
+        every query to one shop.
+    adminKey:
+      type: http
+      scheme: bearer
+      description: >-
+        A `wad_` admin key, cross-shop, narrowed by per-route scopes. Server-to-server only. May
+        carry an exact-match IP allowlist that fails CLOSED when the caller IP is unknown.
+    cronSecret:
+      type: http
+      scheme: bearer
+      description: >-
+        `CRON_SECRET`, compared in constant time. NOT one of the three API key tiers and not
+        provisioned per shop: it authenticates the platform's own scheduler. The guard FAILS CLOSED
+        on a blank value, so a relaxed environment refuses every caller rather than opening the
+        surface.
+
+  parameters:
+    limit:
+      name: limit
+      in: query
+      required: false
+      description: 1-200. Out of range is a 400, never a clamp.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    cursor:
+      name: cursor
+      in: query
+      required: false
+      description: >-
+        Opaque keyset cursor from a previous `next_cursor`. DO NOT PARSE OR CONSTRUCT ONE.
+        Malformed is a 400, never a silent restart at page 1.
+      schema:
+        type: string
+    publicId:
+      name: public_id
+      in: path
+      required: true
+      description: A UUIDv7. A segment that cannot be a UUID answers 404, never 400 or 500.
+      schema:
+        type: string
+        format: uuid
+    itemPublicId:
+      name: item_public_id
+      in: path
+      required: true
+      description: A cart line's `public_id`, from the cart's `items[].public_id`.
+      schema:
+        type: string
+        format: uuid
+    keyId:
+      name: key_id
+      in: path
+      required: true
+      description: A shop key's `public_id`.
+      schema:
+        type: string
+        format: uuid
+    idOrSlug:
+      name: id_or_slug
+      in: path
+      required: true
+      description: >-
+        The product's `public_id` or its slug. A UUID-shaped segment is tried as an id; anything
+        else can only be a slug.
+      schema:
+        type: string
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        1-255 characters. REQUIRED on checkout and accepted nowhere else. One key per INTENT: a new
+        key is a new order, and every 400 or 422 releases the key so the same one may be reused.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    ifNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: A previously returned ETag. Compared weakly; `*` matches anything.
+      schema:
+        type: string
+    from:
+      name: from
+      in: query
+      required: false
+      description: >-
+        INCLUSIVE lower bound on `created_at`. Malformed is a 400 - STRICT ISO 8601, either a full
+        instant with an offset or a bare `YYYY-MM-DD`, which reads as UTC midnight. `"March 5 2026"`
+        and `"2026"` are refused rather than guessed at.
+      schema:
+        type: string
+        format: date-time
+    until:
+      name: until
+      in: query
+      required: false
+      description: >-
+        EXCLUSIVE upper bound on `created_at`. Malformed is a 400 - STRICT ISO 8601, either a full
+        instant with an offset or a bare `YYYY-MM-DD`, which reads as UTC midnight. `"March 5 2026"`
+        and `"2026"` are refused rather than guessed at.
+      schema:
+        type: string
+        format: date-time
+    orderStatus:
+      name: status
+      in: query
+      required: false
+      description: An unknown value IS a 400 on the order listings.
+      schema:
+        type: string
+        enum: [pending, paid, confirmed, fulfilled, payment_failed, canceled, refunded]
+    shopStatus:
+      name: status
+      in: query
+      required: false
+      description: An unrecognised value is SILENTLY IGNORED and returns an unfiltered list.
+      schema:
+        type: string
+        enum: [active, suspended]
+    productStatus:
+      name: status
+      in: query
+      required: false
+      description: An unrecognised value is SILENTLY IGNORED and returns an unfiltered list.
+      schema:
+        type: string
+        enum: [draft, published, archived]
+    activeFilter:
+      name: active
+      in: query
+      required: false
+      description: Only the literal strings `true` and `false` filter. Anything else is ignored.
+      schema:
+        type: string
+        enum: ['true', 'false']
+    withoutExternalRef:
+      name: without_external_ref
+      in: query
+      required: false
+      description: >-
+        Only the literal string `true` filters. Restricts to ACTIVE shops with a null
+        `external_ref` - the same predicate as the admin-health count.
+      schema:
+        type: string
+        enum: ['true']
+    shopFilter:
+      name: shop
+      in: query
+      required: false
+      description: A shop's `public_id`. Unknown is a 404. Omitting it returns every shop's rows.
+      schema:
+        type: string
+        format: uuid
+    withoutPaymentCredential:
+      name: without_payment_credential
+      in: query
+      required: false
+      description: >-
+        Only the literal string `true` filters. The same predicate as the admin-health count.
+        DELIBERATELY NOT COMBINABLE with `without_external_ref`: each drills into exactly one number
+        and an AND of both would drill into neither, so passing both applies only this one.
+      schema:
+        type: string
+        enum: ['true']
+    oversoldFilter:
+      name: oversold
+      in: query
+      required: false
+      description: >-
+        Only the literal string `true` filters, through the same predicate as the `oversold_orders`
+        health count. IT IGNORES `?status=` rather than intersecting with it - an oversold order is
+        `confirmed` or `fulfilled` by definition, so an AND with `?status=pending` would answer an
+        empty list to a question nobody meant to ask.
+      schema:
+        type: string
+        enum: ['true']
+    endpointId:
+      name: id
+      in: path
+      required: true
+      description: >-
+        A webhook endpoint's `public_id`. NOTE there is no shop segment on these routes - the shop is
+        read off the endpoint itself, because cross-shop reach is what a `wad_` key is for.
+      schema:
+        type: string
+        format: uuid
+    deliveryId:
+      name: id
+      in: path
+      required: true
+      description: A webhook delivery ROW's `public_id`. Not `X-Delivery-Id`, which changes per attempt.
+      schema:
+        type: string
+        format: uuid
+    jobId:
+      name: id
+      in: path
+      required: true
+      description: A job's `public_id`.
+      schema:
+        type: string
+        format: uuid
+    endpointFilter:
+      name: endpoint
+      in: query
+      required: false
+      description: A webhook endpoint's `public_id`. Unknown is a 404.
+      schema:
+        type: string
+        format: uuid
+    enabledFilter:
+      name: enabled
+      in: query
+      required: false
+      description: >-
+        A TRI-STATE: absent, `true` or `false`. Anything else is a 400, never a silent "absent" -
+        unlike the tolerant shop and product filters. `false` uses the same predicate as the
+        `disabled_endpoints` health count.
+      schema:
+        type: string
+        enum: ['true', 'false']
+    eventTypeFilter:
+      name: event_type
+      in: query
+      required: false
+      description: One of the six catalogue types. An unknown value IS a 400.
+      schema:
+        type: string
+        enum:
+          - order.created
+          - order.confirmed
+          - order.payment_failed
+          - order.canceled
+          - order.fulfilled
+          - order.refunded
+    deliveryStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: >-
+        An unknown value IS a 400. `pending` and `dead_lettered` use the same predicates as the two
+        delivery health counts.
+      schema:
+        type: string
+        enum: [pending, delivered, dead_lettered]
+    jobTypeFilter:
+      name: type
+      in: query
+      required: false
+      description: One of the seven job types. An unknown value IS a 400.
+      schema:
+        type: string
+        enum:
+          - webhook.deliver
+          - inventory.release_expired
+          - cart.expire
+          - order.confirm
+          - order.fail_payment
+          - order.refund
+          - payment.reconcile
+    jobStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: >-
+        An unknown value IS a 400. NOTE `due` is NOT a column value - it is the drain's own
+        eligibility predicate (pending, not canceled, `run_after` in the past), and it is the filter
+        that matches the `due_jobs` health count. `dead` also uses the health predicate, which
+        EXCLUDES canceled rows; a plain column equality would have included them.
+      schema:
+        type: string
+        enum: [pending, claimed, done, dead, due]
+    reasonCodeFilter:
+      name: reason_code
+      in: query
+      required: false
+      description: >-
+        Only `unknown_account` filters, and it is the `unroutable_inbound_events` drill-down.
+        ANYTHING ELSE IS IGNORED rather than refused, so a typo returns the unfiltered list.
+      schema:
+        type: string
+        enum: [unknown_account]
+    outcomeFilter:
+      name: outcome
+      in: query
+      required: false
+      description: >-
+        Only `refused` filters, and it is the `refused_inbound_events` drill-down. Anything else is
+        IGNORED rather than refused.
+      schema:
+        type: string
+        enum: [refused]
+
+    actorTypeFilter:
+      name: actor_type
+      in: query
+      required: false
+      description: >-
+        A CLOSED SET, and an unknown value is a 400 rather than an empty page - HR-19's last MUST,
+        because an empty page reads as "nothing happened".
+      schema:
+        $ref: '#/components/schemas/AuditActorType'
+    auditActionFilter:
+      name: action
+      in: query
+      required: false
+      description: >-
+        Exact match on the action name, e.g. `order.checkout`. NOT a prefix and not a pattern; the
+        action vocabulary grows per phase and is listed in `operations.md`.
+      schema:
+        type: string
+    targetTypeFilter:
+      name: target_type
+      in: query
+      required: false
+      description: The kind of resource acted on, e.g. `order`, `shop`, `product`, `webhook_endpoint`.
+      schema:
+        type: string
+    targetIdFilter:
+      name: target_id
+      in: query
+      required: false
+      description: >-
+        REQUIRES `target_type` - an id alone does not identify a target, and the unpaired query would
+        scan without an index and return another kind's history. Alone it is a 400.
+      schema:
+        type: string
+
+  headers:
+    ETag:
+      description: A weak-compared validator. Send it back as `If-None-Match`.
+      schema:
+        type: string
+    CacheControl:
+      description: '`public, s-maxage=60, stale-while-revalidate=300`, or `public, s-maxage=10` on a 404.'
+      schema:
+        type: string
+    Vary:
+      description: Always `Origin, Authorization` on the public tier, including on a 401.
+      schema:
+        type: string
+    IdempotentReplay:
+      description: Present and `"true"` only when the response is a replay of a frozen body.
+      schema:
+        type: string
+
+  responses:
+    ValidationError:
+      description: >-
+        400. A body, query parameter or required header failed validation. `errors[]` names EVERY
+        offending field at once, so one round trip fixes them all.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: >-
+        401. Missing, malformed, unknown or REVOKED key, or a SUSPENDED shop - the bodies are
+        byte-identical, on purpose. There is no `code` member.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: >-
+        403. The browser tripwire, the wrong key tier, a missing scope (named in `detail`), or an IP
+        allowlist. Informative, unlike a 401.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: >-
+        404. No such row IN YOUR SCOPE, no such endpoint, or a malformed identifier. Never 403 for a
+        cross-tenant read - that would confirm the row exists.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    IdempotencyConflict:
+      description: >-
+        409. `idempotency_in_flight` (another attempt holds the 60 s lease - RETRY in a moment) or
+        `idempotency_key_reused` (the same key with a different body - a client bug).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    StateRefusal:
+      description: >-
+        422. The request is well formed and the STATE refuses it. Branch on `code`. Most are fixable
+        and, on checkout, all of them release the idempotency key.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    RateLimited:
+      description: >-
+        429. A throttle bucket is full. `retry_after` is in the body and `Retry-After` in the
+        header, derived from it so they cannot disagree.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: 500. The real message is logged, never returned. Quote `request_id`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PaymentThrottled:
+      description: >-
+        429 from the PER-SHOP payment-create bucket (60 per shop per 60 s), consumed before the
+        credential is read and before any upstream call - so NO PAYMENT WAS CREATED. But the checkout
+        transaction had already committed, so this DID leave a real `pending` order holding stock.
+        Honour `Retry-After`, then retry the SAME Idempotency-Key: that takes the resume path.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ProviderError:
+      description: >-
+        502 with a `provider_error` and NO `code`. Carries `type:
+        "urn:webshop-service:problem:internal"`, because the type set is closed. Both variants leave
+        a real `pending` order holding stock: `payment_create_rejected` is definitive and must not be
+        retried until the shop's configuration changes; `payment_create_unknown` means a payment may
+        or may not exist and MUST be retried with the same Idempotency-Key.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    EndpointLimit:
+      description: >-
+        409 `endpoint_limit_reached`. The shop already holds 20 webhook endpoints (WH-6). The body is
+        well formed; what refuses it is how many rows exist. Delete one first.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InboundRejected:
+      description: >-
+        400, the ONLY 4xx this receiver produces. `errors[0].code` is `invalid_signature` (pointer
+        `#/header/X-Signature`) or `invalid_envelope` (pointer `#/body`). It is a validation problem
+        rather than a 401 deliberately: a 401 invites a client to go and find credentials, and there
+        are none to find - what failed is the body's own integrity. NOTHING IS STORED on either path.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    MinorAmount:
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,17})$'
+      description: >-
+        A decimal string of MINOR units. Never a JSON number. NEVER NEGATIVE - no amount in this
+        service is, and a discount is a discount rather than a negative price. No leading zero and
+        no sign: the pattern is the validator's own source. HUF, JPY, KRW, ISK, CLP and VND have
+        ZERO minor units, so `"1000"` HUF is 1000 Ft. Everything else is two-decimal.
+      examples: ['4990']
+    Count:
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,17})$'
+      description: >-
+        A non-negative whole number as a decimal STRING, because the column is bigint. A JSON
+        number here is a 400.
+      examples: ['40']
+    Currency:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      description: ISO 4217, upper case. One currency per shop, and every amount carries it.
+      examples: [HUF]
+    Slug:
+      type: string
+      maxLength: 64
+      pattern: '^[a-z0-9_]+$'
+      description: Lower case, digits and underscore. No dashes, no upper case.
+    Metadata:
+      type: object
+      additionalProperties: true
+      description: >-
+        Opaque to this service and stored untouched. The one place unknown keys are ALLOWED; nesting
+        is free. A PATCH REPLACES the whole object.
+    ProblemFieldError:
+      type: object
+      required: [pointer, code, detail]
+      properties:
+        pointer:
+          type: string
+          description: >-
+            An RFC 6901 JSON Pointer into the body (`/quantity`, `/variants/0/sku`), or
+            `#/query/<name>`, or `#/header/Idempotency-Key`.
+        code:
+          type: string
+          enum:
+            - required
+            - invalid_type
+            - invalid_format
+            - invalid_value
+            - too_small
+            - too_big
+            - unknown_field
+            - duplicate
+            - currency_mismatch
+            - out_of_range
+            - invalid
+        detail:
+          type: string
+    Problem:
+      type: object
+      required: [type, title, status, detail, instance, request_id]
+      description: RFC 9457 problem details. Every failure on every surface uses this shape.
+      properties:
+        type:
+          type: string
+          enum:
+            - 'urn:webshop-service:problem:validation'
+            - 'urn:webshop-service:problem:unauthorized'
+            - 'urn:webshop-service:problem:forbidden'
+            - 'urn:webshop-service:problem:not-found'
+            - 'urn:webshop-service:problem:conflict'
+            - 'urn:webshop-service:problem:payload-too-large'
+            - 'urn:webshop-service:problem:rate-limit'
+            - 'urn:webshop-service:problem:internal'
+          description: >-
+            Closed set. NOTE `conflict` covers BOTH 409 and 422, and `internal` covers BOTH 500 AND
+            502 - branch on `status` and `code`/`provider_error`, never on `type` alone. There is
+            deliberately no `bad-gateway` member: the set is closed and adding one is an API change,
+            so a 502 reuses `internal` and is distinguished by its status and `provider_error`.
+            `payload-too-large` is unreachable at this commit.
+        title:
+          type: string
+          description: Describes the HTTP STATUS, not the type. A 422 reads "Unprocessable Entity".
+        status:
+          type: integer
+        detail:
+          type: string
+          description: Prose for a human. NEVER branch on it.
+        instance:
+          type: string
+          description: The request PATH only - never a full URL, never a query string.
+        request_id:
+          type: [string, 'null']
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProblemFieldError'
+        code:
+          type: string
+          enum:
+            - key_revoked
+            - invalid_transition
+            - variant_unavailable
+            - insufficient_stock
+            - cart_expired
+            - cart_converted
+            - order_terminal
+            - coupon_invalid
+            - coupon_expired
+            - coupon_exhausted
+            - coupon_minimum_not_met
+            - shipping_method_inactive
+            - idempotency_key_reused
+            - idempotency_in_flight
+            - endpoint_limit_reached
+            - key_self_revoke
+            - last_managing_key
+          description: >-
+            The branchable sub-reason, present on some 409 and 422 responses. `key_revoked` is in
+            the enum and is NEVER RAISED - a revoked key is an ordinary 401. `key_self_revoke` and
+            `last_managing_key` are both 422 on the revoke route: they refuse the CHANGE, so the
+            service cannot lock itself out of its own admin tier.
+            `endpoint_limit_reached` is a 409 on the admin tier: the shop already holds 20 webhook
+            endpoints, and it is refused by a serialized COUNT rather than by a constraint, because
+            a row count is not expressible as one.
+        retry_after:
+          type: integer
+          description: Seconds. 429 only.
+        provider_error:
+          type: string
+          enum:
+            - payment_create_rejected
+            - payment_create_unknown
+          description: >-
+            502 only, and the checkout's payment step is the only place either can arise. NO `code`
+            accompanies these. `payment_create_rejected` means payment-service answered a definitive
+            4xx and the identical request cannot succeed - do not retry until the shop's
+            configuration changes. `payment_create_unknown` means a timeout, a 5xx, a 408, a 429, or
+            a 2xx whose body was not a payment: A PAYMENT MAY OR MAY NOT EXIST, so retry the SAME
+            Idempotency-Key - the derived key guarantees one payment rather than two. Both leave a
+            real `pending` order holding stock.
+
+    Liveness:
+      type: object
+      required: [status, configuration, database, version, commit, now]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        configuration:
+          type: string
+          enum: [ok, invalid]
+        database:
+          type: string
+          enum: [ok, degraded, unknown]
+          description: >-
+            `"unknown"` when the configuration is invalid - nothing was measured, and claiming
+            otherwise pointed a past incident at the wrong system.
+        version:
+          type: string
+        commit:
+          type: string
+          description: The deployed git SHA, or `"dev"` locally. This answers "which build is live?".
+        now:
+          type: string
+          format: date-time
+    AdminHealth:
+      type: object
+      required: [status, database]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        database:
+          type: string
+          enum: [ok, degraded]
+        shops_without_external_ref:
+          type: integer
+          description: >-
+            Active shops with a null `external_ref`. Drills into
+            `GET /v1/admin/shops?without_external_ref=true`. OVERDUE: the inbound receiver resolves
+            a shop from `account_id` alone, so until this is zero every inbound event for an
+            unbackfilled shop is recorded `unknown_account` and acted on by nothing.
+        pending_deliveries:
+          type: integer
+          description: 'Drills into `GET /v1/admin/webhook-deliveries?status=pending`.'
+        dead_lettered_deliveries:
+          type: integer
+          description: 'Drills into `GET /v1/admin/webhook-deliveries?status=dead_lettered`.'
+        disabled_endpoints:
+          type: integer
+          description: >-
+            Drills into `GET /v1/admin/webhook-endpoints?enabled=false`. Above zero means an
+            operator disabled one, or five consecutive exhausted ladders auto-disabled it.
+        due_jobs:
+          type: integer
+          description: >-
+            Jobs eligible for the next drain. Drills into `GET /v1/admin/jobs?status=due`. Alert on
+            a RISING TREND, not a threshold: the scheduled drain is daily, so this legitimately
+            spikes between ticks.
+        dead_jobs:
+          type: integer
+          description: >-
+            Jobs that spent their ladder, EXCLUDING canceled ones. Drills into
+            `GET /v1/admin/jobs?status=dead`.
+        unroutable_inbound_events:
+          type: integer
+          description: >-
+            Drills into `GET /v1/admin/inbound-events?reason_code=unknown_account`. This is
+            `shops_without_external_ref` observed from the receiving side.
+        refused_inbound_events:
+          type: integer
+          description: >-
+            Drills into `GET /v1/admin/inbound-events?outcome=refused`. Today this can only mean the
+            hop limit was reached - i.e. a cycle. A bad signature writes NO row at all.
+        shops_without_payment_credential:
+          type: integer
+          description: >-
+            Shops that cannot take money; their checkouts return `payment: null`. Drills into
+            `GET /v1/admin/shops?without_payment_credential=true`.
+        cross_service_dead_letters:
+          type: integer
+          description: >-
+            THE CROSS-SERVICE SUBSET of `dead_lettered_deliveries`, counted separately because the
+            two need different people: a shop's own endpoint failing is that shop's problem and
+            there are many shops, while an ESTATE RECEIVER failing is ours and there is one of it.
+            Mixed into one number the second is invisible behind the first. A receiver that is
+            refusing looks identical from here to one quietly doing nothing, and this number is the
+            only signal that separates them - so ONE IS ALREADY A STORY. Drills into
+            `GET /v1/admin/webhook-deliveries?status=dead_lettered&cross_service=true`.
+        oversold_orders:
+          type: integer
+          description: >-
+            THE ONE COUNT HERE THAT MEANS ACT, NOT WATCH. Confirmed orders whose stock was gone when
+            payment landed: the reservation lapsed, the payment-success action could not re-reserve,
+            and it CONFIRMED ANYWAY because money had been taken. Nothing resolves these
+            automatically. Drills into `GET /v1/admin/orders?oversold=true`.
+        unrestricted_admin_keys:
+          type: integer
+          description: >-
+            Live admin keys whose `allowed_ips` is empty, which means unrestricted. A WATCH count:
+            unrestricted is a legitimate posture on a platform whose egress addresses rotate. What
+            it must not be is one nobody decided, which is why minting in production now requires
+            either `allowed_ips` or `allow_any_ip`. Drills into
+            `GET /v1/admin/admin-keys?allowlist=empty`.
+
+    ListEnvelope:
+      type: object
+      required: [data, next_cursor]
+      description: >-
+        Every collection uses this. `data` is `[]`, never null. `next_cursor` is always present and
+        null on the last or only page. There is no `total` anywhere.
+      properties:
+        data:
+          type: array
+          items: {}
+        next_cursor:
+          type: [string, 'null']
+
+    ShopSelf:
+      type: object
+      required: [public_id, slug, name, currency, locale]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        slug:
+          $ref: '#/components/schemas/Slug'
+        name:
+          type: string
+        currency:
+          $ref: '#/components/schemas/Currency'
+        locale:
+          type: string
+          description: BCP 47.
+    ShopKey:
+      type: object
+      required: [public_id, kind, label, secret_last4, fingerprint, last_used_at, revoked_at, created_at]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [publishable, secret]
+        label:
+          type: string
+        secret_last4:
+          type: string
+        fingerprint:
+          type: string
+          description: The first 8 hex characters of the stored SHA-256 digest.
+        last_used_at:
+          type: [string, 'null']
+          format: date-time
+          description: Refreshed at most every 5 minutes. Not a liveness signal.
+        revoked_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    ShopKeyMint:
+      type: object
+      additionalProperties: false
+      required: [kind, label]
+      properties:
+        kind:
+          type: string
+          enum: [publishable, secret]
+          description: '`publishable` mints a `wpk_` key; `secret` mints a `wsk_` key.'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Becomes the audit identity. Make it say who holds the key.
+    MintedShopKey:
+      allOf:
+        - $ref: '#/components/schemas/ShopKey'
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: >-
+                THE PLAINTEXT, RETURNED HERE AND NOWHERE ELSE, EVER. Stored as a SHA-256 digest and
+                not recoverable. A lost key is rotated, not recovered.
+    ShopKeyList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShopKey'
+    StorefrontSelf:
+      type: object
+      required: [shop, key]
+      properties:
+        shop:
+          $ref: '#/components/schemas/ShopSelf'
+        key:
+          $ref: '#/components/schemas/ShopKey'
+    Shop:
+      type: object
+      required: [public_id, slug, name, currency, locale, tax_rate_bps, status, external_ref, created_at, updated_at]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        slug:
+          $ref: '#/components/schemas/Slug'
+        name:
+          type: string
+        currency:
+          $ref: '#/components/schemas/Currency'
+        locale:
+          type: string
+        tax_rate_bps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: >-
+            Basis points as a JSON NUMBER - `2700` is 27%. It is a rate, not an amount. `0` reports
+            no tax. `27` is accepted and means 0.27%.
+        status:
+          type: string
+          enum: [active, suspended]
+          description: '`suspended` makes every one of this shop''s keys answer 401.'
+        external_ref:
+          type: [string, 'null']
+          format: uuid
+          description: The lamido-admin account id. Written by lamido-admin, not by this service.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ShopCreate:
+      type: object
+      additionalProperties: false
+      required: [slug, name, currency]
+      properties:
+        slug:
+          $ref: '#/components/schemas/Slug'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        currency:
+          $ref: '#/components/schemas/Currency'
+        locale:
+          type: string
+          default: hu-HU
+        tax_rate_bps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 0
+        external_ref:
+          type: [string, 'null']
+          format: uuid
+          default: null
+    ShopUpdate:
+      type: object
+      additionalProperties: false
+      description: >-
+        `currency` and `slug` are absent on purpose. Changing the currency would reinterpret every
+        stored minor-unit amount. Sending `{}` is a valid no-op.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        locale:
+          type: string
+        tax_rate_bps:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        external_ref:
+          type: [string, 'null']
+          format: uuid
+        status:
+          type: string
+          enum: [active, suspended]
+    ShopList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Shop'
+
+    AdminKey:
+      type: object
+      required: [public_id, label, secret_last4, fingerprint, scopes, allowed_ips, last_used_at, revoked_at, created_at]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        secret_last4:
+          type: string
+        fingerprint:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminScope'
+        allowed_ips:
+          type: array
+          items:
+            type: string
+          description: Empty means UNRESTRICTED. Exact string matching - no CIDR support.
+        last_used_at:
+          type: [string, 'null']
+          format: date-time
+        revoked_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    AdminScope:
+      type: string
+      enum:
+        - '*'
+        - 'shops:read'
+        - 'shops:write'
+        - 'jobs:read'
+        - 'jobs:write'
+        - 'payments:read'
+        - 'payments:write'
+        - 'shipping:read'
+        - 'shipping:write'
+        - 'catalog:read'
+        - 'catalog:write'
+        - 'orders:read'
+        - 'orders:write'
+        - 'discounts:read'
+        - 'discounts:write'
+        - 'inventory:read'
+        - 'inventory:write'
+        - 'webhooks:read'
+        - 'webhooks:write'
+        - 'stats:read'
+        - 'audit:read'
+        - 'admin:manage'
+      description: >-
+        Checked per route. `stats:read` and `audit:read` are in the enum and NO ROUTE CONSUMES THEM.
+
+        THREE PAIRS ARE NEW AND EACH SITS BESIDE THE WIDER SCOPE IT SPLIT FROM, which still works:
+        `jobs:*` beside `admin:manage` on the queue routes, `shipping:*` beside `orders:*` on the
+        shipping methods, `payments:*` beside `shops:*` on the per-shop payment credential. The
+        wide alternative is a COMPATIBILITY GRANT, not a design - no key can hold a new scope until
+        lamido-admin's scope map carries it. It goes away when the map has shipped and the keys are
+        reissued. Provision a queue monitor with `jobs:read` and nothing else: `admin:manage` also
+        MINTS AND REVOKES ADMIN KEYS.
+    MintedAdminKey:
+      allOf:
+        - $ref: '#/components/schemas/AdminKey'
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: The plaintext, returned here and nowhere else, ever.
+    AdminKeyMint:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Becomes the audit identity. Make it say who holds the key.
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AdminScope'
+          description: OMITTING THIS GRANTS `["*"]`. An unknown member fails the whole request.
+        allowed_ips:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          default: []
+        allow_any_ip:
+          type: boolean
+          description: >-
+            The explicit "any address" opt-in. REQUIRED IN PRODUCTION when `allowed_ips` is empty.
+            Cannot be combined with a non-empty `allowed_ips` - that pair is a 400.
+    AdminKeyList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminKey'
+
+    PublicVariant:
+      type: object
+      required: [public_id, name, sku, price, compare_at_price, currency]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+          description: ADD THIS TO A CART, not the product id.
+        name:
+          type: string
+        sku:
+          type: [string, 'null']
+        price:
+          $ref: '#/components/schemas/MinorAmount'
+        compare_at_price:
+          allOf:
+            - $ref: '#/components/schemas/MinorAmount'
+          nullable: true
+          description: >-
+            The struck-through price. NOT validated to exceed `price`, but it is an amount like any
+            other and a negative one is a 400.
+        currency:
+          $ref: '#/components/schemas/Currency'
+    PublicProduct:
+      type: object
+      required: [public_id, slug, name, description, product_type, variants, updated_at]
+      description: >-
+        The storefront shape, served identically to the `wpk_` and `wsk_` tiers. `status` and
+        `metadata` are absent, and archived variants are filtered out.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        slug:
+          $ref: '#/components/schemas/Slug'
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        product_type:
+          $ref: '#/components/schemas/ProductType'
+        variants:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PublicVariant'
+          description: Never empty. Ordered by `(position, public_id)` ascending.
+        updated_at:
+          type: string
+          format: date-time
+          description: The PRODUCT row only. A price change moves a VARIANT row.
+    PublicProductList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/PublicProduct'
+    ProductType:
+      type: string
+      enum: [physical, digital, service]
+      description: Modelled and NOTHING BRANCHES ON IT. Informational only.
+    AdminVariant:
+      type: object
+      required: [public_id, name, sku, price, compare_at_price, currency, position, status, metadata, created_at, updated_at]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        sku:
+          type: [string, 'null']
+        price:
+          $ref: '#/components/schemas/MinorAmount'
+        compare_at_price:
+          type: [string, 'null']
+        currency:
+          $ref: '#/components/schemas/Currency'
+        position:
+          type: integer
+        status:
+          type: string
+          enum: [active, archived]
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AdminProduct:
+      type: object
+      required: [public_id, slug, name, description, product_type, status, metadata, variants, created_at, updated_at]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        slug:
+          $ref: '#/components/schemas/Slug'
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        product_type:
+          $ref: '#/components/schemas/ProductType'
+        status:
+          type: string
+          enum: [draft, published, archived]
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminVariant'
+          description: Includes ARCHIVED variants, unlike the storefront shape.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AdminProductList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminProduct'
+    VariantCreate:
+      type: object
+      additionalProperties: false
+      required: [name, price, currency]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        price:
+          $ref: '#/components/schemas/MinorAmount'
+        compare_at_price:
+          type: [string, 'null']
+        currency:
+          $ref: '#/components/schemas/Currency'
+        sku:
+          type: [string, 'null']
+          maxLength: 120
+        position:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    VariantUpdate:
+      type: object
+      additionalProperties: false
+      description: '`status` is absent, so a variant''s archive is one-way.'
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        price:
+          $ref: '#/components/schemas/MinorAmount'
+        compare_at_price:
+          type: [string, 'null']
+        currency:
+          $ref: '#/components/schemas/Currency'
+        sku:
+          type: [string, 'null']
+          maxLength: 120
+        position:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    ProductCreate:
+      type: object
+      additionalProperties: false
+      required: [slug, name]
+      properties:
+        slug:
+          $ref: '#/components/schemas/Slug'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 20000
+        product_type:
+          $ref: '#/components/schemas/ProductType'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        variants:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/VariantCreate'
+          description: >-
+            OMITTING THIS creates ONE default variant with the product's own name, price `"0"` and
+            the shop's currency.
+    ProductUpdate:
+      type: object
+      additionalProperties: false
+      description: '`status` is absent - it moves only through the publish and archive verbs.'
+      properties:
+        slug:
+          $ref: '#/components/schemas/Slug'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 20000
+        product_type:
+          $ref: '#/components/schemas/ProductType'
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+
+    Inventory:
+      type: object
+      required: [variant_public_id, tracked, quantity, reserved_quantity, available, updated_at]
+      description: >-
+        `tracked: false` with every count null means NOT TRACKED - unlimited, not sold out.
+        Inventory is opt-in per variant.
+      properties:
+        variant_public_id:
+          type: string
+          format: uuid
+        tracked:
+          type: boolean
+        quantity:
+          type: [string, 'null']
+          description: A decimal string count, or null when untracked.
+        reserved_quantity:
+          type: [string, 'null']
+          description: Held by pending orders. NOT SETTABLE through any API.
+        available:
+          type: [string, 'null']
+          description: Computed as `quantity - reserved_quantity`. Stored nowhere.
+        updated_at:
+          type: [string, 'null']
+          format: date-time
+    InventorySet:
+      type: object
+      additionalProperties: false
+      required: [quantity]
+      properties:
+        quantity:
+          $ref: '#/components/schemas/Count'
+
+    ShippingOption:
+      type: object
+      required: [public_id, name, description, price, currency]
+      description: The buyer's view - a strict subset of the operator's.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        price:
+          $ref: '#/components/schemas/MinorAmount'
+        currency:
+          $ref: '#/components/schemas/Currency'
+    ShippingOptionList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShippingOption'
+    ShippingMethod:
+      allOf:
+        - $ref: '#/components/schemas/ShippingOption'
+        - type: object
+          required: [active, metadata, created_at, updated_at]
+          properties:
+            active:
+              type: boolean
+              description: 'There is no delete. Withdraw with `active: false`.'
+            metadata:
+              $ref: '#/components/schemas/Metadata'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    ShippingMethodCreate:
+      type: object
+      additionalProperties: false
+      required: [name, price, currency]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        price:
+          $ref: '#/components/schemas/MinorAmount'
+        currency:
+          $ref: '#/components/schemas/Currency'
+        active:
+          type: boolean
+          default: true
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    ShippingMethodUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        price:
+          $ref: '#/components/schemas/MinorAmount'
+        currency:
+          $ref: '#/components/schemas/Currency'
+        active:
+          type: boolean
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+    ShippingMethodList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShippingMethod'
+
+    CouponType:
+      type: string
+      enum: [percentage, fixed_amount]
+    Coupon:
+      type: object
+      required: [public_id, code, type, value, currency, minimum_order_value, usage_limit, usage_count, starts_at, expires_at, active, created_at, updated_at]
+      description: NEVER serialised to a buyer. There is no consumer-tier coupon endpoint.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: Stored UPPER CASE, unique per shop.
+        type:
+          $ref: '#/components/schemas/CouponType'
+        value:
+          type: string
+          description: >-
+            One field, two meanings: BASIS POINTS for `percentage` (`"1000"` is 10%, max `"10000"`),
+            MINOR UNITS for `fixed_amount`. A decimal string either way.
+        currency:
+          type: [string, 'null']
+          description: Required for `fixed_amount`, meaningless for `percentage`.
+        minimum_order_value:
+          type: [string, 'null']
+          description: Measured against the SUBTOTAL, before the discount and before carriage.
+        usage_limit:
+          type: [integer, 'null']
+          description: A JSON number. Null is unlimited.
+        usage_count:
+          type: integer
+          description: Read only. It moves only through a redemption.
+        starts_at:
+          type: [string, 'null']
+          format: date-time
+          description: Inclusive.
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: Exclusive.
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CouponCreate:
+      type: object
+      additionalProperties: false
+      required: [code, type, value]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Za-z0-9_-]+$'
+          description: Case-insensitive on the way in; stored upper case.
+        type:
+          $ref: '#/components/schemas/CouponType'
+        value:
+          type: string
+          pattern: '^[1-9][0-9]{0,17}$'
+          description: Above zero, no leading zero. Basis points or minor units, per `type`.
+        currency:
+          type: [string, 'null']
+          description: REQUIRED for `fixed_amount`, and must equal the shop's currency.
+        minimum_order_value:
+          type: [string, 'null']
+        usage_limit:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000000
+        starts_at:
+          type: [string, 'null']
+          format: date-time
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        active:
+          type: boolean
+          default: true
+    CouponUpdate:
+      type: object
+      additionalProperties: false
+      description: >-
+        The cross-field rules are checked against the RESULTING coupon, not the patch. `usage_count`
+        is deliberately absent.
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Za-z0-9_-]+$'
+        type:
+          $ref: '#/components/schemas/CouponType'
+        value:
+          type: string
+          pattern: '^[1-9][0-9]{0,17}$'
+        currency:
+          type: [string, 'null']
+        minimum_order_value:
+          type: [string, 'null']
+        usage_limit:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000000
+        starts_at:
+          type: [string, 'null']
+          format: date-time
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        active:
+          type: boolean
+    CouponList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Coupon'
+
+    CartLine:
+      type: object
+      required: [public_id, variant_public_id, name, quantity, unit_price, line_total, discount_total, unavailable]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+          description: The id used in the PATCH and DELETE item paths.
+        variant_public_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: The VARIANT's name.
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+          description: A JSON NUMBER - a small retail count, unlike money and unlike a stock count.
+        unit_price:
+          $ref: '#/components/schemas/MinorAmount'
+        line_total:
+          type: string
+          description: '`"0"` when `unavailable` is true.'
+        discount_total:
+          type: string
+          description: ALWAYS `"0"`. There are no per-line discounts.
+        unavailable:
+          type: boolean
+          description: >-
+            The variant can no longer be sold. The line stays visible, contributes `"0"` to every
+            total, and BLOCKS CHECKOUT until it is removed.
+    Cart:
+      type: object
+      required: [public_id, status, currency, customer_id, session_id, items, coupon_code, coupon_applied, shipping_method_id, subtotal, discount_total, shipping_total, tax_total, grand_total, has_unavailable_items, expires_at, created_at, updated_at]
+      description: >-
+        Every cart response and every cart mutation returns this whole object, priced. A storefront
+        never adds anything up.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [open, converted, expired]
+          description: >-
+            COMPUTED - reads `expired` the moment `expires_at` has passed, whatever the stored
+            column says. Nothing sweeps carts.
+        currency:
+          $ref: '#/components/schemas/Currency'
+        customer_id:
+          type: [string, 'null']
+          format: uuid
+        session_id:
+          type: [string, 'null']
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartLine'
+          description: Insertion order.
+        coupon_code:
+          type: [string, 'null']
+        coupon_applied:
+          type: boolean
+          description: >-
+            BRANCH ON THIS. A code set with `coupon_applied: false` is a lapsed, withdrawn, sold-out
+            or below-minimum campaign.
+        shipping_method_id:
+          type: [string, 'null']
+          format: uuid
+          description: Null when none is chosen OR when the chosen one has been withdrawn.
+        subtotal:
+          $ref: '#/components/schemas/MinorAmount'
+        discount_total:
+          $ref: '#/components/schemas/MinorAmount'
+        shipping_total:
+          $ref: '#/components/schemas/MinorAmount'
+        tax_total:
+          type: string
+          description: CONTAINED IN `grand_total`, not added to it. Adding them double-counts.
+        grand_total:
+          type: string
+          description: '`max(0, subtotal - discount_total + shipping_total)`.'
+        has_unavailable_items:
+          type: boolean
+          description: >-
+            Branch on this, never on the totals. When true, `subtotal` does NOT equal the sum of the
+            lines.
+        expires_at:
+          type: string
+          format: date-time
+          description: 30 days from creation, and NEVER extended by a mutation.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CartCreate:
+      type: object
+      additionalProperties: false
+      description: '`currency` is absent on purpose - a cart copies the shop''s and may not choose.'
+      properties:
+        customer_id:
+          type: [string, 'null']
+          format: uuid
+          description: An opaque reference to YOUR user. Never validated, never resolved.
+        session_id:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 200
+          description: Your own anonymous key. NEVER used for scoping.
+    CartItemCreate:
+      type: object
+      additionalProperties: false
+      required: [variant_id, quantity]
+      properties:
+        variant_id:
+          type: string
+          format: uuid
+          description: A VARIANT's public_id. Another shop's answers 422, not 404.
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+          description: The amount to ADD. The 99 cap applies to the resulting LINE.
+    CartItemUpdate:
+      type: object
+      additionalProperties: false
+      required: [quantity]
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+          description: Absolute, not a delta - which is what makes this safe to retry.
+    CartCoupon:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Za-z0-9_-]+$'
+    CartShippingMethod:
+      type: object
+      additionalProperties: false
+      required: [shipping_method_id]
+      properties:
+        shipping_method_id:
+          type: [string, 'null']
+          format: uuid
+          description: The key must be PRESENT. Null clears the choice.
+
+    Address:
+      type: object
+      additionalProperties: false
+      required: [name, line1, city, postal_code, country]
+      description: Strict, and stored exactly as sent so the readback is byte-identical.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        line1:
+          type: string
+          minLength: 1
+          maxLength: 200
+        line2:
+          type: [string, 'null']
+          maxLength: 200
+        city:
+          type: string
+          minLength: 1
+          maxLength: 120
+        postal_code:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: Free text. NO format validation of any kind.
+        country:
+          type: string
+          pattern: '^[A-Z]{2}$'
+          description: ISO 3166-1 alpha-2, UPPER CASE. `"hu"` is a 400.
+        phone:
+          type: [string, 'null']
+          maxLength: 40
+          description: Free text. No format validation.
+    CheckoutRequest:
+      type: object
+      additionalProperties: false
+      required: [shipping_address]
+      description: >-
+        AT LEAST ONE of `customer_id` and `guest_email` must be present, or the 400 carries TWO
+        issues, one on each pointer. Nothing about money is here - totals come from the cart.
+      properties:
+        customer_id:
+          type: [string, 'null']
+          format: uuid
+        guest_email:
+          type: [string, 'null']
+          format: email
+          maxLength: 320
+          description: The only place this service ever holds an email address.
+        shipping_address:
+          $ref: '#/components/schemas/Address'
+        billing_address:
+          type: [object, 'null']
+          description: >-
+            Null means "the same as shipping". THE SERVICE DOES NOT COPY IT - you resolve that.
+          allOf:
+            - $ref: '#/components/schemas/Address'
+    OrderLine:
+      type: object
+      required: [product_id, variant_id, product_name, variant_name, sku, unit_price, quantity, discount_total, total, currency]
+      description: Copied at checkout. The catalog may say something else today; this line may not.
+      properties:
+        product_id:
+          type: string
+          format: uuid
+          description: For a link back to the product page - never for a price.
+        variant_id:
+          type: string
+          format: uuid
+        product_name:
+          type: string
+        variant_name:
+          type: string
+        sku:
+          type: [string, 'null']
+        unit_price:
+          $ref: '#/components/schemas/MinorAmount'
+        quantity:
+          type: integer
+        discount_total:
+          type: string
+          description: Always `"0"`.
+        total:
+          $ref: '#/components/schemas/MinorAmount'
+        currency:
+          $ref: '#/components/schemas/Currency'
+    OrderStatus:
+      type: string
+      enum: [pending, paid, confirmed, fulfilled, payment_failed, canceled, refunded]
+      description: >-
+        `canceled` has ONE `l` - the estate spelling. EVERY status is now reachable, but only
+        `fulfilled` and `canceled` are reachable BY AN API CALL: `paid`, `confirmed` and `refunded`
+        arrive exclusively from payment-service, through the inbound receiver or the reconcile poll.
+
+        `paid` is a STEP AND NOT A DESTINATION - the payment-success handler moves `pending -> paid`,
+        commits the stock, and moves `paid -> confirmed` in the SAME transaction, so you will almost
+        never observe it. Wait for `confirmed`; do not build a screen or a branch that waits for
+        `paid`. Treat an unrecognised status as "in progress, do not act".
+    Order:
+      type: object
+      required: [public_id, status, currency, customer_id, guest_email, items, subtotal, discount_total, shipping_total, tax_total, grand_total, shipping_method_name, shipping_method_price, coupon_code, coupon_discount, shipping_address, billing_address, payment_ref, created_at, updated_at]
+      description: >-
+        Immutable history. Every value a buyer was shown is copied here at checkout, and no order
+        read joins the live catalog. The admin tier serves this identical shape.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        currency:
+          $ref: '#/components/schemas/Currency'
+        customer_id:
+          type: [string, 'null']
+          format: uuid
+        guest_email:
+          type: [string, 'null']
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        subtotal:
+          $ref: '#/components/schemas/MinorAmount'
+        discount_total:
+          $ref: '#/components/schemas/MinorAmount'
+        shipping_total:
+          $ref: '#/components/schemas/MinorAmount'
+        tax_total:
+          type: string
+          description: CONTAINED IN `grand_total`, not added to it.
+        grand_total:
+          $ref: '#/components/schemas/MinorAmount'
+        shipping_method_name:
+          type: [string, 'null']
+          description: Copied, not joined. Null when the order needs no carriage.
+        shipping_method_price:
+          type: [string, 'null']
+        coupon_code:
+          type: [string, 'null']
+        coupon_discount:
+          type: [string, 'null']
+        shipping_address:
+          $ref: '#/components/schemas/Address'
+        billing_address:
+          type: [object, 'null']
+          allOf:
+            - $ref: '#/components/schemas/Address'
+        payment_ref:
+          type: [string, 'null']
+          description: >-
+            payment-service's payment `public_id`, written after the checkout transaction commits.
+            Null until the payment is created, and PERMANENTLY NULL for a shop holding no credential.
+
+            A `pending` order with a null `payment_ref` IS NOT RECONCILABLE - the reconcile poll only
+            touches orders that have one. What recovers such an order is the buyer retrying the
+            checkout with the same Idempotency-Key.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OrderList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Order'
+
+    # ── Phase 6: payments ──────────────────────────────────────────────────────────────────────
+
+    Payment:
+      type: object
+      required: [public_id, status, gateway_url]
+      description: >-
+        PAYMENT-SERVICE'S RESOURCE, RE-PUBLISHED VERBATIM. This service does not own payments, so
+        nothing here is re-derived or translated - doing so would put a second opinion about a payment
+        in a service that has none.
+      properties:
+        public_id:
+          type: string
+          description: payment-service's payment id. Also written to the order's `payment_ref`.
+        status:
+          type: string
+          description: >-
+            PAYMENT-SERVICE'S VOCABULARY, not this service's order-status enum, and deliberately NOT
+            validated against a list here. Treat it as opaque display data and never map it onto an
+            order status.
+        gateway_url:
+          type: [string, 'null']
+          description: >-
+            Where to redirect the buyer. NULL MEANS DO NOT REDIRECT - payment-service's contract,
+            passed through unchanged. Handle it exactly as you handle a null `payment`.
+
+    CheckoutResponse:
+      allOf:
+        - $ref: '#/components/schemas/Order'
+        - type: object
+          required: [payment]
+          properties:
+            payment:
+              oneOf:
+                - $ref: '#/components/schemas/Payment'
+                - type: 'null'
+              description: >-
+                NULL WHEN THE SHOP HOLDS NO PAYMENT CREDENTIAL - a configuration state, not a failure.
+                The order still commits `pending` with its stock held and the 201 is still a 201; an
+                operator finds the shop via `shops_without_payment_credential` on admin health.
+
+                THIS MEMBER EXISTS ONLY ON THE CHECKOUT RESPONSE. `GET /v1/orders/{id}` returns
+                `payment_ref` and no `payment` block, because the block is payment-service's resource
+                fetched at that one instant rather than something this service stores.
+
+    PaymentCredentialRequest:
+      type: object
+      required: [secret]
+      additionalProperties: false
+      properties:
+        secret:
+          type: string
+          minLength: 12
+          maxLength: 200
+          pattern: '^pmk_'
+          description: >-
+            payment-service's key IN FULL, INCLUDING THE `pmk_` PREFIX. The prefix is validated rather
+            than assumed: a key pasted without it authenticates against nothing, and the first symptom
+            would be every checkout in that shop answering 502 hours later.
+          examples: ['pmk_YOUR_PAYMENT_SERVICE_KEY']
+
+    PaymentCredential:
+      type: object
+      required: [public_id, secret_last4, secret_fingerprint, created_at, updated_at]
+      description: >-
+        The whole readback. There is no route that returns the plaintext (HR-18), and the absence is
+        the design rather than an omission.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        secret_last4:
+          type: string
+        secret_fingerprint:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # ── Phase 5/6: the event layer ─────────────────────────────────────────────────────────────
+
+    EventType:
+      type: object
+      required: [event_type, kind, resource, fires_when, target_status, sensitive_blocks, cross_service]
+      properties:
+        event_type:
+          type: string
+          enum:
+            - order.created
+            - order.confirmed
+            - order.payment_failed
+            - order.canceled
+            - order.fulfilled
+            - order.refunded
+          description: >-
+            NOTE `order.canceled` HAS ONE `l` - the estate's spelling, fixed in the status enum from
+            migration 0000 precisely so this name never needed a rename. There is deliberately NO
+            `order.paid`: `paid` is a step inside one transaction, not a destination, and the outcome a
+            receiver acts on is `order.confirmed` moments later.
+        kind:
+          type: string
+          enum: [transition, observation]
+          description: >-
+            A `transition` means `orders.status` moved and the status invariant binds:
+            `data.order.status` EQUALS `target_status`. An `observation` makes no such promise -
+            `order.created` is the one, so A RECEIVER MUST BRANCH ON `data.order.status`, NEVER ON THE
+            EVENT NAME.
+        resource:
+          type: string
+          const: order
+        fires_when:
+          type: string
+        target_status:
+          type: [string, 'null']
+          description: Null on an observation.
+        sensitive_blocks:
+          type: array
+          items:
+            type: string
+          description: >-
+            Which `data` blocks are omitted unless the endpoint has `include_customer: true`. Named per
+            type so an operator UI can warn before the box is ticked (WH-11).
+        cross_service:
+          type: boolean
+          description: Whether another service in the estate is registered to act on it.
+
+    EventTypeList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/EventType'
+
+    WebhookEndpointCreate:
+      type: object
+      required: [url]
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          format: uri
+          description: >-
+            HTTPS. Checked for deliverability at save time AND AGAIN at delivery, because a save proves
+            only what was true at one instant. A rejected URL is a 400 with `pointer: "/url"`.
+        description:
+          type: [string, 'null']
+          description: The operator's note. What the listing shows.
+        subscribed_events:
+          type: [array, 'null']
+          items:
+            type: string
+          description: >-
+            NULL MEANS EVERY TYPE IN THE CATALOGUE. An EMPTY ARRAY IS A 400, never "none" - a
+            subscription to nothing is a mistake, not a configuration (WH-7).
+        include_customer:
+          type: boolean
+          default: false
+          description: >-
+            OFF BY DEFAULT, and leave it off unless you need it. A webhook body does not stay in one
+            place: it lands in the receiver's request log, in whatever drain they run, in every proxy
+            between us, and in a support ticket the first time something goes wrong. Enabling it writes
+            a dedicated audit row.
+
+    WebhookEndpointUpdate:
+      type: object
+      additionalProperties: false
+      description: Every member optional. An absent member is unchanged.
+      properties:
+        url:
+          type: string
+          format: uri
+        description:
+          type: [string, 'null']
+        subscribed_events:
+          type: [array, 'null']
+          items:
+            type: string
+        include_customer:
+          type: boolean
+
+    WebhookEndpoint:
+      type: object
+      required:
+        - public_id
+        - url
+        - subscribed_events
+        - contract_version
+        - enabled
+        - include_customer
+        - secret_last4
+        - created_at
+        - updated_at
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        description:
+          type: [string, 'null']
+        subscribed_events:
+          type: [array, 'null']
+          items:
+            type: string
+          description: Null means every type in the catalogue.
+        contract_version:
+          type: integer
+          description: Pinned at create. A delivery is rendered down to this version to reach the endpoint.
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: [string, 'null']
+          description: >-
+            A disabled endpoint ALWAYS says why - a check constraint requires it - so an operator
+            reading the list needs no second query. Human-readable, and never the thing a count is
+            derived from.
+        consecutive_failures:
+          type: integer
+          description: >-
+            Exhausted LADDERS, not attempts. At 5 the endpoint auto-disables. Re-enabling clears this
+            and the reason together.
+        include_customer:
+          type: boolean
+        secret_last4:
+          type: string
+          description: The readback, and the whole readback. The plaintext is shown once, at mint.
+        secret_fingerprint:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    MintedWebhookEndpoint:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEndpoint'
+        - type: object
+          required: [secret]
+          properties:
+            secret:
+              type: string
+              description: >-
+                THE PLAINTEXT SIGNING SECRET, RETURNED EXACTLY ONCE - here on create and on
+                rotate-secret, and by no read route ever. Capture it now. A lost secret is rotated, not
+                recovered, and rotating invalidates every signature the receiver is currently verifying.
+              examples: ['whsec_YOUR_ENDPOINT_SECRET']
+
+    WebhookEndpointList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/WebhookEndpoint'
+
+    WebhookEvent:
+      type: object
+      required: [public_id, event_type, contract_version, correlation_id, hop, occurred_at, created_at]
+      description: Immutable. Written once, inside the transaction that made the fact true.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+          description: >-
+            THIS IS THE `event_id` ON THE WIRE and in `X-Event-Id`. One id, not two - dedupe on it.
+        event_type:
+          type: string
+        contract_version:
+          type: integer
+        payload:
+          type: object
+          additionalProperties: true
+          description: >-
+            The frozen body, exactly as sent to every attempt of every redelivery. `data.customer` is
+            STRIPPED from this listing regardless of any endpoint's `include_customer`.
+        account_id:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            The shop's `external_ref` at emission. NULL IS LEGITIMATE and is counted on admin health -
+            a null makes the event unroutable at a receiving service.
+        correlation_id:
+          type: string
+          format: uuid
+          description: Equals `public_id` on a natively produced event.
+        causation_id:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            The inbound event that caused this one, or null when nothing did. Null on the reconcile
+            path is the TRUTH rather than a gap: a poll found a fact nobody told us.
+        hop:
+          type: integer
+        occurred_at:
+          type: string
+          format: date-time
+          description: >-
+            WHEN THE FACT BECAME TRUE, not when it was sent. The `from`/`until` filters test this
+            column, unlike every other listing in this spec.
+        created_at:
+          type: string
+          format: date-time
+
+    WebhookEventList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/WebhookEvent'
+
+    WebhookDelivery:
+      type: object
+      required: [public_id, status, attempt, created_at, updated_at]
+      description: >-
+        ONE ROW PER (event, endpoint) PAIR, never two. A redelivery RESETS this row. content-service
+        held "a re-fire is a new event" and "dedupe on X-Event-Id" - each defensible alone - and
+        together they made an operator's re-fire indistinguishable from a second publish, so receivers
+        processed it twice. The unique index is the fix.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+          description: The ROW's id. Not `X-Delivery-Id`, which is regenerated per attempt.
+        event_id:
+          type: string
+          format: uuid
+        endpoint_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [pending, delivered, dead_lettered]
+        attempt:
+          type: integer
+          description: 0-8. At 8 exhausted attempts the row becomes `dead_lettered`.
+        next_attempt_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            A FLOOR, NOT A SCHEDULE. The rung says "not before"; what turns it into "at about" is drain
+            frequency, and the scheduled drain runs ONCE A DAY on this deployment.
+        response_status:
+          type: [integer, 'null']
+          description: The receiver's HTTP status, or null when there was no response at all.
+        response_excerpt:
+          type: [string, 'null']
+          description: 'At most 500 bytes, truncated WHILE READING - a 10 MB error page is not our problem.'
+        error:
+          type: [string, 'null']
+          enum: [timeout, redirect_not_followed, url_rejected, null]
+          description: >-
+            Why an attempt produced NO status code at all. A 4xx is a status, not one of these, so
+            `error` and `response_status` are never both set.
+        delivered_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    WebhookDeliveryList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/WebhookDelivery'
+
+    PingResult:
+      type: object
+      description: >-
+        The synchronous outcome of a `webhook.ping`. A 200 from the route means the CALL WAS MADE, not
+        that the receiver accepted it - read these members.
+      properties:
+        delivered:
+          type: boolean
+        response_status:
+          type: [integer, 'null']
+        error:
+          type: [string, 'null']
+          enum: [timeout, redirect_not_followed, url_rejected, null]
+        response_excerpt:
+          type: [string, 'null']
+
+    Job:
+      type: object
+      required: [public_id, type, status, attempts, max_attempts, run_after, created_at, updated_at]
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        shop_id:
+          type: [string, 'null']
+          format: uuid
+          description: 'NULL FOR PLATFORM WORK: the sweeps belong to every shop and to none.'
+        type:
+          type: string
+          enum:
+            - webhook.deliver
+            - inventory.release_expired
+            - cart.expire
+            - order.confirm
+            - order.fail_payment
+            - order.refund
+            - payment.reconcile
+        status:
+          type: string
+          enum: [pending, claimed, done, dead]
+          description: >-
+            `due` is a FILTER, not a status: it is the drain's eligibility predicate. A `claimed` job
+            whose lease has passed is eligible again with no writer at all, which is why no sweeper
+            exists to forget to run.
+        attempts:
+          type: integer
+        max_attempts:
+          type: integer
+          description: '8 for deliveries, 5 for the inbound actions, 3 for the sweeps and reconcile.'
+        run_after:
+          type: string
+          format: date-time
+          description: '"Not before". The daily drain is what decides "at about".'
+        claimed_until:
+          type: [string, 'null']
+          format: date-time
+          description: The lease. Past it, the job is re-eligible.
+        last_error:
+          type: [string, 'null']
+          description: Truncated to 1 000 characters. Read this before retrying.
+        canceled_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    JobList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Job'
+
+    InboundEvent:
+      type: object
+      required: [public_id, source_service, event_id, event_type, outcome, reason_code, hop, received_at]
+      description: 'A ledger row. NO PAYLOAD IS STORED - see the listing''s description.'
+      properties:
+        public_id:
+          type: string
+          format: uuid
+        source_service:
+          type: string
+          const: payment-service
+          description: The emitter's slug. Never a URL, never a host.
+        event_id:
+          type: string
+          format: uuid
+          description: >-
+            THE EMITTER'S id - the one a cross-service query joins on, and what makes a duplicate
+            delivery a 200 and a no-op.
+        event_type:
+          type: string
+        outcome:
+          type: string
+          enum: [accepted, ignored, refused]
+          description: >-
+            `accepted` means recorded AND queued; the order moves when the job runs. `ignored` means
+            recorded and deliberately not acted on. `refused` means recorded and rejected - the hop
+            limit and the replay window reach it.
+        reason_code:
+          type: [string, 'null']
+          enum:
+            [unknown_account, unknown_order, hop_limit, unsupported_type, already_handled, stale, null]
+          description: >-
+            A CLOSED set, never prose - a count derived from a sentence keeps passing until somebody
+            rewords the sentence, and then silently counts zero. Null on an `accepted` row.
+        correlation_id:
+          type: [string, 'null']
+          format: uuid
+        causation_id:
+          type: [string, 'null']
+          format: uuid
+        hop:
+          type: integer
+        received_at:
+          type: string
+          format: date-time
+
+    InboundEventList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/InboundEvent'
+
+    InboundEnvelope:
+      type: object
+      required: [event_id, event_type, occurred_at, service, account_id, correlation_id, causation_id, hop]
+      additionalProperties: true
+      description: >-
+        payment-service's envelope. `additionalProperties: true` IS THE CONTRACT, not laxity: here an
+        unknown member is the emitter adding one, and refusing it would turn their additive change into
+        our outage. Only the members this service actually reads are named.
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: The emitter's id, and the dedupe key.
+        event_type:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >-
+            Only `payment.succeeded`, `payment.failed`, `payment.expired` and `refund.succeeded` cause
+            an action. ANY OTHER TYPE IS RECORDED `ignored` WITH `unsupported_type` AND ANSWERED 200 -
+            decided by a closed map's absence of a key rather than by a branch somebody must remember
+            to write.
+        occurred_at:
+          type: string
+          format: date-time
+        service:
+          type: string
+          minLength: 1
+          maxLength: 100
+        account_id:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            THE LAMIDO-ADMIN ACCOUNT ID, AND THE ONLY WAY THE SHOP IS RESOLVED (WH-23). A null, or one
+            matching no shop's `external_ref`, is recorded `ignored` / `unknown_account` and acted on by
+            nothing - silently, with a 200.
+        correlation_id:
+          type: string
+          format: uuid
+        causation_id:
+          type: [string, 'null']
+          format: uuid
+        hop:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            At or above MAX_HOP = 3 the event is recorded `refused` / `hop_limit`. The hop check runs
+            BEFORE the shop lookup, so a cycle is refused even for a shop we know. The replay window
+            runs before BOTH: an `X-Signature-Timestamp` more than 7 days old, or more than 5 minutes
+            ahead of our clock, is recorded `refused` / `stale` and answered 200. The window sits
+            BESIDE the dedupe ledger and never instead of it.
+        data:
+          type: object
+          additionalProperties: true
+          default: {}
+          description: >-
+            The order is found via `data.payment.merchant_payment_ref`, falling back to
+            `data.refund.merchant_payment_ref` - which is our order's `public_id`, echoed back from the
+            create call. An event carrying neither is `ignored` / `unknown_order`.
+
+    InboundReceipt:
+      type: object
+      required: [received, outcome, reason_code]
+      properties:
+        received:
+          type: boolean
+          const: true
+          description: >-
+            ALWAYS TRUE ON A 200, INCLUDING FOR EVENTS WE IGNORED. It means "received", not "acted on":
+            read `outcome`.
+        outcome:
+          type: string
+          enum: [accepted, ignored, refused]
+        reason_code:
+          type: [string, 'null']
+          enum:
+            [unknown_account, unknown_order, hop_limit, unsupported_type, already_handled, stale, null]
+
+    AuditActorType:
+      type: string
+      enum: [admin_key, shop_key, customer, system]
+      description: >-
+        WHO acted. `system` is the service itself - a sweep, a job, a reconcile - and it is the value
+        that makes a report spanning both tiers complete rather than partial.
+
+    AuditRow:
+      type: object
+      required: [public_id, actor_type, actor_label, action, created_at]
+      description: >-
+        One mutation. APPEND-ONLY and never edited, with NO FOREIGN KEYS: the history has to outlive
+        the key that made it.
+      properties:
+        public_id:
+          type: string
+          format: uuid
+          description: >-
+            The row's id, and the pager's tiebreaker. It exists because of that: the internal bigint
+            must not leave the process (HR-9), so keyset paging over this table needed a column added
+            in migration `0007` before the read surface could exist at all.
+        actor_type:
+          $ref: '#/components/schemas/AuditActorType'
+        actor_id:
+          type: [string, 'null']
+          description: The acting key's `public_id`, or null for `system`.
+        actor_label:
+          type: string
+          description: The key's label as it was AT THE TIME. A renamed key does not rewrite history.
+        action:
+          type: string
+          description: e.g. `order.checkout`, `shop.create`, `webhook_endpoint.rotate_secret`.
+        target_type:
+          type: [string, 'null']
+        target_id:
+          type: [string, 'null']
+        metadata:
+          type: object
+          additionalProperties: true
+          description: >-
+            WHICH KEYS CHANGED, never their values, allowlisted per action on the way in. There is no
+            amount, no address and no email on any row - a trail that carries the money and the
+            buyer is a second copy of the order, with none of its guarantees.
+        ip:
+          type: [string, 'null']
+        request_id:
+          type: [string, 'null']
+          description: Joins this row to the log lines of the request that wrote it.
+        created_at:
+          type: string
+          format: date-time
+
+    AuditRowList:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuditRow'
+
+    DrainTickResult:
+      type: object
+      required: [claimed, succeeded, failed, budget_exhausted]
+      description: What one drain did. `x-internal` - no consumer reads this.
+      properties:
+        claimed:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        budget_exhausted:
+          type: boolean
+          description: >-
+            True when the wall budget stopped the loop rather than the queue running dry. The
+            remaining jobs keep their lease and become eligible again when it expires, so nothing is
+            lost and nothing needs un-sticking.
+
+    SweepsTickResult:
+      allOf:
+        - $ref: '#/components/schemas/DrainTickResult'
+        - type: object
+          required: [enqueued]
+          properties:
+            enqueued:
+              type: array
+              items:
+                type: string
+              description: >-
+                The sweep job types this tick actually added - FEWER THAN FOUR when a previous tick's
+                sweep is still live, because each holds one job at a time under a unique key.
+              examples: [['inventory.release_expired', 'cart.expire']]

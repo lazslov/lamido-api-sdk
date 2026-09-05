@@ -9,8 +9,12 @@
   },
   "dependencies": {
     "@lazslov/api-core": "workspace:*",
+    "@lazslov/auth": "workspace:*",
+    "@lazslov/booking": "workspace:*",
     "@lazslov/content": "workspace:*",
+    "@lazslov/email": "workspace:*",
     "@lazslov/invoice": "workspace:*",
-    "@lazslov/payment": "workspace:*"
+    "@lazslov/payment": "workspace:*",
+    "@lazslov/webshop": "workspace:*"
   }
 }

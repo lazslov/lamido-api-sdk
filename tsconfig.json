@@ -16,9 +16,13 @@
       // The live suite imports the service packages the way a consumer does, by name, because that is
       // the surface it is verifying. Mapped to source for the same reason as core: so a check runs from
       // a clean clone. Each package's own tsconfig maps none of these.
+      "@lazslov/auth": ["./packages/auth/src/index.ts"],
+      "@lazslov/booking": ["./packages/booking/src/index.ts"],
       "@lazslov/content": ["./packages/content/src/index.ts"],
+      "@lazslov/email": ["./packages/email/src/index.ts"],
       "@lazslov/invoice": ["./packages/invoice/src/index.ts"],
       "@lazslov/payment": ["./packages/payment/src/index.ts"],
+      "@lazslov/webshop": ["./packages/webshop/src/index.ts"],
       // `next` ships no `exports` map, so a NodeNext resolver cannot find an extension-less
       // subpath — a Next project's own tsconfig uses `moduleResolution: "bundler"`, which can.
       // Mapped rather than importing `next/cache.js`, because `next/cache` is the specifier every

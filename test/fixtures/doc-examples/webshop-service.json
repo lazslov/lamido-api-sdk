@@ -1,0 +1,1422 @@
+[
+  {
+    "file": "admin-api.md",
+    "line": 243,
+    "context": "`GET /v1/admin/me`",
+    "json": {
+      "public_id": "0191f3a0-1002-7b03-8c14-2d5e6f708192",
+      "label": "lamido-admin production",
+      "secret_last4": "7kQ4",
+      "fingerprint": "b71e0c2a",
+      "scopes": [
+        "*"
+      ],
+      "allowed_ips": [],
+      "last_used_at": "2026-08-11T09:02:11.004Z",
+      "revoked_at": null,
+      "created_at": "2026-08-04T10:41:02.881Z"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 266,
+    "context": "`GET /v1/admin/health` — the deep check",
+    "json": {
+      "status": "ok",
+      "database": "ok",
+      "shops_without_external_ref": 3,
+      "pending_deliveries": 12,
+      "dead_lettered_deliveries": 0,
+      "cross_service_dead_letters": 0,
+      "disabled_endpoints": 1,
+      "due_jobs": 4,
+      "dead_jobs": 0,
+      "unroutable_inbound_events": 0,
+      "refused_inbound_events": 0,
+      "shops_without_payment_credential": 2,
+      "oversold_orders": 0,
+      "unrestricted_admin_keys": 1
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 287,
+    "context": "`GET /v1/admin/health` — the deep check",
+    "json": {
+      "status": "degraded",
+      "database": "degraded"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 386,
+    "context": "The Shop object",
+    "json": {
+      "public_id": "0191f3b1-4c02-7a10-9d3e-6b1c0f2a55d7",
+      "slug": "acme_store",
+      "name": "Acme Store",
+      "currency": "HUF",
+      "locale": "hu-HU",
+      "tax_rate_bps": 2700,
+      "status": "active",
+      "external_ref": "0191e0aa-3311-7c02-9d44-5e6f70819203",
+      "created_at": "2026-08-04T11:00:02.114Z",
+      "updated_at": "2026-08-10T08:15:44.209Z"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 419,
+    "context": "`POST /v1/admin/shops` — provision a shop",
+    "json": {
+      "slug": "acme_store",
+      "name": "Acme Store",
+      "currency": "HUF",
+      "locale": "hu-HU",
+      "tax_rate_bps": 2700,
+      "external_ref": "0191e0aa-3311-7c02-9d44-5e6f70819203"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 432,
+    "context": "`POST /v1/admin/shops` — provision a shop",
+    "json": {
+      "slug": "acme_store",
+      "name": "Acme Store",
+      "currency": "HUF"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 486,
+    "context": "`GET /v1/admin/shops/{public_id}/keys`",
+    "json": {
+      "data": [
+        {
+          "public_id": "0191f3b1-9a44-7c22-8e51-3d7b2e0c19f4",
+          "kind": "secret",
+          "label": "acme storefront backend",
+          "secret_last4": "9xQ2",
+          "fingerprint": "3f9a1c0d",
+          "last_used_at": "2026-08-11T09:12:04.881Z",
+          "revoked_at": null,
+          "created_at": "2026-08-04T11:02:19.334Z"
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 506,
+    "context": "`POST /v1/admin/shops/{public_id}/keys` — mint",
+    "json": {
+      "kind": "secret",
+      "label": "acme storefront backend"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 517,
+    "context": "`POST /v1/admin/shops/{public_id}/keys` — mint",
+    "json": {
+      "public_id": "0191f3d9-2201-7a04-b512-6c7d8e9f0123",
+      "kind": "secret",
+      "label": "acme storefront backend",
+      "secret_last4": "4mB8",
+      "fingerprint": "9c02e1a7",
+      "last_used_at": null,
+      "revoked_at": null,
+      "created_at": "2026-08-11T10:04:11.552Z",
+      "key": "wsk_YOUR_KEY"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 582,
+    "context": "`POST /v1/admin/admin-keys` — mint",
+    "json": {
+      "label": "warehouse integration",
+      "scopes": [
+        "inventory:read",
+        "inventory:write",
+        "orders:read"
+      ],
+      "allowed_ips": [
+        "203.0.113.7"
+      ]
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 652,
+    "context": "The admin Product object",
+    "json": {
+      "public_id": "0191f3b2-1d55-7e03-b4a2-8c0e5f1b7d92",
+      "slug": "espresso_beans",
+      "name": "Espresso Beans",
+      "description": "A dark roast, 1 kg.",
+      "product_type": "physical",
+      "status": "draft",
+      "metadata": {
+        "supplier": "acme-roasters",
+        "dimensions": {
+          "kg": 1
+        }
+      },
+      "variants": [
+        {
+          "public_id": "0191f3b2-2e01-7f14-9b63-4a2d7e0c8f31",
+          "name": "1 kg whole bean",
+          "sku": "ESP-1000-WB",
+          "price": "4990",
+          "compare_at_price": "5990",
+          "currency": "HUF",
+          "position": 0,
+          "status": "active",
+          "metadata": {},
+          "created_at": "2026-08-04T11:10:02.001Z",
+          "updated_at": "2026-08-10T14:21:07.512Z"
+        }
+      ],
+      "created_at": "2026-08-04T11:10:02.001Z",
+      "updated_at": "2026-08-10T14:21:07.512Z"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 683,
+    "context": "`POST /v1/admin/shops/{public_id}/products` — create",
+    "json": {
+      "slug": "espresso_beans",
+      "name": "Espresso Beans",
+      "description": "A dark roast.",
+      "product_type": "physical",
+      "metadata": {
+        "supplier": "acme-roasters"
+      },
+      "variants": [
+        {
+          "name": "1 kg whole bean",
+          "price": "4990",
+          "compare_at_price": "5990",
+          "currency": "HUF",
+          "sku": "ESP-1000-WB"
+        },
+        {
+          "name": "250 g ground",
+          "price": "1690",
+          "currency": "HUF",
+          "sku": "ESP-0250-GR",
+          "position": 1
+        }
+      ]
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 699,
+    "context": "`POST /v1/admin/shops/{public_id}/products` — create",
+    "json": {
+      "slug": "espresso_beans",
+      "name": "Espresso Beans"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 801,
+    "context": "`GET /v1/admin/variants/{public_id}/inventory`",
+    "json": {
+      "variant_public_id": "0191f3b2-2e01-7f14-9b63-4a2d7e0c8f31",
+      "tracked": true,
+      "quantity": "40",
+      "reserved_quantity": "6",
+      "available": "34",
+      "updated_at": "2026-08-11T08:59:01.220Z"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 814,
+    "context": "`GET /v1/admin/variants/{public_id}/inventory`",
+    "json": {
+      "variant_public_id": "0191f3b2-2e01-7f14-9b63-4a2d7e0c8f31",
+      "tracked": false,
+      "quantity": null,
+      "reserved_quantity": null,
+      "available": null,
+      "updated_at": null
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 835,
+    "context": "`PUT /v1/admin/variants/{public_id}/inventory` — set stock",
+    "json": {
+      "quantity": "40"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 871,
+    "context": "The Coupon object",
+    "json": {
+      "public_id": "0191f3c0-4402-7d13-8a24-5b6c7d8e9f01",
+      "code": "SUMMER10",
+      "type": "percentage",
+      "value": "1000",
+      "currency": null,
+      "minimum_order_value": "5000",
+      "usage_limit": 500,
+      "usage_count": 37,
+      "starts_at": "2026-08-01T00:00:00.000Z",
+      "expires_at": "2026-09-01T00:00:00.000Z",
+      "active": true,
+      "created_at": "2026-07-28T09:00:00.000Z",
+      "updated_at": "2026-08-11T07:44:12.008Z"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 900,
+    "context": "`POST /v1/admin/shops/{public_id}/coupons` — create",
+    "json": {
+      "code": "SUMMER10",
+      "type": "percentage",
+      "value": "1000",
+      "minimum_order_value": "5000",
+      "usage_limit": 500,
+      "starts_at": "2026-08-01T00:00:00+00:00",
+      "expires_at": "2026-09-01T00:00:00+00:00",
+      "active": true
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 915,
+    "context": "`POST /v1/admin/shops/{public_id}/coupons` — create",
+    "json": {
+      "code": "WELCOME1000",
+      "type": "fixed_amount",
+      "value": "1000",
+      "currency": "HUF"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 965,
+    "context": "The Shipping Method object",
+    "json": {
+      "public_id": "0191f3b8-5d02-7e11-9c40-7a2b1e0d5f83",
+      "name": "Courier, next day",
+      "description": "Delivered within one working day.",
+      "price": "1490",
+      "currency": "HUF",
+      "active": true,
+      "metadata": {
+        "carrier": "gls"
+      },
+      "created_at": "2026-08-04T11:20:00.000Z",
+      "updated_at": "2026-08-04T11:20:00.000Z"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 1107,
+    "context": "`PUT /v1/admin/shops/{public_id}/payment-credential` — set or replace",
+    "json": {
+      "secret": "pmk_YOUR_KEY"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 1117,
+    "context": "`PUT /v1/admin/shops/{public_id}/payment-credential` — set or replace",
+    "json": {
+      "public_id": "0191f4e0-2a11-7d03-9c44-6b7e8f0a1b22",
+      "secret_last4": "7bQ1",
+      "secret_fingerprint": "9c1af03d",
+      "created_at": "2026-08-17T08:04:11.902Z",
+      "updated_at": "2026-08-17T08:04:11.902Z"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 1216,
+    "context": "`GET /v1/admin/inbound-events`",
+    "json": {
+      "public_id": "0191f4f1-8d22-7a05-b3e6-90c1d2e3f405",
+      "source_service": "payment-service",
+      "event_id": "0191f4f1-1122-7b03-9c40-5d6e7f8a9b01",
+      "event_type": "payment.succeeded",
+      "outcome": "accepted",
+      "reason_code": null,
+      "correlation_id": "0191f4f0-aa11-7c02-8d33-4e5f60718293",
+      "causation_id": null,
+      "hop": 1,
+      "received_at": "2026-08-17T08:06:44.117Z"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 1300,
+    "context": "`GET /v1/admin/audit-log` — who did what",
+    "json": {
+      "data": [
+        {
+          "public_id": "0191f3d0-1a02-7c31-8b44-5e2f7a1c0d93",
+          "actor_type": "shop_key",
+          "actor_id": "0191f3b5-7c01-7d20-9e51-3a4b8c2d1e60",
+          "actor_label": "devora production storefront",
+          "action": "order.checkout",
+          "target_type": "order",
+          "target_id": "0191f3c9-2d04-7b18-8a33-6c1e5f2b7d40",
+          "metadata": {
+            "order_public_id": "0191f3c9-2d04-7b18-8a33-6c1e5f2b7d40",
+            "currency": "HUF",
+            "item_count": 2,
+            "coupon_code": "SUMMER10"
+          },
+          "ip": "203.0.113.24",
+          "request_id": "0191f3a7-6b09-7e42-9f18-4d3c2b1a5e87",
+          "created_at": "2026-08-18T14:02:11.417Z"
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 203,
+    "context": "5. Errors — RFC 9457 problem details",
+    "json": {
+      "type": "urn:webshop-service:problem:validation",
+      "title": "Bad Request",
+      "status": 400,
+      "detail": "The request body failed validation.",
+      "instance": "/v1/carts/0191f3c4-8b21-7c4e-9a55-2f6b0d3e91aa/items",
+      "request_id": "0191f3c5-1a02-7d11-b8c0-5e7a9d4f22b1",
+      "errors": [
+        {
+          "pointer": "/quantity",
+          "code": "too_big",
+          "detail": "A line may not exceed 99."
+        }
+      ],
+      "code": "insufficient_stock",
+      "retry_after": 37
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 89,
+    "context": "POST {{base}}/v1/admin/shops",
+    "json": {
+      "slug": "acme_store",
+      "name": "Acme Store",
+      "currency": "HUF",
+      "locale": "hu-HU",
+      "tax_rate_bps": 2700,
+      "external_ref": "0191e0aa-3311-7c02-9d44-5e6f70819203"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 103,
+    "context": "POST {{base}}/v1/admin/shops",
+    "json": {
+      "slug": "acme_store",
+      "name": "Acme Again",
+      "currency": "HUF"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 110,
+    "context": "PATCH {{base}}/v1/admin/shops/{{shopId}}",
+    "json": {
+      "currency": "EUR"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 129,
+    "context": "PATCH {{base}}/v1/admin/shops/{{shopId}}",
+    "json": {
+      "name": "Acme Store Kft",
+      "tax_rate_bps": 2700
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 142,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/products",
+    "json": {
+      "slug": "espresso_beans",
+      "name": "Espresso Beans",
+      "description": "A dark roast.",
+      "product_type": "physical",
+      "metadata": {
+        "supplier": "acme-roasters",
+        "dimensions": {
+          "kg": 1
+        }
+      },
+      "variants": [
+        {
+          "name": "1 kg whole bean",
+          "price": "4990",
+          "compare_at_price": "5990",
+          "currency": "HUF",
+          "sku": "ESP-1000-WB"
+        },
+        {
+          "name": "250 g ground",
+          "price": "1690",
+          "currency": "HUF",
+          "sku": "ESP-0250-GR",
+          "position": 1
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 161,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/products",
+    "json": {
+      "slug": "bad_price",
+      "name": "Bad Price",
+      "variants": [
+        {
+          "name": "one",
+          "price": 4990,
+          "currency": "HUF"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 172,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/products",
+    "json": {
+      "slug": "wrong_currency",
+      "name": "Wrong Currency",
+      "variants": [
+        {
+          "name": "one",
+          "price": "4990",
+          "currency": "EUR"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 183,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/products",
+    "json": {
+      "slug": "typos",
+      "name": "Typos",
+      "pricee": "4990",
+      "descriptionn": "oops"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 202,
+    "context": "PATCH {{base}}/v1/admin/products/{{productId}}",
+    "json": {
+      "name": "Espresso Beans, dark roast",
+      "metadata": {
+        "supplier": "acme-roasters"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 209,
+    "context": "PATCH {{base}}/v1/admin/products/{{productId}}",
+    "json": {
+      "status": "published"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 220,
+    "context": "POST {{base}}/v1/admin/products/{{productId}}/variants",
+    "json": {
+      "name": "500 g whole bean",
+      "price": "2790",
+      "currency": "HUF",
+      "sku": "ESP-0500-WB"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 231,
+    "context": "PATCH {{base}}/v1/admin/variants/{{variantId}}",
+    "json": {
+      "price": "5290"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 255,
+    "context": "PUT {{base}}/v1/admin/variants/{{variantId}}/inventory",
+    "json": {
+      "quantity": "40"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 262,
+    "context": "PUT {{base}}/v1/admin/variants/{{variantId}}/inventory",
+    "json": {
+      "quantity": 40
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 269,
+    "context": "PUT {{base}}/v1/admin/variants/{{variantId}}/inventory",
+    "json": {
+      "quantity": "40",
+      "reserved_quantity": "0"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 277,
+    "context": "PUT {{base}}/v1/admin/variants/{{variantId}}/inventory",
+    "json": {
+      "quantity": "0"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 289,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/keys",
+    "json": {
+      "kind": "secret",
+      "label": "acme storefront backend"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 296,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/keys",
+    "json": {
+      "kind": "publishable",
+      "label": "acme web storefront"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 317,
+    "context": "POST {{base}}/v1/admin/admin-keys",
+    "json": {
+      "label": "warehouse integration",
+      "scopes": [
+        "inventory:read",
+        "inventory:write",
+        "orders:read"
+      ],
+      "allowed_ips": [
+        "203.0.113.7"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 341,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/shipping-methods",
+    "json": {
+      "name": "Courier, next day",
+      "description": "Delivered within one working day.",
+      "price": "1490",
+      "currency": "HUF",
+      "metadata": {
+        "carrier": "gls"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 362,
+    "context": "PATCH {{base}}/v1/admin/shipping-methods/{{methodId}}",
+    "json": {
+      "active": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 369,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/coupons",
+    "json": {
+      "code": "SUMMER10",
+      "type": "percentage",
+      "value": "1000",
+      "minimum_order_value": "5000",
+      "usage_limit": 500,
+      "starts_at": "2026-08-01T00:00:00+00:00",
+      "expires_at": "2026-09-01T00:00:00+00:00"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 384,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/coupons",
+    "json": {
+      "code": "WELCOME1000",
+      "type": "fixed_amount",
+      "value": "1000",
+      "currency": "HUF"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 391,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/coupons",
+    "json": {
+      "code": "NOCURRENCY",
+      "type": "fixed_amount",
+      "value": "1000"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 398,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/coupons",
+    "json": {
+      "code": "TOOBIG",
+      "type": "percentage",
+      "value": "20000"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 413,
+    "context": "PATCH {{base}}/v1/admin/coupons/{{couponId}}",
+    "json": {
+      "active": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 420,
+    "context": "PATCH {{base}}/v1/admin/coupons/{{couponId}}",
+    "json": {
+      "usage_count": 0
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 499,
+    "context": "POST {{base}}/v1/carts",
+    "json": {
+      "customer_id": "0191e2a0-77c1-7b31-9f02-4d8e1a3c66b2",
+      "session_id": "sess_7f3a91"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 506,
+    "context": "POST {{base}}/v1/carts",
+    "json": {}
+  },
+  {
+    "file": "examples.http",
+    "line": 518,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/items",
+    "json": {
+      "variant_id": "{{variantId}}",
+      "quantity": 2
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 526,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/items",
+    "json": {
+      "variant_id": "0191aaaa-bbbb-7ccc-8ddd-eeeeffff0000",
+      "quantity": 1
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 533,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/items",
+    "json": {
+      "variant_id": "{{variantId}}",
+      "quantity": 98
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 540,
+    "context": "PATCH {{base}}/v1/carts/{{cartId}}/items/{{itemId}}",
+    "json": {
+      "quantity": 5
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 557,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/coupon",
+    "json": {
+      "code": "summer10"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 565,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/coupon",
+    "json": {
+      "code": "NOSUCHCODE"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 573,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/coupon",
+    "json": {
+      "code": "SUMMER10"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 588,
+    "context": "PUT {{base}}/v1/carts/{{cartId}}/shipping-method",
+    "json": {
+      "shipping_method_id": "{{methodId}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 595,
+    "context": "PUT {{base}}/v1/carts/{{cartId}}/shipping-method",
+    "json": {
+      "shipping_method_id": null
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 602,
+    "context": "PUT {{base}}/v1/carts/{{cartId}}/shipping-method",
+    "json": {
+      "shipping_method_id": "0191aaaa-bbbb-7ccc-8ddd-eeeeffff0000"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 630,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "customer_id": "0191e2a0-77c1-7b31-9f02-4d8e1a3c66b2",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "line2": "3rd floor",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU",
+        "phone": "+36301234567"
+      },
+      "billing_address": null
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 650,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "guest_email": "ada@example.com",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 672,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "guest_email": "ada@example.com",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 686,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "guest_email": "grace@example.com",
+      "shipping_address": {
+        "name": "Grace Hopper",
+        "line1": "Andrassy ut 1",
+        "city": "Budapest",
+        "postal_code": "1061",
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 700,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "guest_email": "ada@example.com",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 715,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 728,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "guest_email": "ada@example.com",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "hu"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 743,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "guest_email": "ada@example.com",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "city": "Budapest",
+        "postal_kode": "1053",
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 758,
+    "context": "POST {{base}}/v1/carts/{{cartId}}/checkout",
+    "json": {
+      "guest_email": "ada@example.com",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 847,
+    "context": "POST {{base}}/v1/hooks/payment-service",
+    "json": {}
+  },
+  {
+    "file": "examples.http",
+    "line": 876,
+    "context": "PUT {{base}}/v1/admin/shops/{{shopId}}/payment-credential",
+    "json": {
+      "secret": "pmk_YOUR_KEY"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 891,
+    "context": "PUT {{base}}/v1/admin/shops/{{shopId}}/payment-credential",
+    "json": {
+      "secret": "sk_live_not_a_payment_service_key"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 915,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/webhook-endpoints",
+    "json": {
+      "url": "https://hooks.example.com/webshop",
+      "description": "order confirmations to the fulfilment system",
+      "subscribed_events": [
+        "order.confirmed",
+        "order.canceled"
+      ],
+      "include_customer": false
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 940,
+    "context": "PATCH {{base}}/v1/admin/webhook-endpoints/{{endpointId}}",
+    "json": {
+      "description": "order confirmations — fulfilment, v2",
+      "subscribed_events": [
+        "order.confirmed",
+        "order.canceled",
+        "order.refunded"
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 990,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/webhook-endpoints",
+    "json": {
+      "url": "https://hooks.example.com/webshop",
+      "subscribed_events": []
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1006,
+    "context": "POST {{base}}/v1/admin/shops/{{shopId}}/webhook-endpoints",
+    "json": {
+      "url": "https://hooks.example.com/webshop-21"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1088,
+    "context": "POST {{base}}/v1/hooks/payment-service",
+    "json": {
+      "event_id": "0191f4f1-1122-7b03-9c40-5d6e7f8a9b01",
+      "event_type": "payment.succeeded",
+      "occurred_at": "2026-08-17T08:06:40.000Z",
+      "service": "payment-service",
+      "account_id": "0191e0aa-3311-7c02-9d44-5e6f70819203",
+      "correlation_id": "0191f4f0-aa11-7c02-8d33-4e5f60718293",
+      "causation_id": null,
+      "hop": 1,
+      "data": {
+        "payment": {
+          "public_id": "0191f4d2-9a44-7c02-8e51-11b3f6a7c920",
+          "merchant_payment_ref": "{{orderId}}",
+          "status": "succeeded"
+        }
+      }
+    }
+  },
+  {
+    "file": "operations.md",
+    "line": 135,
+    "context": "Health and liveness",
+    "json": {
+      "status": "ok",
+      "configuration": "ok",
+      "version": "0.1.0",
+      "commit": "f1e1dd0f3b58c78070a413159d40047bd622ef5c",
+      "now": "2026-08-20T09:02:00.114Z"
+    }
+  },
+  {
+    "file": "operations.md",
+    "line": 147,
+    "context": "Health and liveness",
+    "json": {
+      "status": "degraded",
+      "configuration": "invalid",
+      "version": "0.1.0",
+      "commit": "dev",
+      "now": "2026-08-19T09:02:00.114Z"
+    }
+  },
+  {
+    "file": "operations.md",
+    "line": 731,
+    "context": "8. Logging, alerts and heartbeats",
+    "json": {
+      "request_id": "0191f3c5-…",
+      "event": "http.request",
+      "route": "/v1/carts/:publicId/checkout",
+      "method": "POST",
+      "status": 201,
+      "duration_ms": 118,
+      "tier": "secret",
+      "time": "2026-08-17T09:02:00.114Z",
+      "service": "webshop-service",
+      "env": "production",
+      "level": "info",
+      "message": "Request handled"
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 129,
+    "context": "`GET /v1/public/products` — list published products",
+    "json": {
+      "data": [
+        {
+          "public_id": "0191f3b2-1d55-7e03-b4a2-8c0e5f1b7d92",
+          "slug": "espresso_beans",
+          "name": "Espresso Beans",
+          "description": "A dark roast, 1 kg.",
+          "product_type": "physical",
+          "variants": [
+            {
+              "public_id": "0191f3b2-2e01-7f14-9b63-4a2d7e0c8f31",
+              "name": "1 kg whole bean",
+              "sku": "ESP-1000-WB",
+              "price": "4990",
+              "compare_at_price": "5990",
+              "currency": "HUF"
+            }
+          ],
+          "updated_at": "2026-08-10T14:21:07.512Z"
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 74,
+    "context": "`GET /v1/me` — introspect the key",
+    "json": {
+      "shop": {
+        "public_id": "0191f3b1-4c02-7a10-9d3e-6b1c0f2a55d7",
+        "slug": "acme_store",
+        "name": "Acme Store",
+        "currency": "HUF",
+        "locale": "hu-HU"
+      },
+      "key": {
+        "public_id": "0191f3b1-9a44-7c22-8e51-3d7b2e0c19f4",
+        "kind": "secret",
+        "label": "acme storefront backend",
+        "secret_last4": "9xQ2",
+        "fingerprint": "3f9a1c0d",
+        "last_used_at": "2026-08-11T09:12:04.881Z",
+        "revoked_at": null,
+        "created_at": "2026-08-04T11:02:19.334Z"
+      }
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 129,
+    "context": "`GET /v1/products` — list published products",
+    "json": {
+      "data": [
+        {
+          "public_id": "0191f3b2-1d55-7e03-b4a2-8c0e5f1b7d92",
+          "slug": "espresso_beans",
+          "name": "Espresso Beans",
+          "description": "A dark roast, 1 kg.",
+          "product_type": "physical",
+          "variants": [
+            {
+              "public_id": "0191f3b2-2e01-7f14-9b63-4a2d7e0c8f31",
+              "name": "1 kg whole bean",
+              "sku": "ESP-1000-WB",
+              "price": "4990",
+              "compare_at_price": "5990",
+              "currency": "HUF"
+            }
+          ],
+          "updated_at": "2026-08-10T14:21:07.512Z"
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 208,
+    "context": "The Cart object",
+    "json": {
+      "public_id": "0191f3c4-8b21-7c4e-9a55-2f6b0d3e91aa",
+      "status": "open",
+      "currency": "HUF",
+      "customer_id": null,
+      "session_id": "sess_7f3a91",
+      "items": [
+        {
+          "public_id": "0191f3c4-9f10-7a02-8d31-1b5e2c7f04aa",
+          "variant_public_id": "0191f3b2-2e01-7f14-9b63-4a2d7e0c8f31",
+          "product_public_id": "0191f3b1-9a03-7c22-8e40-2f5d1c3b7a91",
+          "product_slug": "espresso-beans",
+          "product_name": "Espresso Beans",
+          "variant_name": "1 kg whole bean",
+          "quantity": 2,
+          "unit_price": "4990",
+          "line_total": "9980",
+          "discount_total": "0",
+          "unavailable": false
+        }
+      ],
+      "coupon_code": "SUMMER10",
+      "coupon_applied": true,
+      "shipping_method_id": "0191f3b8-5d02-7e11-9c40-7a2b1e0d5f83",
+      "subtotal": "9980",
+      "discount_total": "998",
+      "shipping_total": "1490",
+      "tax_total": "2225",
+      "grand_total": "10472",
+      "has_unavailable_items": false,
+      "expires_at": "2026-09-10T09:14:22.017Z",
+      "created_at": "2026-08-11T09:14:22.017Z",
+      "updated_at": "2026-08-11T09:20:41.663Z"
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 316,
+    "context": "`POST /v1/carts` — create a cart",
+    "json": {
+      "customer_id": "0191e2a0-77c1-7b31-9f02-4d8e1a3c66b2",
+      "session_id": "sess_7f3a91"
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 322,
+    "context": "`POST /v1/carts` — create a cart",
+    "json": {}
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 356,
+    "context": "`POST /v1/carts/{public_id}/items` — add a variant",
+    "json": {
+      "variant_id": "0191f3b2-2e01-7f14-9b63-4a2d7e0c8f31",
+      "quantity": 2
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 395,
+    "context": "`PATCH /v1/carts/{public_id}/items/{item_public_id}` — set a quantity",
+    "json": {
+      "quantity": 5
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 420,
+    "context": "`POST /v1/carts/{public_id}/coupon` — apply or replace",
+    "json": {
+      "code": "SUMMER10"
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 470,
+    "context": "`GET /v1/carts/{public_id}/shipping-options` — what carriage is on offer",
+    "json": {
+      "data": [
+        {
+          "public_id": "0191f3b8-5d02-7e11-9c40-7a2b1e0d5f83",
+          "name": "Courier, next day",
+          "description": "Delivered within one working day.",
+          "price": "1490",
+          "currency": "HUF"
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 495,
+    "context": "`PUT /v1/carts/{public_id}/shipping-method` — choose carriage",
+    "json": {
+      "shipping_method_id": "0191f3b8-5d02-7e11-9c40-7a2b1e0d5f83"
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 501,
+    "context": "`PUT /v1/carts/{public_id}/shipping-method` — choose carriage",
+    "json": {
+      "shipping_method_id": null
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 536,
+    "context": "`POST /v1/carts/{public_id}/checkout` — the one that matters",
+    "json": {
+      "customer_id": "0191e2a0-77c1-7b31-9f02-4d8e1a3c66b2",
+      "guest_email": null,
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "line2": "3rd floor",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU",
+        "phone": "+36301234567"
+      },
+      "billing_address": null
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 555,
+    "context": "`POST /v1/carts/{public_id}/checkout` — the one that matters",
+    "json": {
+      "guest_email": "ada@example.com",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 601,
+    "context": "The response carries a `payment` block",
+    "json": {
+      "public_id": "0191f4d2-3c88-7f10-b6a2-70c9d5e4b833",
+      "status": "pending",
+      "grand_total": "1270000",
+      "payment_ref": "0191f4d2-9a44-7c02-8e51-11b3f6a7c920",
+      "payment": {
+        "public_id": "0191f4d2-9a44-7c02-8e51-11b3f6a7c920",
+        "status": "pending",
+        "gateway_url": "https://pay.example.com/s/0191f4d29a44"
+      }
+    }
+  },
+  {
+    "file": "storefront-api.md",
+    "line": 811,
+    "context": "The Order object",
+    "json": {
+      "public_id": "0191f3d0-1122-7a33-b4c5-6d7e8f901234",
+      "status": "pending",
+      "currency": "HUF",
+      "customer_id": "0191e2a0-77c1-7b31-9f02-4d8e1a3c66b2",
+      "guest_email": null,
+      "items": [
+        {
+          "product_id": "0191f3b2-1d55-7e03-b4a2-8c0e5f1b7d92",
+          "variant_id": "0191f3b2-2e01-7f14-9b63-4a2d7e0c8f31",
+          "product_name": "Espresso Beans",
+          "variant_name": "1 kg whole bean",
+          "sku": "ESP-1000-WB",
+          "unit_price": "4990",
+          "quantity": 2,
+          "discount_total": "0",
+          "total": "9980",
+          "currency": "HUF"
+        }
+      ],
+      "subtotal": "9980",
+      "discount_total": "998",
+      "shipping_total": "1490",
+      "tax_total": "2225",
+      "grand_total": "10472",
+      "shipping_method_name": "Courier, next day",
+      "shipping_method_price": "1490",
+      "coupon_code": "SUMMER10",
+      "coupon_discount": "998",
+      "shipping_address": {
+        "name": "Ada Lovelace",
+        "line1": "Kossuth Lajos utca 12",
+        "line2": null,
+        "city": "Budapest",
+        "postal_code": "1053",
+        "country": "HU",
+        "phone": null
+      },
+      "billing_address": null,
+      "payment_ref": null,
+      "created_at": "2026-08-11T09:31:55.204Z",
+      "updated_at": "2026-08-11T09:31:55.204Z"
+    }
+  },
+  {
+    "file": "webhooks.md",
+    "line": 98,
+    "context": "3. The envelope",
+    "json": {
+      "event_id": "019f1c40-0000-7000-8000-0000000000a1",
+      "event_type": "order.confirmed",
+      "contract_version": 1,
+      "occurred_at": "2026-08-17T09:14:31.204Z",
+      "service": "webshop-service",
+      "account_id": "7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46",
+      "tenant": {
+        "kind": "shop",
+        "public_id": "019f1c40-0000-7000-8000-0000000000b2"
+      },
+      "correlation_id": "019f1c31-0000-7000-8000-00000000f0a1",
+      "causation_id": "019f1c31-0000-7000-8000-00000000f0a1",
+      "hop": 1,
+      "data": {
+        "order": {
+          "public_id": "019f1c40-0000-7000-8000-0000000000c3",
+          "status": "confirmed",
+          "currency": "HUF",
+          "subtotal": "12000",
+          "discount_total": "0",
+          "shipping_total": "1490",
+          "tax_total": "2854",
+          "grand_total": "13490",
+          "shipping_method_name": "Házhoz szállítás",
+          "shipping_method_price": "1490",
+          "coupon_code": null,
+          "coupon_discount": null,
+          "items": [
+            {
+              "product_public_id": "019f1c40-0000-7000-8000-0000000000d4",
+              "variant_public_id": "019f1c40-0000-7000-8000-0000000000e5",
+              "product_name": "Kávébab, 1 kg",
+              "variant_name": "Sötét pörkölés",
+              "sku": "COF-DARK-1KG",
+              "quantity": 1,
+              "unit_price": "12000",
+              "discount_total": "0",
+              "total": "12000",
+              "currency": "HUF"
+            }
+          ],
+          "created_at": "2026-08-17T09:12:02.881Z"
+        }
+      }
+    }
+  }
+]

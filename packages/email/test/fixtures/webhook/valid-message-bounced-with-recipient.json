@@ -1,0 +1,12 @@
+{
+  "name": "valid-message-bounced-with-recipient",
+  "describes": "a bounce, from an endpoint that opted in to the recipient address",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"schema_version\":1,\"event_id\":\"0194c7a2-0000-7000-8000-000000000003\",\"event_type\":\"message.bounced\",\"occurred_at\":\"2026-08-09T09:20:00.000Z\",\"service\":\"email-service\",\"account_id\":\"acct_EXAMPLE\",\"correlation_id\":\"0194c7a1-0000-7000-8000-000000000001\",\"hop\":0,\"data\":{\"public_id\":\"0194c7a1-0000-7000-8000-000000000002\",\"status\":\"bounced\",\"template\":{\"key\":\"order.confirmation\",\"version\":1},\"metadata\":{\"order_id\":\"A-2291\"},\"to\":\"guest@example.com\"}}",
+  "timestamp": "1785168000",
+  "signature": "sha256=fddcfd8dc81330c792d5f96956fc0e0ee60a6fbf1a1e5c897494fa0e0561c7e0",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": true
+  }
+}

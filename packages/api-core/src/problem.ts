@@ -56,10 +56,21 @@ const documented: ReadonlySet<string> = new Set<ProblemType>([
  * `pointer` is a JSON Pointer into the request body — `/items/0/quantity` — or `#/query/<name>`
  * for a query parameter. Every problem is reported at once, so this array is the whole list
  * rather than the first failure.
+ *
+ * **`code` is optional, and that is a fact about the estate rather than caution.** invoice-service,
+ * payment-service and webshop-service declare `required: [pointer, code, detail]`;
+ * **booking-service declares `required: [pointer, detail]`**, and its conventions §4 shows a field
+ * error with no `code` at all. A required `code` was therefore a type that lies on one service in
+ * seven — and it lied silently, because the reader below filters on `pointer` alone, so the property
+ * arrived *absent* while the type promised a `string`.
+ *
+ * `pointer` is the member to build a form on. Read `code` where you have it, and fall back to
+ * `detail` — which every service sends — rather than assuming a branchable value is there.
  */
 export interface ProblemFieldError {
   readonly pointer: string;
-  readonly code: string;
+  /** Absent on booking-service, which documents and declares a field error without one. */
+  readonly code?: string;
   readonly detail?: string;
 }
 

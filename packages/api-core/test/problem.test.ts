@@ -63,6 +63,19 @@ describe("problemParser", () => {
     expect(parse(context(400, problem(400, "validation", { errors }))).errors).toEqual(errors);
   });
 
+  it("keeps a field error that carries no code, which is booking-service's documented shape", () => {
+    // booking-service declares `required: [pointer, detail]` on its field error where
+    // invoice-service, payment-service and webshop-service declare `required: [pointer, code,
+    // detail]`. `code` is therefore optional on the shared type — and this case is the reason:
+    // the reader has always filtered on `pointer` alone, so an entry with no `code` was carried
+    // through with the property **absent** while the type promised a `string`.
+    const errors = [{ pointer: "/customer/email", detail: "Invalid email" }];
+    const parsed = parse(context(400, problem(400, "validation", { errors }))).errors;
+
+    expect(parsed).toEqual(errors);
+    expect(parsed?.[0] && "code" in parsed[0]).toBe(false);
+  });
+
   it("ignores an errors member that is not the promised shape", () => {
     const error = parse(context(400, problem(400, "validation", { errors: ["oops", 42] })));
     expect("errors" in error).toBe(false);

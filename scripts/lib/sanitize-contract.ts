@@ -1,3 +1,5 @@
+import { credentialShaped } from "./forbidden-strings.js";
+
 /**
  * Text transforms applied to every pinned contract on import (phase 1 §4).
  *
@@ -16,6 +18,8 @@ export interface SanitizeResult {
   readonly serversReplaced: boolean;
   /** How many deployment or example hostnames were rewritten outside `servers:`. */
   readonly hostRewrites: number;
+  /** How many credential-shaped example values were rewritten to a placeholder. */
+  readonly credentialRewrites: number;
 }
 
 /**
@@ -100,6 +104,36 @@ export function redactExampleHosts(yaml: string): { yaml: string; rewrites: numb
 }
 
 /**
+ * Rewrite credential-shaped example values to a documentation placeholder.
+ *
+ * @param yaml - Contract source.
+ * @returns The rewritten document and the number of substitutions.
+ * @remarks
+ * Upstream writes `example: bsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` and
+ * `isk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`. Neither is a real key — **and the leak guard cannot know
+ * that, and must not learn to make exceptions.** A generated `.d.ts` carries such an example into a
+ * published tarball through its `@example` tag, which is exactly what the guard exists to stop.
+ *
+ * So the value is rewritten here, on import, the same way {@link redactExampleHosts} rewrites a
+ * host. The pattern comes from the guard itself rather than from a second copy: the copy would
+ * drift, and the drifting one would be this sanitiser, which fails **open**.
+ *
+ * A tail that already reads `YOUR_…` or `EXAMPLE_…` is left alone — the guard accepts it, and
+ * rewriting it would churn the diff for nothing.
+ */
+export function redactExampleCredentials(yaml: string): { yaml: string; rewrites: number } {
+  let rewrites = 0;
+
+  const rewritten = yaml.replace(credentialShaped(), (match, prefix: string, tail: string) => {
+    if (/^(YOUR|EXAMPLE)_/.test(tail)) return match;
+    rewrites += 1;
+    return `${prefix}_YOUR_${prefix.toUpperCase()}_KEY`;
+  });
+
+  return { yaml: rewritten, rewrites };
+}
+
+/**
  * Apply every import-time transform to a contract.
  *
  * @param yaml - Upstream contract source.
@@ -108,5 +142,11 @@ export function redactExampleHosts(yaml: string): { yaml: string; rewrites: numb
 export function sanitizeContract(yaml: string, exampleHost: string): SanitizeResult {
   const servers = replaceServersBlock(yaml, exampleHost);
   const hosts = redactExampleHosts(servers.yaml);
-  return { yaml: hosts.yaml, serversReplaced: servers.replaced, hostRewrites: hosts.rewrites };
+  const credentials = redactExampleCredentials(hosts.yaml);
+  return {
+    yaml: credentials.yaml,
+    serversReplaced: servers.replaced,
+    hostRewrites: hosts.rewrites,
+    credentialRewrites: credentials.rewrites,
+  };
 }

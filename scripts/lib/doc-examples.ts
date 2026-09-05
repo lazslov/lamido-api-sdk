@@ -12,7 +12,7 @@
  * and guessing at what it meant would put invented data in a test.
  */
 
-import { isAllowedHost } from "./forbidden-strings.js";
+import { credentialPrefixes, isAllowedHost } from "./forbidden-strings.js";
 import { redactExampleHosts } from "./sanitize-contract.js";
 
 /** One extracted example, with enough provenance to find it again upstream. */
@@ -41,8 +41,15 @@ export interface DocExample {
  * The leak guard rejects a key prefix followed by 12+ characters unless the tail is a `YOUR_`/`EXAMPLE_`
  * placeholder. Upstream writes `isk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` and `csk_9Kd2mQx7…`, neither of
  * which is a real key — but the guard cannot know that, and it must not learn to make exceptions.
+ *
+ * The **prefixes** come from the guard so one list covers both; the **threshold** is deliberately
+ * lower here, 8 rather than 12, because an example short enough for the guard to pass is still a
+ * credential shape nobody wants committed as a fixture. Built per call: a `g` regular expression
+ * carries `lastIndex`, and a shared one would skip matches at random.
  */
-const credentialShaped = /\b(cpk|csk|cad|isk|iad|pmk|pad|whsec)_[A-Za-z0-9_-]{8,}/g;
+function credentialShaped(): RegExp {
+  return new RegExp(`\\b(${credentialPrefixes})_[A-Za-z0-9_-]{8,}`, "g");
+}
 
 /** Any absolute URL's host, so it can be checked against the guard's own allowlist. */
 const urlHost = /\b(https?:\/\/)([A-Za-z0-9._:-]+)/g;
@@ -73,7 +80,7 @@ export function sanitizeExample(text: string): string {
   );
 
   return withoutForeignHosts.replace(
-    credentialShaped,
+    credentialShaped(),
     (_match, prefix: string) => `${prefix}_YOUR_KEY`,
   );
 }

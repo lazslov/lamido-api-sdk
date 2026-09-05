@@ -1,20 +1,23 @@
 # Progress
 
-Live status of the eight phases in [README.md](README.md). Each phase's boxes are its own
+Live status of the nine phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are: published.** `v1.0.0` shipped on 2026-08-15 — all five packages at `1.0.0`, each
-carrying an npm provenance attestation. `pnpm verify` is green (891 unit tests, 23 Node 20.19
-baseline tests, consumer smoke checks, `publint` + `attw` on all five packages and every subpath,
-five clean tarballs, zero transitive runtime dependencies), and so is CI on `main`.
+**Where we are: five packages published, four built and waiting.** `v1.0.0` shipped on 2026-08-15
+— the original five, each carrying an npm provenance attestation. Phase 9 added `@lazslov/auth`,
+`@lazslov/booking`, `@lazslov/email` and `@lazslov/webshop` on 2026-09-04; **none of the four is on
+npm yet.**
 
-Every phase is complete. The release ran the full gate, the generated-types check and the live
-contract suite against real tenants before publishing anything, behind a required reviewer.
+`pnpm verify` is green across all nine: 1749 unit tests in 108 files, 48 Node 20.19 baseline tests
+against the built artefacts, the plain-Node consumer smoke, `publint` + `attw` on every package and
+subpath, nine clean tarballs, and zero transitive runtime dependencies.
 
-**What's next:** nothing is outstanding for the release itself. The open items are the ones in
+**What's next, and it blocks the release:** the four new services have no scratch tenants, so eleven
+live-suite secrets are unset on the `release` environment. `LIVE_REQUIRE_CONFIGURED` turns that into
+a failed release rather than an unverified one, which is the gate working. See
+[docs/live-testing.md §3b](../live-testing.md). After that, the items in
 [Carried-forward items](#carried-forward-items) below — chiefly that the weekly drift job still
-needs a `KNOWLEDGE_BASE_TOKEN` before it can open an issue, and that `payment-service`, which now
-depends on `@lazslov/telemetry`, has no CI to notice when that breaks.
+needs a `KNOWLEDGE_BASE_TOKEN` before it can open an issue.
 
 > **The packages are `@lazslov/*`, not `@lamido/*`.** The plan assumed a `@lamido` organisation would
 > be created; the registry already resolves `@lamido` to an account that may not be ours, and the
@@ -33,6 +36,7 @@ depends on `@lazslov/telemetry`, has no CI to notice when that breaks.
 | 6 | [Framework adapters](phase-6-next-adapters.md) | ✅ done |
 | 7 | [Verification](phase-7-verification.md) | 🟡 one criterion open — `x-vercel-cache: HIT` needs a deployed site |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | ✅ published — all five packages at `1.0.0`, with provenance |
+| 9 | [`@lazslov/auth`](phase-9-auth.md) · [`@lazslov/booking`](phase-9-booking.md) · [`@lazslov/email`](phase-9-email.md) · [`@lazslov/webshop`](phase-9-webshop.md) | 🟡 built 2026-09-04 — unpublished; the four live suites need scratch tenants |
 
 Deviations from the plans and the reasoning behind them are in
 [../ai-context.md](../ai-context.md).
@@ -262,6 +266,29 @@ GitHub runner, which cannot reach a laptop.
 
 ---
 
+## 🟡 Phase 9 — The four remaining services *(built 2026-09-04; unpublished, live suite unrun)*
+
+One plan per package: [phase-9-auth.md](phase-9-auth.md), [phase-9-booking.md](phase-9-booking.md),
+[phase-9-email.md](phase-9-email.md), [phase-9-webshop.md](phase-9-webshop.md). Each carries its own
+exit criteria; this section holds only what is shared.
+
+- [x] Seven contracts pinned at knowledge base `714f2ee`; `pnpm contracts:drift` passes.
+- [x] `packageDirs`, the leak guard, the doc-example sanitiser, the CI link step, the consumer smoke
+      and the live config know the four packages. `test/package-shape.test.ts` compares `packageDirs`
+      against the workspace, so the telemetry omission cannot recur.
+- [x] Every new package ships `.` and `./next`, declares only `@lazslov/api-core`, and imports nothing
+      from `next`.
+- [x] The five existing packages carry a patch entry naming the new pins, so the provenance test
+      holds across all nine.
+- [x] Every one of the **405** documented JSON examples across the seven folders is claimed by a
+      classifier, and the ones the SDK declares a type for are key-checked in both directions.
+- [x] `pnpm verify` green: 1753 unit tests in 108 files, 48 Node 20.19 baseline cases against
+      `dist/`, nine clean tarballs, zero transitive runtime dependencies.
+- [ ] Scratch tenants for auth, booking, email and webshop, and their eleven secrets on the `release`
+      environment. **The next release fails on `LIVE_REQUIRE_CONFIGURED` until this is done.**
+- [ ] `pnpm test:live` run against those tenants, for the four new files.
+- [ ] Published, with each of the four at `1.0.0`.
+
 ## Carried-forward items
 
 Things outside any phase's exit criteria that still need a decision or an action.
@@ -284,8 +311,9 @@ Things outside any phase's exit criteria that still need a decision or an action
       below `1.0.0`, so `^0.2.0` refuses `0.3.0` — every rule the package gained would have cost
       each service a bump of its own, which is how three services end up on three envelopes. This
       contradicts the `0.x` paragraph in [CONTRIBUTING.md § Versioning](../../CONTRIBUTING.md#versioning),
-      **which still needs reconciling**: all five packages now declare `1.0.0` while the rule on the
-      same page says everything stays in `0.x` until two client sites run on it.
+      **Reconciled in phase 9:** that section now reads `1.0.0` as the semver contract rather than a
+      maturity badge, and the breaking-change table plus the deprecation policy carry what the `0.x`
+      rule was protecting.
 - [ ] **payment-service still vendors telemetry rather than depending on it.**
       `src/lib/telemetry.ts` is pinned by SHA-256 to SDK commit `6fc776c`, and the SDK has moved
       ~112 lines past it — no flag vocabulary, a bare `LogMeta`, no `correlation_id` binding. Now

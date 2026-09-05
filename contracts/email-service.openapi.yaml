@@ -1,0 +1,1307 @@
+openapi: 3.1.0
+
+info:
+  title: email-service
+  version: 0.1.0
+  description: |
+    Multi-tenant transactional email for Resend, the Gmail API and SMTP.
+
+    **Two credential tiers, two surfaces.** `esk_` on `/v1/*` is one tenant's own
+    sending and reading; `ead_` on `/v1/admin/*` reaches every tenant and is scoped
+    per route. There is deliberately no publishable tier: a browser-safe email key
+    is an open relay with the key printed in the page source.
+
+    **Rules that hold everywhere and are not repeated per endpoint:**
+
+    - A single resource is returned **as itself**. A collection is always
+      `{data, next_cursor}`, even when it does not page. There is no `total`.
+    - Every failure is RFC 9457 Problem Details, `application/problem+json`.
+      **Branch on `code`, never on `detail` or `title`** — `title` summarises the
+      HTTP status, so a 422 reads "Unprocessable Entity" whatever went wrong.
+    - Members are `snake_case`; paths are `kebab-case`; ids on the wire are
+      **UUIDv7 `public_id`** and the internal key never leaves the process.
+    - Another tenant's resource is a `404`, never a `403`, so an id cannot be
+      probed for existence.
+    - Range filters are `from` (**inclusive**) and `until` (**exclusive**), always
+      on `created_at`.
+    - Every response carries `X-Request-Id`, echoed as `request_id` in a problem.
+    - A request to `/v1/*` or `/v1/admin/*` carrying `Origin` or `Sec-Fetch-Dest`
+      is a `403` **before authentication**. A plain Node `fetch` is unaffected.
+    - `429` carries both `Retry-After` and a `retry_after` member, always in
+      agreement — the header is derived from the member.
+  contact:
+    name: docs
+    url: https://github.com/lazslov/email-service/tree/main/docs
+
+servers:
+  # The deployment host is deliberately absent from this pinned copy. No host ships in
+  # a tarball, and contracts/ is one `files` mistake away from being published — see
+  # docs/plans/phase-1-foundations.md §4. The consuming project supplies the base URL
+  # from its own environment; the SDK has no fallback.
+  - url: "{baseUrl}"
+    description: Supplied by the consuming project from its own environment.
+    variables:
+      baseUrl:
+        default: https://email.example.com
+        description: Documentation placeholder, not a usable default.
+
+tags:
+  - name: liveness
+  - name: messages
+    description: The tenant tier — `esk_`.
+  - name: admin/provisioning
+  - name: admin/messages
+  - name: admin/deliverability
+  - name: admin/webhooks
+  - name: admin/pii
+  - name: admin/operations
+  - name: hooks
+    description: |
+      **Inbound house events from sibling Lamido services — not routes a client calls.**
+      Signature-authenticated, no bearer key, one secret per emitter. The envelope is the
+      estate's, specified in the webhook house rules; what is documented here is the route,
+      its credential and what each status means.
+
+security:
+  - TenantKey: []
+
+paths:
+  /healthz:
+    get:
+      tags: [liveness]
+      summary: Liveness. Never a 503.
+      description: |
+        Unauthenticated, touches no dependency, and answers `200` whenever the
+        process is alive — whatever the database is doing. It answers exactly one
+        question: should the platform restart or drain this instance? A Neon cold
+        start is not a reason to be restarted.
+      security: []
+      responses:
+        '200':
+          description: alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version, commit, now]
+                properties:
+                  status: { type: string, const: ok }
+                  version: { type: string, example: '0.1.0' }
+                  commit:
+                    type: string
+                    description: The deployed SHA. **This is the field that answers "which build is live?"**
+                  now: { type: string, format: date-time }
+
+  /v1/messages:
+    post:
+      tags: [messages]
+      summary: Send one message
+      description: |
+        Returns **202, never 201**: the resource exists, the work it names has not
+        happened yet. No provider call happens in the request path.
+
+        `Idempotency-Key` is **required** — there is no unsend, so an un-keyed send
+        is one a network retry can duplicate. Derive it from the business event,
+        never a fresh UUID per attempt.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendMessage' }
+      responses:
+        '202':
+          description: Accepted and queued.
+          headers:
+            Location: { schema: { type: string }, description: '`/v1/messages/{public_id}`' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '200':
+          description: |
+            An idempotent replay. **The original body, verbatim** — including its
+            `public_id`.
+          headers:
+            Idempotent-Replay: { schema: { type: string, const: 'true' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/Validation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/BrowserTripwire' }
+        '409':
+          description: |
+            `recipient_suppressed` · `idempotency_mismatch` ·
+            `idempotency_in_flight` · `stream_closed`.
+
+            **A suppression also creates a `suppressed` message row** and completes
+            the idempotency key against this 409 — a retry must not insert a second
+            one.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/WrongState' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [messages]
+      summary: List this tenant's messages
+      parameters:
+        - { in: query, name: status, schema: { $ref: '#/components/schemas/MessageStatus' } }
+        - { in: query, name: stream, schema: { type: string, enum: [transactional] } }
+        - { in: query, name: template_key, schema: { type: string, maxLength: 120 } }
+        - in: query
+          name: to
+          schema: { type: string, format: email }
+          description: '**Exact** match, lowercased. No prefix search — a substring search across recipients is a data-exfiltration primitive on a stolen key.'
+        - { in: query, name: from, schema: { type: string, format: date-time }, description: 'Inclusive, on `created_at`.' }
+        - { in: query, name: until, schema: { type: string, format: date-time }, description: '**Exclusive**, on `created_at`.' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Message' } }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/Validation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/messages/{public_id}:
+    get:
+      tags: [messages]
+      summary: One message, with its timeline
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: |
+            The resource plus `events`, ordered by **`occurred_at`** — the
+            provider's clock where there is one, not when we wrote the row.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Message'
+                  - type: object
+                    properties:
+                      events: { type: array, items: { $ref: '#/components/schemas/MessageEvent' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/messages/{public_id}/cancel:
+    post:
+      tags: [messages]
+      summary: Cancel a queued message
+      description: |
+        Succeeds **only while `queued`**. A message that has left the building is a
+        `422` carrying its current status in `detail`, so a caller can tell
+        "already sent" from "already canceled" — and cancelling an already-cancelled
+        message is a `422`, not a silent `200`, because pretending it succeeded
+        hides double-submit bugs.
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/WrongState' }
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Admin tier — ead_, scoped per route, never per prefix.
+  # ─────────────────────────────────────────────────────────────────────────
+
+  /v1/admin/me:
+    get:
+      tags: [admin/operations]
+      summary: What may this key do?
+      description: '**No scope required** — a key must always be able to discover that it is narrowly scoped.'
+      security: [{ AdminKey: [] }]
+      responses:
+        '200':
+          description: The key's own metadata. Never its hash.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  label: { type: string }
+                  scopes: { type: array, items: { type: string } }
+                  allowed_ips: { type: array, items: { type: string } }
+                  last_used_at: { type: [string, 'null'], format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/admin/providers:
+    get:
+      tags: [admin/provisioning]
+      summary: The capability catalogue, as data
+      description: |
+        Per provider: the secret fields it needs, its non-secret config fields, and
+        what it can and cannot do — delivery events, bounce webhooks, native
+        tracking, max attachment bytes, whether it owns its own domain
+        verification. **Every branch in the pipeline reads this rather than the
+        provider's name.**
+      security: [{ AdminKey: [credentials:read] }]
+      responses:
+        '200': { $ref: '#/components/responses/AdminList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/admin/tenants:
+    get:
+      tags: [admin/provisioning]
+      security: [{ AdminKey: [tenants:read] }]
+      parameters:
+        - { in: query, name: active, schema: { type: string, enum: ['true', 'false'] }, description: 'A string rather than a boolean — the validator accepts the two words.' }
+        - { in: query, name: has_external_ref, schema: { type: string, enum: ['true', 'false'] }, description: 'Whether `external_ref` is set; `false` means `IS NULL`. A boolean rather than an `?external_ref=null` sentinel, which would collide with a tenant whose ref is literally the string `null`. Paired with `active=true` this is the `tenants_without_external_ref` health tile drill-down, and it returns exactly the rows that tile counts.' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+    post:
+      tags: [admin/provisioning]
+      summary: Create a tenant and its settings row
+      description: 'Both in **one transaction**. The settings row is 1:1 and is never absent, so no code path reads `settings?.x ?? DEFAULT`.'
+      security: [{ AdminKey: [tenants:write] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, name]
+              properties:
+                slug: { type: string, pattern: '^[a-z0-9_]+$' }
+                name: { type: string, maxLength: 200 }
+                external_ref:
+                  type: [string, 'null']
+                  description: 'lamido-admin''s account id. Set at creation and **never patched** — null means every event we emit for this tenant cannot be routed to a sibling service.'
+      responses:
+        '201': { $ref: '#/components/responses/AdminResource' }
+        '400': { $ref: '#/components/responses/Validation' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: 'The slug is taken.', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+
+  /v1/admin/tenants/{public_id}:
+    get:
+      tags: [admin/provisioning]
+      security: [{ AdminKey: [tenants:read] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/tenants/{public_id}/settings:
+    patch:
+      tags: [admin/provisioning]
+      summary: Quotas, warm-up, tracking, retention
+      description: 'A quota change is a spend change, audited as its own action rather than folded into a generic tenant update.'
+      security: [{ AdminKey: [tenants:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                daily_quota_transactional: { type: integer, minimum: 0 }
+                monthly_quota_transactional: { type: integer, minimum: 0 }
+                warmup_until: { type: [string, 'null'], format: date-time }
+                warmup_daily_cap: { type: integer, minimum: 0 }
+                warmup_schedule:
+                  type: [array, 'null']
+                  items: { type: object, properties: { day: { type: integer }, cap: { type: integer } } }
+                  description: 'The ramp, as data. `null` reverts to the flat cap. The ramp lives here rather than in code because the person who knows a migrating tenant should not be ramped from 50/day is an operator at 22:00, not a deploy.'
+                warmup_started_on: { type: [string, 'null'], format: date }
+                warmup_step: { type: integer, minimum: 0 }
+                tracking_opens_enabled: { type: boolean }
+                tracking_clicks_enabled: { type: boolean }
+                attachment_max_bytes: { type: integer, minimum: 1, maximum: 3145728, description: 'Lowerable per tenant, **never raisable past the ceiling**.' }
+                retention_days_variables: { type: integer, minimum: 1, maximum: 365 }
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '400': { $ref: '#/components/responses/Validation' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/tenants/{public_id}/deactivate:
+    post:
+      tags: [admin/provisioning]
+      summary: Deactivate. There is no delete.
+      description: 'Every call with this tenant''s keys then `401`s and the drains skip its queued messages. History is preserved.'
+      security: [{ AdminKey: [tenants:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/tenants/{public_id}/keys:
+    get:
+      tags: [admin/provisioning]
+      security: [{ AdminKey: [keys:manage] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+    post:
+      tags: [admin/provisioning]
+      summary: Mint an esk_ key
+      description: '**The plaintext appears in exactly one response body, once.** Only the SHA-256 hash is stored; a lost key is rotated, not recovered.'
+      security: [{ AdminKey: [keys:manage] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label: { type: string, maxLength: 200, description: '**Always required.** The label is the identity in every audit entry the key ever writes.' }
+      responses:
+        '201':
+          description: The key. This is the only time `key` is ever returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string, example: 'esk_…' }
+                  last4: { type: string }
+                  label: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/admin/tenants/{public_id}/keys/{keyId}/revoke:
+    post:
+      tags: [admin/provisioning]
+      security: [{ AdminKey: [keys:manage] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }, { in: path, name: keyId, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/credentials:
+    get:
+      tags: [admin/provisioning]
+      summary: Stored credentials, secrets masked
+      description: '**Write-only secrets.** A read returns `last4` and an 8-character `fingerprint` and nothing else — together they answer *which key is stored?* and *did the rotation land?*, and nothing more.'
+      security: [{ AdminKey: [credentials:read] }]
+      parameters:
+        - { in: query, name: tenant, schema: { type: string, format: uuid } }
+        - { in: query, name: status, schema: { type: string, enum: [failing] }, description: '**`failing` is the only value with an effect, and any other is IGNORED rather than refused** — the handler compares the raw string, so a misspelling silently returns the unfiltered list. Drills down into the `failing_credentials` health tile through the predicate the tile counts with.' }
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+    put:
+      tags: [admin/provisioning]
+      summary: Upsert a credential
+      security: [{ AdminKey: [credentials:write] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '400': { $ref: '#/components/responses/Validation' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/credentials/{id}/revoke:
+    post:
+      tags: [admin/provisioning]
+      security: [{ AdminKey: [credentials:write] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/domains:
+    get:
+      tags: [admin/deliverability]
+      description: '**Unpaginated, deliberately** — a domain per tenant per provider is a few hundred rows, and the query an operator runs is `?status=pending`. There is no `limit` and no `cursor`; the envelope carries a null `next_cursor`.'
+      security: [{ AdminKey: [identities:read] }]
+      parameters:
+        - { in: query, name: tenant, schema: { type: string, format: uuid }, description: 'An unknown tenant is an empty page, not a `404`.' }
+        - { in: query, name: status, schema: { type: string, enum: [pending, verified, failed, stale, unverified_external] } }
+        - { in: query, name: pending_over_days, schema: { type: integer, minimum: 1, maximum: 365 }, description: 'Pending for longer than this many days. The `pending_domains_over_7_days` tile links here with `7`, and the filter carries `status=pending` inside it — any other `status` beside it is a `400`.' }
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '400': { $ref: '#/components/responses/Validation' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/domains/{public_id}:
+    get:
+      tags: [admin/deliverability]
+      summary: One domain, with its DNS record set
+      description: |
+        The record set is stored **verbatim as the provider issued it**, and each
+        record carries `name_absolute`, `name_relative` and `copy_text` — half of
+        DNS providers want `mail` and half want `mail.example.com`, and the
+        difference between them is a support ticket.
+      security: [{ AdminKey: [identities:read] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/domains/{public_id}/verify:
+    post:
+      tags: [admin/deliverability]
+      summary: Force a re-check
+      description: 'Rate-limited to once a minute. The poll otherwise runs on a four-band backoff that widens with the domain''s age.'
+      security: [{ AdminKey: [identities:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' }, '429': { $ref: '#/components/responses/RateLimited' } }
+
+  /v1/admin/identities/{public_id}/pause:
+    post:
+      tags: [admin/deliverability]
+      summary: Pause a sending identity
+      security: [{ AdminKey: [identities:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, description: 'Shown verbatim to whoever looks next. **A pause with no reason is a pause nobody can undo confidently.**' }
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '400': { $ref: '#/components/responses/Validation' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/identities/{public_id}/resume:
+    post:
+      tags: [admin/deliverability]
+      security: [{ AdminKey: [identities:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/messages:
+    get:
+      tags: [admin/messages]
+      summary: Messages across every tenant
+      security: [{ AdminKey: [messages:read] }]
+      parameters:
+        - { in: query, name: tenant, schema: { type: string, format: uuid } }
+        - { in: query, name: status, schema: { $ref: '#/components/schemas/MessageStatus' } }
+        - { in: query, name: to, schema: { type: string, maxLength: 320 } }
+        - { in: query, name: older_than_minutes, schema: { type: integer, minimum: 1 } }
+        - { in: query, name: provider_failed, schema: { type: string, enum: ['true', 'false'] }, description: 'Messages that recorded a provider failure but are still `sent`.' }
+        - { in: query, name: order, schema: { type: string, enum: [newest, oldest] } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/messages/{public_id}:
+    get:
+      tags: [admin/messages]
+      summary: The admin view — masked variables and the sending configuration
+      description: |
+        Adds `variables` (**masked**), `identity_id`, `credential_id`,
+        `resent_from_id`, `error_detail`, `idempotency_key` and `request_id`.
+
+        Masking is keyed off the **pinned version's descriptors**, not a
+        field-name list, so a new template declaring a new secret variable is
+        masked the day it is written. A `(key, version)` no longer in the registry
+        masks **everything** — the conservative direction, because an unknown
+        descriptor set means we cannot tell which values are safe.
+      security: [{ AdminKey: [messages:read] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/messages/{public_id}/resend:
+    post:
+      tags: [admin/messages]
+      summary: Re-send as a new message
+      description: |
+        Creates a **new** message carrying `resent_from_id`, through the same
+        guards as any send — so a suppressed recipient is still refused. A message
+        whose PII has been erased is a `422`: re-sending would mean recovering an
+        address somebody asked us to forget.
+      security: [{ AdminKey: [messages:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '202': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { description: 'The recipient is suppressed.', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }, '422': { $ref: '#/components/responses/WrongState' } }
+
+  /v1/admin/messages/{public_id}/cancel:
+    post:
+      tags: [admin/messages]
+      security: [{ AdminKey: [messages:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' }, '422': { $ref: '#/components/responses/WrongState' } }
+
+  /v1/admin/templates:
+    get:
+      tags: [admin/operations]
+      summary: The registry, with every version's variable descriptors
+      security: [{ AdminKey: [templates:read] }]
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/templates/{key}/versions/{version}:
+    get:
+      tags: [admin/operations]
+      security: [{ AdminKey: [templates:read] }]
+      parameters: [{ $ref: '#/components/parameters/TemplateKey' }, { $ref: '#/components/parameters/TemplateVersion' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/templates/{key}/versions/{version}/preview:
+    get:
+      tags: [admin/operations]
+      summary: Render a version with its example variables
+      security: [{ AdminKey: [templates:read] }]
+      parameters: [{ $ref: '#/components/parameters/TemplateKey' }, { $ref: '#/components/parameters/TemplateVersion' }]
+      responses:
+        '200':
+          description: The rendered HTML and its text alternative.
+          content: { application/json: { schema: { type: object, properties: { html: { type: string }, text: { type: string }, subject: { type: string } } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/admin/event-types:
+    get:
+      tags: [admin/webhooks]
+      summary: The event catalogue, as data
+      security: [{ AdminKey: [webhooks:read] }]
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/tenants/{public_id}/webhook-endpoints:
+    get:
+      tags: [admin/webhooks]
+      security: [{ AdminKey: [webhooks:read] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+    post:
+      tags: [admin/webhooks]
+      summary: Create an endpoint. The signing secret is returned once.
+      description: 'Capped at 20 per tenant. The destination URL is SSRF-screened — no private ranges, no loopback, no link-local.'
+      security: [{ AdminKey: [webhooks:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, subscribed_events]
+              properties:
+                url: { type: string, format: uri, maxLength: 2000 }
+                subscribed_events: { type: array, items: { type: string }, description: 'From `/v1/admin/event-types`.' }
+                description: { type: [string, 'null'], maxLength: 500 }
+                contract_version: { type: integer }
+                include_recipient: { type: boolean, description: 'Off by default. The recipient address is personal data, and an endpoint that does not need it should not receive it.' }
+      responses:
+        '201':
+          description: 'The endpoint, **plus its `whsec_` signing secret — the only time it is ever returned.**'
+          content: { application/json: { schema: { type: object } } }
+        '400': { $ref: '#/components/responses/Validation' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: 'The 20-endpoint cap, or an unreachable URL.', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+
+  /v1/admin/webhook-endpoints:
+    get:
+      tags: [admin/webhooks]
+      security: [{ AdminKey: [webhooks:read] }]
+      parameters:
+        - { in: query, name: tenant, schema: { type: string, format: uuid }, description: 'An unknown tenant is an empty page, not a `404`.' }
+        - { in: query, name: enabled, schema: { type: string, enum: ['true', 'false'] }, description: 'A string rather than a boolean — the validator accepts the two words.' }
+        - { in: query, name: event_type, schema: { type: string, maxLength: 100 }, description: 'A **free string** here, unlike the delivery and event listings which validate against the nine-member catalogue. An unknown value is a valid request and an empty page.' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/webhook-endpoints/{public_id}:
+    get:
+      tags: [admin/webhooks]
+      security: [{ AdminKey: [webhooks:read] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '404': { $ref: '#/components/responses/NotFound' } }
+    patch:
+      tags: [admin/webhooks]
+      description: '`.strict()` — an unknown key is a `400`, not a field somebody thought they had changed.'
+      security: [{ AdminKey: [webhooks:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object } } } }
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '400': { $ref: '#/components/responses/Validation' }, '403': { $ref: '#/components/responses/Forbidden' } }
+    delete:
+      tags: [admin/webhooks]
+      security: [{ AdminKey: [webhooks:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '204': { description: Deleted. }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/webhook-endpoints/{public_id}/rotate-secret:
+    post:
+      tags: [admin/webhooks]
+      summary: Rotate the signing secret. Returned once.
+      security: [{ AdminKey: [webhooks:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { description: 'The new `whsec_`, once.', content: { application/json: { schema: { type: object } } } }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/webhook-endpoints/{public_id}/disable:
+    post:
+      tags: [admin/webhooks]
+      summary: Disable an endpoint by hand
+      description: |
+        The operator half of the auto-disable. The reason is stored and shown
+        verbatim to whoever looks next, and defaults to a stated one rather than
+        being left null — an endpoint that is off for no recorded reason is one
+        nobody dares turn back on.
+      security: [{ AdminKey: [webhooks:write] }]
+      parameters: [{ $ref: "#/components/parameters/PublicId" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses: { "200": { $ref: "#/components/responses/AdminResource" }, "400": { $ref: "#/components/responses/Validation" }, "403": { $ref: "#/components/responses/Forbidden" } }
+
+  /v1/admin/webhook-endpoints/{public_id}/enable:
+    post:
+      tags: [admin/webhooks]
+      summary: Re-enable an auto-disabled endpoint
+      description: 'Five consecutive dead-letters auto-disable an endpoint. This clears the reason **and** the counter.'
+      security: [{ AdminKey: [webhooks:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/webhook-endpoints/{public_id}/test:
+    post:
+      tags: [admin/webhooks]
+      summary: Deliver a webhook.ping, synchronously
+      description: 'Hands back the status code and the round-trip time, so "is the URL right?" is answered in the create screen rather than by waiting for a real event.'
+      security: [{ AdminKey: [webhooks:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses: { '200': { description: 'The attempt''s outcome. **A red result is the answer, not an error** — a receiver that refused still answers `200` here, with `ok: false`.', content: { application/json: { schema: { $ref: '#/components/schemas/PingResult' } } } }, '403': { $ref: '#/components/responses/Forbidden' }, '429': { $ref: '#/components/responses/RateLimited' } }
+
+  /v1/admin/webhook-events:
+    get:
+      tags: [admin/webhooks]
+      summary: The outbox
+      description: '**Every event lands here even when no endpoint is configured** — which is what makes a later redelivery possible after somebody adds one.'
+      security: [{ AdminKey: [webhooks:read] }]
+      parameters:
+        - { in: query, name: tenant, schema: { type: string, format: uuid } }
+        - { in: query, name: event_type, schema: { $ref: '#/components/schemas/WebhookEventType' } }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Until'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/webhook-deliveries:
+    get:
+      tags: [admin/webhooks]
+      security: [{ AdminKey: [webhooks:read] }]
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [pending, delivered, dead_lettered] } }
+        - { in: query, name: endpoint, schema: { type: string, format: uuid }, description: 'The endpoint''s `public_id`.' }
+        - { in: query, name: event_type, schema: { $ref: '#/components/schemas/WebhookEventType' } }
+        - { in: query, name: cross_service, schema: { type: string, enum: ['true', 'false'] }, description: 'Whether the delivery is aimed at a sibling service rather than at a tenant. `true` is an empty page today and that is correct rather than broken: this service emits to no sibling, so the predicate is a literal `false` — the same one the `dead_lettered_deliveries_cross_service` health count reads, which is why the tile and this drill-down cannot disagree.' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/webhook-deliveries/{deliveryId}/redeliver:
+    post:
+      tags: [admin/webhooks]
+      security: [{ AdminKey: [webhooks:write] }]
+      parameters: [{ in: path, name: deliveryId, required: true, schema: { type: string, format: uuid } }]
+      responses: { '202': { $ref: '#/components/responses/AdminResource' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/tenants/{public_id}/pii:
+    get:
+      tags: [admin/pii]
+      summary: Subject access export (Art. 15)
+      description: 'Audited — exactly one entry per call, carrying the address **hash** and never the address. Attachments are listed by name and size, never inlined. The query takes `email` and nothing else: **any other parameter is a `400`**, so the `?dry_run` the erasure accepts cannot be sent here and ignored.'
+      security: [{ AdminKey: [tenants:write] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }, { in: query, name: email, required: true, schema: { type: string, format: email } }]
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '400': { $ref: '#/components/responses/Validation' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+    delete:
+      tags: [admin/pii]
+      summary: Erasure (Art. 17)
+      description: |
+        Nulls `to_email`, `subject`, `variables` and `metadata`; writes `to_hash`
+        and `pii_erased_at`; deletes the attachment bytes.
+
+        **`usage_counters` and the suppression row are left alone.** The counters
+        are anonymous aggregates — deleting the row does not un-send the email or
+        un-spend the quota. And a suppression is the record of the person's **own
+        objection**: deleting it on their behalf resumes mailing them, silently,
+        which is the opposite of what they asked for. The response reports
+        `suppressions_retained` rather than leaving it to be inferred.
+      security: [{ AdminKey: [tenants:write] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - { in: query, name: email, required: true, schema: { type: string, format: email } }
+        - { in: query, name: dry_run, schema: { type: string, enum: ['true', 'false'] }, description: 'Shows the blast radius and writes nothing. **Audited too** — an unaudited probe is a trail with an off switch.' }
+      responses: { '200': { $ref: '#/components/responses/AdminResource' }, '400': { $ref: '#/components/responses/Validation' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
+
+  /v1/admin/health:
+    get:
+      tags: [admin/operations]
+      summary: The deep check. Also always 200.
+      description: |
+        **Never a `503` with a diagnostic body** — a status code is for the
+        transport and a diagnosis is for the body, and a monitor checking
+        `response.ok` before reading would never see the reason.
+
+        **Every count has a drill-down endpoint**, and the count and the listing
+        share one exported predicate, so the number and the rows are the same set
+        by construction. **A tile whose own query failed reports `-1`, not `0`.**
+      security: [{ AdminKey: [stats:read] }]
+      responses:
+        '200':
+          description: Healthy or degraded — the difference is in the body.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, checked_at, counts, drill_downs, alert_thresholds]
+                properties:
+                  status: { type: string, enum: [ok, degraded] }
+                  checked_at: { type: string, format: date-time }
+                  counts: { type: object, additionalProperties: { type: integer } }
+                  drill_downs: { type: object, additionalProperties: { type: string } }
+                  alert_thresholds: { type: object, additionalProperties: { type: integer } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/admin/jobs:
+    get:
+      tags: [admin/operations]
+      security: [{ AdminKey: [stats:read] }]
+      parameters: [{ in: query, name: status, schema: { type: string } }, { in: query, name: type, schema: { type: string } }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' }]
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/stats/deliverability:
+    get:
+      tags: [admin/deliverability]
+      summary: The trailing window per tenant and stream
+      description: 'Read from the daily aggregate, **never from `message_events`** — the highest-volume table in the service, and one a health page must not scan.'
+      security: [{ AdminKey: [stats:read] }]
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/provider-events:
+    get:
+      tags: [admin/operations]
+      summary: Raw provider callbacks, including the unmatched ones
+      security: [{ AdminKey: [messages:read] }]
+      parameters:
+        - { in: query, name: tenant, schema: { type: string, format: uuid }, description: 'An unknown tenant is an empty page, not a `404`. An unmatched event carries no tenant, so it is outside every tenant filter.' }
+        - { in: query, name: status, schema: { type: string, enum: [pending, done, ignored, unmatched, failed] }, description: '`unmatched` goes through the same predicate the health tile counts with, so the tile and this listing are one set by construction. `ignored` is not an anomaly: the message was matched and no status was deliberately written.' }
+        - { in: query, name: event_type, schema: { type: string, maxLength: 100 }, description: 'A **free string**, not the nine-member catalogue — this is the provider''s own event name, and an unknown value is a valid request and an empty page.' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/admin/inbound-events:
+    get:
+      tags: [admin/operations]
+      summary: House events received from sibling services
+      security: [{ AdminKey: [stats:read] }]
+      parameters:
+        - { in: query, name: outcome, schema: { type: string, enum: [duplicate, accepted, ignored, refused, failed] }, description: '**`accepted` is the only outcome with a null `reason_code`.** `ignored` is a correct outcome rather than a failure: a receiver acts on a handful of an emitter''s types and ignores the rest, forever.' }
+        - { in: query, name: reason_code, schema: { type: string, enum: [unknown_account, inactive_tenant, no_action_for_event_type, null_account_id, hop_cap, chain_replay, pdf_expired, pdf_fetch_failed, render_failed] }, description: 'Closed, because a count that groups by prose keeps passing until somebody rewords it. `pdf_expired` and `pdf_fetch_failed` are separate on purpose — same symptom, different cause: a rotation of the emitter''s link secret presents as a burst of the second.' }
+        - { in: query, name: source_service, schema: { type: string, enum: [invoice-service, content-service, webshop-service] } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/oauth/google/start:
+    post:
+      tags: [messages]
+      summary: Start connecting a Gmail mailbox
+      description: |
+        Answers a Google consent URL and its expiry. **Nothing is redirected** — the
+        caller is a server-side integration, not a browser, so it hands the URL to
+        whoever is connecting the mailbox.
+
+        The `state` inside the URL is signed, single-use and expires in ten minutes.
+        The callback that consumes it is `GET /v1/providers/google/oauth-callback`,
+        which carries no key of ours and is documented by Google's own contract
+        rather than here.
+      security: [{ TenantKey: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OauthStart' } } } }
+      responses:
+        '200': { description: 'The consent URL.', content: { application/json: { schema: { $ref: '#/components/schemas/StartedOauthFlow' } } } }
+        '400': { $ref: '#/components/responses/Validation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/admin/oauth/google/start:
+    post:
+      tags: [admin/credentials]
+      summary: Start connecting a Gmail mailbox, for one tenant
+      description: 'The admin twin of `POST /v1/oauth/google/start`. Same answer, plus a `tenant`.'
+      security: [{ AdminKey: [credentials:write] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/OauthStart'
+                - type: object
+                  required: [tenant]
+                  properties:
+                    tenant: { type: string, format: uuid, description: 'The tenant''s `public_id`.' }
+      responses:
+        '200': { description: 'The consent URL.', content: { application/json: { schema: { $ref: '#/components/schemas/StartedOauthFlow' } } } }
+        '400': { $ref: '#/components/responses/Validation' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/admin/oauth/google/disconnect:
+    post:
+      tags: [admin/credentials]
+      summary: Disconnect a Gmail mailbox
+      description: |
+        Revokes the grant at Google **and** deletes the credential row.
+
+        **The delete happens whether or not the revoke did.** A revoke that fails
+        leaves a grant alive at Google that nothing here can use; a delete skipped
+        because the revoke failed leaves a live refresh token in our database for a
+        mailbox the operator believes is disconnected. `revoked_at_google: false`
+        means one manual step is left, in the Google account's own security page.
+      security: [{ AdminKey: [credentials:write] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant, config_id]
+              properties:
+                tenant: { type: string, format: uuid }
+                config_id: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 'The row is gone.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [disconnected, revoked_at_google]
+                properties:
+                  disconnected: { type: boolean }
+                  revoked_at_google: { type: boolean, description: 'Whether Google acknowledged. `false` leaves one manual step.' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/admin/audit:
+    get:
+      tags: [admin/operations]
+      summary: The audit trail
+      description: 'Append-only, never trimmed. Metadata is **allowlisted** — a test greps recorded metadata for known plaintext secrets, so "the trail carries no secret" is asserted rather than reviewed.'
+      security: [{ AdminKey: [audit:read] }]
+      parameters:
+        - { in: query, name: actor_type, schema: { type: string, enum: [admin_key, tenant_key, system] } }
+        - { in: query, name: action, schema: { type: string, maxLength: 100 }, description: 'One entry of the action catalogue, exactly. An unknown value is a valid request and an empty page.' }
+        - { in: query, name: target_type, schema: { type: string, maxLength: 100 } }
+        - { in: query, name: target_id, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/Until'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses: { '200': { $ref: '#/components/responses/AdminList' }, '403': { $ref: '#/components/responses/Forbidden' } }
+
+  /v1/hooks/invoice-service:
+    post:
+      operationId: receiveInvoiceServiceEvent
+      tags: [hooks]
+      security: []
+      summary: Receive a house event from invoice-service
+      description: |
+        **Not a route you call.** The estate's inbound house-event surface: invoice-service
+        posts a signed `invoice.created` here and this service sends the invoice to the
+        billing contact.
+
+        Carries **no bearer key** — the emitter's `X-Signature` over the raw body is the
+        credential, one secret per emitter so a compromise of one sibling cannot forge
+        another's events. Mounted ahead of both authenticators and exempt from the browser
+        tripwire.
+
+        **A bad signature is the only non-2xx that means "you sent something wrong."**
+        Every other outcome is a decision of ours and final: a `4xx` would put the event back
+        on a ladder that replays for days and change nothing. Read `outcome` in the body.
+
+        **`ignored` is a success.** A receiver acts on a handful of an emitter's event types
+        and ignores the rest, forever — which is exactly what lets an emitter add a type
+        without asking who is listening. The action map is published in
+        [`webhooks.md` §7](https://github.com/lazslov/knowledge-base/blob/main/email-service/webhooks.md).
+
+        The side effect is idempotent on the event: the key is
+        `evt_<event_id>:message.send`, so a redelivery cannot send a second copy.
+      parameters:
+        - { $ref: '#/components/parameters/HookSignature' }
+        - { $ref: '#/components/parameters/HookSignatureTimestamp' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HouseEventEnvelope' }
+      responses:
+        '200':
+          description: |
+            The event was received and a decision was made. **Always read `outcome`** — this
+            status says the delivery arrived, not that anything happened.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HookReceipt' }
+        '400':
+          description: |
+            The signature did not verify, or the envelope did not parse. Nothing was stored.
+            **The body says nothing about which check failed**, deliberately.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: |
+            This deployment has no signing secret configured for that emitter, so nothing
+            *could* be verified. **Retryable on purpose** — the event stays on the emitter's
+            ladder and the queue drains itself once an operator sets the variable.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/hooks/content-service:
+    post:
+      operationId: receiveContentServiceEvent
+      tags: [hooks]
+      security: []
+      summary: Receive a house event from content-service
+      description: |
+        **Not a route you call.** content-service posts a signed `record.created` here and
+        this service sends the acknowledgement template for that dataset.
+
+        Same contract as
+        [`/v1/hooks/invoice-service`](#operation/receiveInvoiceServiceEvent) in every
+        respect — own secret, `X-Signature` as the credential, `200` for every decision,
+        `ignored` for an event type this service has no action for.
+      parameters:
+        - { $ref: '#/components/parameters/HookSignature' }
+        - { $ref: '#/components/parameters/HookSignatureTimestamp' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HouseEventEnvelope' }
+      responses:
+        '200':
+          description: The event was received and a decision was made. Read `outcome`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HookReceipt' }
+        '400':
+          description: The signature did not verify, or the envelope did not parse.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: No signing secret is configured for this emitter. Retryable.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/hooks/webshop-service:
+    post:
+      operationId: receiveWebshopServiceEvent
+      tags: [hooks]
+      security: []
+      summary: Receive a house event from webshop-service
+      description: |
+        **Not a route you call.** webshop-service posts a signed `order.confirmed` here and
+        this service sends the order confirmation to the buyer.
+
+        `order.confirmed` and not `order.created`: the latter fires *before* payment, and
+        telling a buyer their order is confirmed when it is not is the one mistake this edge
+        exists to avoid.
+
+        **This emitter's secret is optional, uniquely among the three**, so that adding a
+        routable emitter to a live service could not stop every send. Until
+        `HOOKS_WEBSHOP_SERVICE_SECRET` is set this route answers `503` — fail-closed *and*
+        retryable, so webshop's ladder holds the events rather than burning them.
+      parameters:
+        - { $ref: '#/components/parameters/HookSignature' }
+        - { $ref: '#/components/parameters/HookSignatureTimestamp' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HouseEventEnvelope' }
+      responses:
+        '200':
+          description: The event was received and a decision was made. Read `outcome`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HookReceipt' }
+        '400':
+          description: The signature did not verify, or the envelope did not parse.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: |
+            **The normal state until an operator sets `HOOKS_WEBSHOP_SERVICE_SECRET`.** The
+            edge is built and not live; the emitter should keep retrying.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+components:
+  securitySchemes:
+    TenantKey:
+      type: http
+      scheme: bearer
+      bearerFormat: esk_...
+      description: |
+        One tenant's own key. **Server-side only** — there is deliberately no
+        publishable tier. A request carrying `Origin` or `Sec-Fetch-Dest` is a
+        `403` before authentication; a plain Node `fetch` is unaffected.
+    AdminKey:
+      type: http
+      scheme: bearer
+      bearerFormat: ead_...
+      description: 'Cross-tenant, scoped per route. The first one is minted by CLI — there is deliberately no admin master key in an environment variable.'
+
+  parameters:
+    PublicId:
+      { in: path, name: public_id, required: true, schema: { type: string, format: uuid }, description: 'UUIDv7. The internal key never leaves the process.' }
+    TemplateKey:
+      { in: path, name: key, required: true, schema: { type: string }, example: auth.magic_link }
+    TemplateVersion:
+      { in: path, name: version, required: true, schema: { type: integer } }
+    Limit:
+      { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 200, default: 50 }, description: 'Out of range is a `400`, **never a clamp**.' }
+    Cursor:
+      { in: query, name: cursor, schema: { type: string }, description: 'Opaque. A malformed one is a `400`, not a silent restart.' }
+    From:
+      { in: query, name: from, schema: { type: string, format: date-time }, description: '**Inclusive** (HR-10), over `created_at` rather than any provider clock.' }
+    Until:
+      { in: query, name: until, schema: { type: string, format: date-time }, description: '**Exclusive** (HR-10), over `created_at`. One whole day is `from` 00:00 to `until` 00:00 the next.' }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string }
+      description: 'Derive it from the business event. A fresh UUID per attempt removes all protection. Scoped per tenant, 7-day TTL.'
+    HookSignature:
+      { in: header, name: X-Signature, required: true, schema: { type: string }, description: 'HMAC-SHA256 over the raw body, hex. **The credential for this surface** — there is no bearer key. One secret per emitter.' }
+    HookSignatureTimestamp:
+      { in: header, name: X-Signature-Timestamp, required: true, schema: { type: integer }, description: 'Unix seconds, signed with the body. Outside the replay window the signature is refused.' }
+
+  schemas:
+    OauthStart:
+      type: object
+      required: [config_id, return_url]
+      description: 'What both `start` routes take. `config_id` is the credential slug the callback writes, so a tenant can connect two mailboxes.'
+      properties:
+        config_id: { type: string, maxLength: 64, pattern: '^[a-z0-9_]+$', description: 'The same handle `db:set-credential --config` takes and `sending_identities` points at.' }
+        return_url: { type: string, format: uri, description: 'Where the browser lands after consent. **Must be under the service''s own base URL** — checked here, at the start, so the refusal reaches whoever typed it while the flow is still theirs to fix.' }
+
+    StartedOauthFlow:
+      type: object
+      required: [authorize_url, expires_at]
+      properties:
+        authorize_url: { type: string, format: uri, description: 'Carries `access_type=offline` and `prompt=consent`, so a **re-**authorisation still yields a refresh token.' }
+        expires_at: { type: string, format: date-time, description: 'Ten minutes out. A consent screen nobody finishes must expire.' }
+
+    PingResult:
+      type: object
+      required: [ok, response_status, latency_ms, response_body_excerpt, error]
+      description: |
+        What `POST /v1/admin/webhook-endpoints/{public_id}/test` hands back, member for
+        member.
+
+        **`response_status`, not `status`.** Everywhere else in this API `status` is a
+        resource state — a message's, a domain's, a delivery's — so a `status` holding an
+        HTTP code would be the one place the word means something else. The audit row for
+        this action already records the value under `response_status` too.
+      properties:
+        ok: { type: boolean, description: 'Whether the receiver answered 2xx.' }
+        response_status: { type: [integer, 'null'], description: '`null` when no response was received at all — a refused connection, a timeout, or a URL this service declined to call.' }
+        latency_ms: { type: integer, description: 'The round trip, measured from before the URL check.' }
+        response_body_excerpt: { type: [string, 'null'], description: 'The first bytes of the receiver''s body, truncated. The fastest way to recognise a proxy error page.' }
+        error: { type: [string, 'null'], description: 'Why no response arrived. `null` when one did, whatever its status.' }
+
+    MessageStatus:
+      type: string
+      enum: [queued, sending, sent, delivered, bounced, complained, failed, canceled, suppressed]
+      description: |
+        Transitions are **monotonic**: a late `sent` after a `delivered` is ignored
+        rather than moving the status backwards, and contributes no timeline row.
+
+        **`sent` is not `delivered`.** `sent` means the provider accepted it; for
+        SMTP that is terminal, because there is no event feed at all.
+
+    SendMessage:
+      type: object
+      additionalProperties: false
+      required: [template, to]
+      description: '**Unknown fields are rejected, not stripped** — every field here is one whose silent loss is invisible, and every offending key is reported at once with a JSON Pointer.'
+      properties:
+        stream: { type: string, enum: [transactional, marketing], default: transactional, description: '`marketing` is accepted by the schema and refused `409 stream_closed`.' }
+        template:
+          type: object
+          additionalProperties: false
+          required: [key]
+          properties:
+            key: { type: string, maxLength: 120 }
+            version: { type: integer, minimum: 1, description: 'Omit for the latest `active` version. **The resolved version is pinned to the row**, so a template edit a minute later cannot change what this message renders.' }
+        to: { type: string, format: email, maxLength: 320, description: '**Exactly one recipient.** No `cc`, no `bcc`, no arrays.' }
+        subject: { type: string, minLength: 1, maxLength: 200, description: 'Taken **literally** — no placeholder interpolation. CRLF-checked at accept time.' }
+        variables: { type: object, default: {}, description: 'Validated against the pinned version''s descriptors. An unknown name is a `400`. A `type: currency` variable is `{ amount, currency }` where **`amount` is canonical minor units as a decimal string** — digits only, no sign, point, leading zero or exponent. HUF has zero minor units across every Lamido service, so `"1000"` is 1000 Ft; EUR has two, so `"1000"` is €10.00.' }
+        attachments:
+          type: array
+          maxItems: 10
+          default: []
+          items:
+            type: object
+            additionalProperties: false
+            required: [filename, content, content_type]
+            properties:
+              filename: { type: string, maxLength: 255, description: 'No path separators, no control characters.' }
+              content: { type: string, contentEncoding: base64 }
+              content_type: { type: string, description: 'Allowlisted, and matched on **type and extension** — a renamed executable is refused twice.' }
+        metadata: { type: object, description: 'Opaque to us, echoed on reads and webhooks. ≤ 20 keys, ≤ 4 KB serialised.' }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+          description: 'An **allowlist** of four: `Reply-To`, `In-Reply-To`, `References`, `X-Entity-Ref-ID`.'
+
+    Message:
+      type: object
+      description: '**`variables` is deliberately absent from every tenant read** — echoing a magic link or one-time code out of a read endpoint turns a leaked key into a token oracle.'
+      required: [public_id, status, stream, template, to, from, created_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/MessageStatus' }
+        stream: { type: string }
+        template: { type: object, properties: { key: { type: string }, version: { type: integer } } }
+        to: { type: [string, 'null'], format: email, description: '`null` once the PII has been erased.' }
+        subject: { type: [string, 'null'] }
+        from: { type: object, properties: { email: { type: string }, name: { type: string } }, description: 'The identity it **went out as** — not the tenant''s current one.' }
+        provider: { type: string, enum: [resend, google, smtp] }
+        provider_message_id: { type: [string, 'null'], description: 'SMTP issues none, and `null` is the honest value.' }
+        attachment_count: { type: integer }
+        attempts: { type: integer }
+        error_code: { type: [string, 'null'] }
+        metadata: { type: [object, 'null'] }
+        created_at: { type: string, format: date-time }
+
+    WebhookEventType:
+      type: string
+      enum: [message.sent, message.delivered, message.bounced, message.complained, message.failed, message.canceled, message.dropped, message.opened, message.clicked]
+      description: |
+        The outbound catalogue. The two listings that filter on an event type validate against
+        exactly these nine.
+
+        Not every type fires for every tenant: `message.delivered` never fires for an SMTP
+        tenant, because SMTP has no event feed at all and `sent` is terminal there.
+
+    MessageEvent:
+      type: object
+      properties:
+        type: { $ref: '#/components/schemas/MessageStatus' }
+        at: { type: string, format: date-time, description: '`occurred_at` — the **provider''s** clock where there is one.' }
+        source: { type: string, enum: [system, provider, admin, tenant_key] }
+        reason: { type: [string, 'null'] }
+
+    Problem:
+      type: object
+      required: [type, title, status, detail, instance]
+      properties:
+        type: { type: string, description: '`urn:email-service:problem:<slug>` from a closed set.' }
+        title: { type: string, description: 'Summarises the **status**. Never branch on it.' }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string, description: 'The request **path**. Never a URL and never with a query string — a query string can carry a recipient address, and problems get pasted into tickets.' }
+        request_id: { type: string }
+        code:
+          type: string
+          description: '**The only member safe to switch on.**'
+          enum:
+            - recipient_suppressed
+            - identity_not_verified
+            - identity_paused
+            - quota_exceeded
+            - rate_limited
+            - unknown_template
+            - template_variable_missing
+            - template_variable_invalid
+            - attachment_too_large
+            - attachment_count_exceeded
+            - idempotency_mismatch
+            - idempotency_in_flight
+            - credential_missing
+            - credential_invalid
+            - provider_rejected
+            - provider_unavailable
+            - stream_closed
+            - marketing_requires_consent
+        retry_after: { type: integer, description: 'Seconds. Always agrees with the `Retry-After` header — the header is derived from this.' }
+        errors:
+          type: array
+          description: '**Every** offending field at once, never just the first.'
+          items:
+            type: object
+            properties:
+              pointer: { type: string, description: 'JSON Pointer.' }
+              code: { type: string }
+              detail: { type: string }
+
+    HouseEventEnvelope:
+      type: object
+      description: |
+        The estate's cross-service event envelope. **Specified once in the webhook house rules**
+        (`WH-12`, `WH-25`) — repeated here only as far as a receiver reads it, because a copy of a
+        shared contract is a second thing to keep in step.
+      required: [event_id, event_type, account_id, occurred_at]
+      properties:
+        event_id: { type: string, format: uuid, description: The emitter's id for this event. Dedupe is keyed on `(source_service, event_id)`. }
+        event_type: { type: string, example: invoice.created, description: '`resource.past_participle`. An event type this service has no action for is a `200` with `outcome: ignored`.' }
+        account_id: { type: string, description: The only identity that crosses a service boundary (`WH-23`). Resolved to a tenant here. }
+        occurred_at: { type: string, format: date-time }
+        correlation_id: { type: string, format: uuid, description: One value identifies a whole chain across services. Equals `event_id` on a natively produced event. }
+        causation_id: { type: string, format: uuid, nullable: true, description: The `event_id` that caused this one. `null` natively. }
+        hop: { type: integer, description: '`inbound.hop + 1`. This service refuses to act at `hop >= 3` and records it.' }
+        data: { type: object, additionalProperties: true, description: The emitter's payload, frozen at emission. }
+    HookReceipt:
+      type: object
+      description: |
+        **What was decided, not whether the request was well-formed.** A `200` means the delivery
+        arrived; `outcome` says what happened, and every value here is final — the emitter should
+        not retry any of them.
+      required: [outcome, reason_code]
+      properties:
+        outcome:
+          type: string
+          enum: [accepted, duplicate, ignored, refused, failed]
+          description: |
+            `accepted` — a message was enqueued. **The only outcome with a null `reason_code`.**
+            `duplicate` — seen before; one email whatever the ladder does.
+            `ignored` — **a success**: no action for this event type, or no tenant for the account.
+            `refused` — a guard fired (the hop cap, or the chain replay breaker).
+            `failed` — recorded and not actionable.
+        reason_code:
+          type: string
+          nullable: true
+          enum: [unknown_account, inactive_tenant, no_action_for_event_type, null_account_id, hop_cap, chain_replay, pdf_expired, pdf_fetch_failed, render_failed]
+          description: 'From a closed set, so a monitor never has to match on prose. `null` exactly when `outcome` is `accepted`.'
+  responses:
+    AdminResource:
+      description: The resource.
+      content: { application/json: { schema: { type: object } } }
+    AdminList:
+      description: 'A page. Always `{data, next_cursor}` — there is no `total`.'
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, next_cursor]
+            properties:
+              data: { type: array, items: { type: object } }
+              next_cursor: { type: [string, 'null'] }
+    Validation:
+      description: '`400` — the body or a query parameter. `errors[]` names every offending field.'
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    Unauthorized:
+      description: '`401` — unknown key, revoked key and deactivated tenant are **byte-identical**, so the endpoint is not a key-validity oracle.'
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    Forbidden:
+      description: '`403` — a missing scope (**the body names it**) or an IP allowlist.'
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    BrowserTripwire:
+      description: '`403` — an `Origin` or `Sec-Fetch-Dest` header, **before authentication**. A hit means rotate the key.'
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    NotFound:
+      description: '`404` — including another tenant''s resource, deliberately indistinguishable from absence.'
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    WrongState:
+      description: '`422` — the resource exists and its **state** forbids this. A retry never fixes it.'
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    TooLarge:
+      description: '`413` — attachments over the ceiling.'
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    RateLimited:
+      description: '`429` — the per-key throttle or the send quota. **The quota does not fail open.**'
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }

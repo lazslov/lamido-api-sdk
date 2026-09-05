@@ -72,17 +72,41 @@ importers:
       '@lazslov/api-core':
         specifier: workspace:*
         version: link:../../packages/api-core
+      '@lazslov/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@lazslov/booking':
+        specifier: workspace:*
+        version: link:../../packages/booking
       '@lazslov/content':
         specifier: workspace:*
         version: link:../../packages/content
+      '@lazslov/email':
+        specifier: workspace:*
+        version: link:../../packages/email
       '@lazslov/invoice':
         specifier: workspace:*
         version: link:../../packages/invoice
       '@lazslov/payment':
         specifier: workspace:*
         version: link:../../packages/payment
+      '@lazslov/webshop':
+        specifier: workspace:*
+        version: link:../../packages/webshop
 
   packages/api-core: {}
+
+  packages/auth:
+    dependencies:
+      '@lazslov/api-core':
+        specifier: workspace:^
+        version: link:../api-core
+
+  packages/booking:
+    dependencies:
+      '@lazslov/api-core':
+        specifier: workspace:^
+        version: link:../api-core
 
   packages/content:
     dependencies:
@@ -92,6 +116,12 @@ importers:
       next:
         specifier: '>=14'
         version: 16.2.12(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+
+  packages/email:
+    dependencies:
+      '@lazslov/api-core':
+        specifier: workspace:^
+        version: link:../api-core
 
   packages/invoice:
     dependencies:
@@ -106,6 +136,12 @@ importers:
         version: link:../api-core
 
   packages/telemetry: {}
+
+  packages/webshop:
+    dependencies:
+      '@lazslov/api-core':
+        specifier: workspace:^
+        version: link:../api-core
 
 packages:
 

@@ -1,0 +1,4214 @@
+# The published contract for booking-service.
+#
+# RULE — this file and Hono's routing table are diffed **in both directions** by
+# `src/__tests__/openapi.test.ts`. A route with no operation here fails the build, and so does an
+# operation describing a route that does not exist. A specification that drifts is worse than
+# none: it is a promise the service does not keep, and nobody can tell which half is wrong.
+#
+# Every internal surface — the crons, the Google callbacks — is documented too, marked
+# `x-internal: true`. Leaving them out would need an exemption list, and an exemption list is
+# where drift hides.
+
+openapi: 3.1.0
+
+info:
+  title: booking-service
+  # Pinned against `src/version.ts` and `package.json` by a test. One version, three files, no
+  # drift (11 §5).
+  version: 0.1.0
+  summary: Multi-tenant appointment booking — availability, holds, bookings, webhooks.
+  description: |
+    A multi-tenant booking API. It owns slots, holds, bookings and their lifecycle, and it
+    publishes what happened as webhooks.
+
+    ## This service sends nothing
+
+    **No email, no SMS, no push — ever** (D1, R11). `booking.reminder_reached` is *emitted*, on
+    the tenant's configured offsets, and whoever receives it decides whether a human is told.
+
+    A tenant integrating without a backend therefore gets **no confirmation email and no
+    reminders**. That is not a gap to be filled later; it is the boundary. Anyone building a
+    front-end-only integration needs to know it on the first screen.
+
+    ## Three credential tiers
+
+    | Prefix | Tier | Where it lives | What it can do |
+    |---|---|---|---|
+    | `bpk_` | publishable | a browser, in page source | read the catalogue, read availability, take a hold, create and manage **one** booking with its token |
+    | `bsk_` | secret | a server, never a browser | everything a tenant can do to its own data |
+    | `bad_` | admin | operators and lamido-admin | across tenants: provisioning, health, the queue, deliveries |
+
+    A `bsk_` or `bad_` key **must not** be used from a browser, and the service enforces that
+    rather than trusting it: any request to `/v1` or `/v1/admin` carrying an `Origin` or a
+    `Sec-Fetch-Dest` header is **403 before authentication**. The key is presumed burned the
+    moment it appears in a browser, and the refusal is what makes that presumption visible.
+
+    > **Nothing special is needed from a server.** `Sec-Fetch-Dest` is part of the Fetch Metadata
+    > set a *user agent* attaches; Node's `fetch`, `curl` and every HTTP SDK send neither it nor
+    > `Origin`, so they pass straight through to authentication.
+    >
+    > If you have inherited code passing `mode: 'same-origin'` to work around this, it is
+    > harmless and can be removed. The rule keyed on `Sec-Fetch-Mode` until 2026-08-09, which
+    > undici sends on every request, so it refused every backend caller.
+
+    `/v1/public/*` and `/v1/providers/*` are exempt: a browser belongs on the first, and Google
+    is not a browser.
+
+    > Because the tripwire fires **before routing**, every `/v1` and `/v1/admin` operation can
+    > answer `403`. It is listed below only where an operation has its own reason to forbid —
+    > repeating it 100 times would bury the ones that mean something.
+
+    ## Capability tokens
+
+    A public booking is managed by whoever holds its token, in `X-Booking-Token`. There are two,
+    minted once and never re-readable:
+
+    - **management** — read, reschedule, cancel
+    - **confirmation** — confirm, once
+
+    A lost token is re-minted from the tenant tier, never recovered. The service stores SHA-256.
+
+    ## Conventions
+
+    - Fields are `snake_case`. Timestamps are ISO 8601 **with offset, always UTC**.
+    - **Money is a decimal string of minor units**, never a JSON number — `"4500"`, not `4500`.
+      `null` means "not displayed", which is not zero.
+    - Identifiers on the wire are UUIDv7 `public_id`s. Internal ids are never published.
+    - Lists return `{ "data": [...], "next_cursor": "…" | null }` and page by **keyset**, never
+      by offset. Pass `next_cursor` back as `cursor`; a `null` means the end.
+    - Errors are RFC 9457 problem documents, `application/problem+json`. Every one carries
+      `request_id`, which also comes back in `X-Request-Id` — quote it in any support request.
+    - **Treat an unknown enum member as unknown**, not as an error. New booking statuses,
+      cancellation reasons and event types can appear within this major version; a client that
+      throws on one breaks on a Tuesday for no reason.
+    - Writes that create something take an `Idempotency-Key`. Same key + same body returns the
+      original response; same key + a different body is `409 idempotency_mismatch`.
+
+    ## Versioning
+
+    `/v1` is the major version and is stable. Additive change — a new field, a new enum member,
+    a new endpoint — happens inside it without notice. Anything removed or narrowed gets a
+    `Sunset` header and a minimum of 90 days.
+
+  contact:
+    name: booking-service operators
+    url: https://github.com/lazslov/booking-service
+  license:
+    name: UNLICENSED
+
+servers:
+  # The deployment host is deliberately absent from this pinned copy. No host ships in
+  # a tarball, and contracts/ is one `files` mistake away from being published — see
+  # docs/plans/phase-1-foundations.md §4. The consuming project supplies the base URL
+  # from its own environment; the SDK has no fallback.
+  - url: "{baseUrl}"
+    description: Supplied by the consuming project from its own environment.
+    variables:
+      baseUrl:
+        default: https://booking.example.com
+        description: Documentation placeholder, not a usable default.
+
+tags:
+  - name: health
+    description: Liveness. No credential, no tenant.
+  - name: public
+    description: |
+      The `bpk_` tier. Everything here is readable by anyone who views page source, so the field
+      lists are the narrowest in the service — no staff email addresses, no tenant metadata, no
+      customer contact details beyond a first name.
+  - name: catalog
+    description: Locations, services and employees, on the `bsk_` tier.
+  - name: availability
+    description: Working hours, exceptions, and the computed slots that fall out of them.
+  - name: bookings
+    description: The lifecycle — create, confirm, complete, no-show, reschedule, cancel.
+  - name: webhooks
+    description: |
+      Endpoints, the event catalogue, stored events and their deliveries. Mounted **twice** —
+      once on the tenant tier for a tenant's own endpoints, once on the admin tier across
+      tenants — from one set of handlers, so the two cannot drift.
+  - name: tenancy
+    description: Tenants, their settings and their API keys.
+  - name: operations
+    description: Health counts, the job queue, calendar connections. Operators only.
+  - name: internal
+    description: |
+      Not part of the contract. Crons and provider callbacks, documented so that the routing
+      table and this file can be compared without an exemption list. Do not call them.
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      operationId: serviceHealth
+      summary: Liveness and the deployed build
+      description: |
+        No credential. **200 whenever the process is alive**, and `status` is always `ok` — a
+        monitor that stops at `response.ok` must never be told 503 by a service that is, in
+        fact, answering.
+
+        **It touches no dependency.** That is a rule rather than an optimisation: a liveness
+        probe that opens a database connection is a keepalive, and this deployment's compute is
+        billed per hour awake. It therefore reports nothing about the database —
+        `GET /v1/admin/health` is the endpoint that does, and it is always 200 with the
+        diagnosis in the body.
+
+        `commit` is the reason this route matters at deploy time: it is the only way to find out
+        that the build you promoted is not the build that is running.
+      security: []
+      responses:
+        '200':
+          description: Alive.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/RequestId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceHealth' }
+
+  # ── public tier (bpk_) ─────────────────────────────────────────────────────────────
+  /v1/public/locations:
+    get:
+      tags: [public]
+      operationId: listPublicLocations
+      summary: Bookable locations
+      description: Active locations only. An inactive one is absent, not flagged.
+      security: [{ publishableKey: [] }]
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: The tenant's bookable locations.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/PublicLocation' } }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/locations/{publicId}/services:
+    get:
+      tags: [public]
+      operationId: listPublicServices
+      summary: Bookable services at a location
+      security: [{ publishableKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: Active services.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/PublicService' } }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/services/{publicId}/employees:
+    get:
+      tags: [public]
+      operationId: listPublicEmployees
+      summary: Who performs this service
+      description: Names only — see `PublicEmployee`.
+      security: [{ publishableKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: Staff offering this service.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/PublicEmployee' } }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/availability:
+    get:
+      tags: [public, availability]
+      operationId: getAvailability
+      summary: Bookable slots
+      description: |
+        Computed from working rules, exceptions, existing bookings and any connected calendars,
+        then trimmed by the tenant's lead time and horizon.
+
+        Slots carry **UTC instants** and the response carries the location's `timezone`, so a
+        client renders without guessing. `from` is inclusive and `until` exclusive, both as
+        location-local dates.
+
+        A slot here is not a reservation. Take a hold, or create the booking and let it race —
+        the database is what actually prevents a double-booking.
+      security: [{ publishableKey: [] }]
+      parameters:
+        - { name: service_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: until, in: query, required: true, schema: { type: string, format: date } }
+        - name: employee_id
+          in: query
+          description: Narrows to one staff member. Absent, every eligible employee is considered.
+          schema: { type: string, format: uuid }
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: The slots in the window.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Availability' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/availability/days:
+    get:
+      tags: [public, availability]
+      operationId: getAvailabilityDays
+      summary: Per-day summary of the same window
+      description: |
+        The same computation, summarised per local day. A month picker that greys out six dates
+        should not download thirty-one full slot lists to do it — this is **one** computation
+        summarised, not thirty-one.
+      security: [{ publishableKey: [] }]
+      parameters:
+        - { name: service_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: until, in: query, required: true, schema: { type: string, format: date } }
+        - { name: employee_id, in: query, schema: { type: string, format: uuid } }
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: One entry per local day.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityDays' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/holds:
+    post:
+      tags: [public, bookings]
+      operationId: createPublicHold
+      summary: Hold a slot while the customer fills in the form
+      description: |
+        Keep the `nonce` — redeeming the hold requires it, and that is what proves the hold is
+        yours without anyone needing a session.
+      security: [{ publishableKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HoldCreate' }
+      responses:
+        '201':
+          description: Held until `expires_at`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Hold' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`slot_taken` — somebody else holds or has booked it.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/holds/{publicId}:
+    delete:
+      tags: [public, bookings]
+      operationId: releasePublicHold
+      summary: Release a hold early
+      description: |
+        Optional — a hold expires on its own. Releasing returns the slot to everyone else
+        immediately, which is the polite thing to do when a customer abandons the form.
+      security: [{ publishableKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - name: nonce
+          in: query
+          required: true
+          description: The same nonce the hold was created with.
+          schema: { type: string }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/bookings:
+    post:
+      tags: [public, bookings]
+      operationId: createPublicBooking
+      summary: Book, from a browser
+      description: |
+        **Off unless the tenant turned it on** — `public_booking_create_enabled`. A `bpk_` write
+        surface is the slot-exhaustion vector, so it is opt-in; when off this is
+        `422 public_create_disabled`.
+
+        The response is the **only** one carrying the booking's capability tokens. Store them
+        before you navigate away: nothing can return them again.
+
+        Send an `Idempotency-Key`. A customer double-clicking Book is the normal case, not the
+        exception.
+      security: [{ publishableKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingCreate' }
+      responses:
+        '201':
+          description: |
+            Created. `pending` when the tenant requires confirmation, `confirmed` otherwise.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingWithTokens' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502':
+          description: |
+            Only reachable when `FREEBUSY_PRECHECK` is on. The create path asks the
+            employee's calendar provider whether they are free, and **fails closed**: a
+            timeout, a provider error or a revoked grant refuses the booking rather than
+            risk a double booking. `provider_error` names the cause for an operator. Nothing
+            was written, so a retry is safe.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/public/bookings/{publicId}:
+    get:
+      tags: [public, bookings]
+      operationId: getPublicBooking
+      summary: Read a booking with its management token
+      description: |
+        Also returns `windows` — when the customer may still cancel or reschedule — so a page
+        can say "cancel until 14:00" instead of finding out by being refused.
+      security: [{ publishableKey: [], bookingToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+      responses:
+        '200':
+          description: The booking, as its token-holder may see it.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PublicBooking'
+                  - type: object
+                    required: [windows]
+                    properties:
+                      windows: { $ref: '#/components/schemas/BookingWindows' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/bookings/{publicId}/confirm:
+    post:
+      tags: [public, bookings]
+      operationId: confirmPublicBooking
+      summary: Confirm, with the confirmation token
+      description: |
+        The confirmation token travels in the **body**, because this is the endpoint behind a
+        link in an email the tenant sent, and a token in a URL ends up in referrer headers and
+        server logs.
+
+        Confirming twice is `409 already_confirmed`, not a silent success — a client that
+        cannot tell the two apart cannot tell the customer either.
+      security: [{ publishableKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+      responses:
+        '200':
+          description: Confirmed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicBooking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: |
+            `invalid_confirmation_token`. A 403 rather than a 404 because the booking provably
+            exists — the caller simply presented the wrong capability.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: '`pending_expired` — the hold on the slot lapsed. Ask for the slot again and rebook.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/bookings/{publicId}/reschedule:
+    post:
+      tags: [public, bookings]
+      operationId: reschedulePublicBooking
+      summary: Move a booking, with the management token
+      description: |
+        A reschedule **creates a new booking and cancels the old one** — the response is the new
+        one, and `rescheduled_from_id` points back. Two rows rather than a mutated time, because
+        the old appointment genuinely happened as a commitment and an audit that overwrites it
+        cannot say what changed.
+
+        Refused outside the tenant's window with `422 outside_reschedule_window`.
+      security: [{ publishableKey: [], bookingToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Reschedule' }
+      responses:
+        '201':
+          description: The **new** booking. The token from the old one still works on it.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicBooking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/public/bookings/{publicId}/cancel:
+    post:
+      tags: [public, bookings]
+      operationId: cancelPublicBooking
+      summary: Cancel, with the management token
+      description: |
+        Records `cancellation_reason: "customer"`. Refused outside the tenant's window with
+        `422 outside_cancel_window`, and on an already-terminal booking with `422
+        booking_terminal`.
+      security: [{ publishableKey: [], bookingToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Cancel' }
+      responses:
+        '200':
+          description: Canceled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicBooking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  # ── tenant tier (bsk_) ─────────────────────────────────────────────────────────────
+  /v1/me:
+    get:
+      tags: [tenancy]
+      operationId: getMe
+      summary: Who this key belongs to
+      description: |
+        The tenant and the key presenting itself. Useful as a credential check that touches
+        nothing — and it is what proves a `bsk_` key authenticates at all.
+      security: [{ secretKey: [] }]
+      responses:
+        '200':
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenant, key]
+                properties:
+                  tenant: { $ref: '#/components/schemas/TenantSelf' }
+                  key: { $ref: '#/components/schemas/TenantKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/settings:
+    get:
+      tags: [tenancy]
+      operationId: getSettings
+      summary: This tenant's settings
+      description: |
+        Read-only here. Settings are changed from the admin tier, because they govern how much
+        of the service a tenant may consume — `public_booking_create_enabled` and the TTLs in
+        particular.
+      security: [{ secretKey: [] }]
+      responses:
+        '200':
+          description: The settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/keys:
+    get:
+      tags: [tenancy]
+      operationId: listOwnKeys
+      summary: This tenant's API keys
+      description: Metadata only. No hash, no plaintext — `last4` is the whole readback.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Keys, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/TenantKey' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [tenancy]
+      operationId: mintOwnKey
+      summary: Mint a key
+      description: |
+        The plaintext comes back **once**. `label` becomes the audit identity, so it must say
+        who holds the key — "acme-backend-prod", not "key 3".
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, label]
+              properties:
+                kind: { type: string, enum: [publishable, secret] }
+                label: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '201':
+          description: Minted. Store `key` now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedTenantKey' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/keys/{publicId}/revoke:
+    post:
+      tags: [tenancy]
+      operationId: revokeOwnKey
+      summary: Revoke a key
+      description: |
+        Immediate and irreversible. **Update the consumer first** — revoking before the
+        replacement is deployed is an outage you chose.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+      responses:
+        '200':
+          description: Revoked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/keys/{publicId}/rotate:
+    post:
+      tags: [tenancy]
+      operationId: rotateOwnKey
+      summary: Replace a key with a new one
+      description: |
+        Mints a successor with the same kind and label and revokes the original. A `bpk_`
+        rotation means the tenant's front end must be redeployed — the old key is in page source
+        of every cached page until then.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+      responses:
+        '201':
+          description: The successor. Store `key` now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedTenantKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/locations:
+    get:
+      tags: [catalog]
+      operationId: listLocations
+      summary: Locations
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: active, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Locations.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Location' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [catalog]
+      operationId: createLocation
+      summary: Create a location
+      description: |
+        `timezone` is the location's own, and everything about that location is computed in it —
+        working hours, exception dates, the local day a slot falls on.
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                slug: { type: string }
+                timezone: { type: string, default: Europe/Budapest }
+                address: { type: [object, 'null'], additionalProperties: true }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '400':
+          description: |
+            Validation failed — **including a slug already taken**, which is a 400 with a JSON
+            Pointer rather than a 409. The `code` set on 409 is closed, and a taken slug is a
+            fact about the caller's input.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/locations/{publicId}:
+    get:
+      tags: [catalog]
+      operationId: getLocation
+      summary: Read a location
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The location.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [catalog]
+      operationId: updateLocation
+      summary: Update a location
+      description: At least one field. An empty body is a validation error, not a no-op.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                timezone: { type: string }
+                address: { type: [object, 'null'], additionalProperties: true }
+                active:
+                  type: boolean
+                  description: |
+                    Deactivating hides the location from the public tier. **Existing bookings
+                    are untouched** — a closed shop still owes its customers an answer.
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Location' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/locations/{publicId}/services:
+    get:
+      tags: [catalog]
+      operationId: listServices
+      summary: Services at a location
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: active, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Services.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Service' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [catalog]
+      operationId: createService
+      summary: Create a service
+      description: |
+        Buffers block the calendar around the appointment without being part of it: a booking's
+        published window is the service time, and the blocking window is what the database
+        actually enforces. **Unknown fields are rejected** — a dropped
+        `buffer_after_minutes`-shaped typo silently double-books.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug, duration_minutes]
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                description: { type: [string, 'null'], maxLength: 2000 }
+                duration_minutes: { type: integer, minimum: 1, maximum: 1440 }
+                buffer_before_minutes: { type: integer, minimum: 0, maximum: 1440, default: 0 }
+                buffer_after_minutes: { type: integer, minimum: 0, maximum: 1440, default: 0 }
+                price_minor: { $ref: '#/components/schemas/MinorAmount' }
+                currency: { type: string, default: HUF }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/services/{publicId}:
+    get:
+      tags: [catalog]
+      operationId: getService
+      summary: Read a service
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The service.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [catalog]
+      operationId: updateService
+      summary: Update a service
+      description: |
+        Changing `duration_minutes` changes future availability. **Existing bookings keep the
+        window they were made with** — the duration is copied onto the booking at creation, so
+        an edit cannot silently move somebody's appointment.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                description: { type: [string, 'null'] }
+                duration_minutes: { type: integer }
+                buffer_before_minutes: { type: integer }
+                buffer_after_minutes: { type: integer }
+                price_minor: { $ref: '#/components/schemas/MinorAmount' }
+                currency: { type: string }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/employees:
+    get:
+      tags: [catalog]
+      operationId: listEmployees
+      summary: Staff
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: active, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Staff.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Employee' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [catalog]
+      operationId: createEmployee
+      summary: Add a staff member
+      description: |
+        `email` is internal — it is what a calendar connection is made against. It is never
+        returned on the public tier.
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/employees/{publicId}:
+    get:
+      tags: [catalog]
+      operationId: getEmployee
+      summary: Read a staff member
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The staff member.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [catalog]
+      operationId: updateEmployee
+      summary: Update a staff member
+      description: |
+        Deactivating removes them from future availability. **Their existing bookings stand** —
+        somebody has to keep those appointments, and deciding who is the tenant's call, not
+        ours.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/employees/{publicId}/services:
+    get:
+      tags: [catalog]
+      operationId: listEmployeeServices
+      summary: What this staff member performs
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: Assigned services.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Service' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/employees/{publicId}/services/{serviceId}:
+    put:
+      tags: [catalog]
+      operationId: assignService
+      summary: Assign a service to a staff member
+      description: |
+        Idempotent — assigning twice is the same 204. A `PUT` because the request states the
+        desired end state, and repeating it is not a second assignment.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - { name: serviceId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [catalog]
+      operationId: unassignService
+      summary: Unassign a service
+      description: |
+        Removes them from **future** availability for it. Bookings already made stand — an
+        assignment is a statement about what may be booked, not about what was.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - { name: serviceId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/employees/{publicId}/locations:
+    get:
+      tags: [catalog]
+      operationId: listEmployeeLocations
+      summary: Where this staff member works
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: Assigned locations.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Location' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/employees/{publicId}/locations/{locationId}:
+    put:
+      tags: [catalog]
+      operationId: assignLocation
+      summary: Assign a location to a staff member
+      description: Idempotent. Working-hour rules are written per (employee, location) pair.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - { name: locationId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [catalog]
+      operationId: unassignLocation
+      summary: Unassign a location
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - { name: locationId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/employees/{publicId}/calendar:
+    get:
+      tags: [catalog, operations]
+      operationId: getCalendarConnection
+      summary: This staff member's calendar connection
+      description: |
+        `status` is the field to watch. `degraded` means we could not sync recently and their
+        availability may be stale; `revoked` means only a fresh authorisation fixes it.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The connection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalendarConnection' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: No connection — which is normal, not an error state.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [catalog, operations]
+      operationId: disconnectCalendar
+      summary: Disconnect a calendar
+      description: |
+        Deletes the stored credential and the busy rows derived from it. Events this service
+        wrote into that calendar are **left in place**: they are the staff member's own record
+        of their day, and deleting somebody's diary because an integration ended is not ours to
+        do.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/employees/{publicId}/calendar/authorize:
+    post:
+      tags: [catalog, operations]
+      operationId: authorizeCalendar
+      summary: Begin the Google consent flow
+      description: |
+        Returns a URL to send the staff member to. The `state` inside it is **single-use** and
+        short-lived, so an authorize URL cannot be replayed or handed to somebody else.
+
+        Google must return a refresh token or the connection is refused rather than stored
+        half-made — which is why the URL asks for offline access and forces the consent screen
+        even on a re-authorisation.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - return_url
+              properties:
+                return_url:
+                  type: string
+                  format: uri
+                  description: |
+                    Where the staff member lands once Google is done — **required**; there is no
+                    default, and omitting the body is a `400`.
+
+                    Validated **here, at issue, not at the callback**: the callback is reached by
+                    Google, and a redirect target that turns out to be unusable there would strand
+                    the operator on an error page with no way back.
+
+                    Must be `https://`, or `http://localhost` for development. Any other scheme is
+                    a `400`.
+                  example: https://acme.example.com/settings/calendar
+      responses:
+        '200':
+          description: Send the staff member here.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorize_url]
+                properties:
+                  authorize_url: { type: string, format: uri }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/availability/rules:
+    get:
+      tags: [availability]
+      operationId: listRules
+      summary: Working-hour rules for one staff member
+      security: [{ secretKey: [] }]
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Rules, by day and start time.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/AvailabilityRule' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [availability]
+      operationId: createRule
+      summary: Add a working-hour rule
+      description: |
+        Wall-clock times in the location's zone, resolved to instants per occurrence — so a rule
+        that says 09:00 still says 09:00 the morning the clocks change.
+
+        **A rule crossing midnight is rejected**; split it in two. Allowing it would double the
+        complexity of every interval computation in the engine for a case no tenant has yet.
+
+        **Unknown fields are rejected** — a dropped `ends_time` is a working day that quietly
+        runs to midnight.
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, location_id, day_of_week, starts_time, ends_time]
+              additionalProperties: false
+              properties:
+                employee_id: { type: string, format: uuid }
+                location_id: { type: string, format: uuid }
+                day_of_week: { type: integer, minimum: 0, maximum: 6, description: '**0 = Monday**.' }
+                starts_time: { type: string, example: '09:00' }
+                ends_time: { type: string, example: '17:00' }
+                effective_from: { type: [string, 'null'], format: date }
+                effective_until: { type: [string, 'null'], format: date }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityRule' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/availability/rules/{publicId}:
+    patch:
+      tags: [availability]
+      operationId: updateRule
+      summary: Update a rule
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                day_of_week: { type: integer, minimum: 0, maximum: 6 }
+                starts_time: { type: string }
+                ends_time: { type: string }
+                effective_from: { type: [string, 'null'], format: date }
+                effective_until: { type: [string, 'null'], format: date }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityRule' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [availability]
+      operationId: deleteRule
+      summary: Delete a rule
+      description: |
+        Removes future availability from it. **Bookings already made stand** — they were valid
+        commitments when they were taken.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/availability/exceptions:
+    get:
+      tags: [availability]
+      operationId: listExceptions
+      summary: Date exceptions for one staff member
+      security: [{ secretKey: [] }]
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Exceptions.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/AvailabilityException' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [availability]
+      operationId: createException
+      summary: Close a date, or open one outside normal hours
+      description: |
+        `closed` overrides the rules for that date; `open` adds a window and **needs both
+        times**. A null `location_id` applies to all of this employee's locations.
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, date, kind]
+              additionalProperties: false
+              properties:
+                employee_id: { type: string, format: uuid }
+                location_id: { type: [string, 'null'], format: uuid }
+                date: { type: string, format: date }
+                kind: { type: string, enum: [closed, open] }
+                starts_time: { type: [string, 'null'] }
+                ends_time: { type: [string, 'null'] }
+                reason: { type: [string, 'null'], maxLength: 200 }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityException' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/availability/exceptions/{publicId}:
+    delete:
+      tags: [availability]
+      operationId: deleteException
+      summary: Delete an exception
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/holds:
+    post:
+      tags: [bookings]
+      operationId: createHold
+      summary: Hold a slot
+      description: The tenant-tier twin of `POST /v1/public/holds`. Same body, same `nonce` rule.
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HoldCreate' }
+      responses:
+        '201':
+          description: Held.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Hold' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/holds/{publicId}:
+    delete:
+      tags: [bookings]
+      operationId: releaseHold
+      summary: Release a hold early
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - { name: nonce, in: query, required: true, schema: { type: string } }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/bookings:
+    get:
+      tags: [bookings]
+      operationId: listBookings
+      summary: Bookings
+      description: |
+        `from`/`until` filter on `starts_at`. Each row carries the ids and names it needs to be
+        rendered, but **no `customer` object** — joining five tables per page to publish names
+        nobody asked for is the version of this endpoint that gets slow first. Read one booking
+        for the full record.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/BookingStatus' } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Bookings, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/BookingCommon' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [bookings]
+      operationId: createBooking
+      summary: Create a booking
+      description: |
+        The core write. Send an `Idempotency-Key`: a retried POST that creates a second
+        appointment is the failure this endpoint exists to make impossible.
+
+        Concurrency is settled by the **database**, not by a check: twenty simultaneous creates
+        at one slot return exactly one `201` and nineteen `409 slot_taken`. A hold makes losing
+        unlikely; it does not change what losing looks like.
+
+        The response carries the capability tokens, once.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingCreate' }
+      responses:
+        '201':
+          description: Created — `pending`, or `confirmed` if the tenant does not require confirmation.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Booking'
+                  - type: object
+                    required: [management_token, confirmation_token]
+                    properties:
+                      management_token: { type: string }
+                      confirmation_token: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            `slot_taken`, `hold_expired`, `hold_not_yours`, `idempotency_mismatch`, or
+            `idempotency_in_flight` — the last meaning an identical request is still running,
+            so retry rather than treat it as a failure.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422':
+          description: '`employee_unavailable`, `service_inactive`, `lead_time_violated`, `horizon_exceeded`.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '502':
+          description: |
+            Only reachable when `FREEBUSY_PRECHECK` is on. The create path asks the
+            employee's calendar provider whether they are free, and **fails closed**: a
+            timeout, a provider error or a revoked grant refuses the booking rather than
+            risk a double booking. `provider_error` names the cause for an operator. Nothing
+            was written, so a retry is safe.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/bookings/{publicId}:
+    get:
+      tags: [bookings]
+      operationId: getBooking
+      summary: Read a booking
+      description: The full record — customer contact details and the tenant's own metadata.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The booking.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/bookings/{publicId}/confirm:
+    post:
+      tags: [bookings]
+      operationId: confirmBooking
+      summary: Confirm a pending booking
+      description: |
+        No token — the tenant's own key is the authority. Use this when the tenant's backend has
+        settled whatever `pending_reason` was standing for.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: Confirmed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`already_confirmed`.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`pending_expired` or `booking_terminal`.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/bookings/{publicId}/complete:
+    post:
+      tags: [bookings]
+      operationId: completeBooking
+      summary: Mark a booking completed
+      description: |
+        The appointment happened. Terminal — nothing leaves this state, including a later
+        cancellation.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: Completed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/bookings/{publicId}/no-show:
+    post:
+      tags: [bookings]
+      operationId: markNoShow
+      summary: Mark a booking a no-show
+      description: |
+        Distinct from `canceled` on purpose: a no-show is a customer who did not come, and a
+        tenant's policy about repeat no-shows cannot be written against a status that also means
+        "they told us in advance".
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: Marked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/bookings/{publicId}/reschedule:
+    post:
+      tags: [bookings]
+      operationId: rescheduleBooking
+      summary: Move a booking
+      description: |
+        Creates a **new** booking and cancels this one in a single transaction. The tenant tier
+        is not bound by `reschedule_window_minutes` — that window governs the customer, and an
+        operator moving an appointment on the phone is not the case it was written for.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Reschedule' }
+      responses:
+        '201':
+          description: The new booking.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/bookings/{publicId}/cancel:
+    post:
+      tags: [bookings]
+      operationId: cancelBooking
+      summary: Cancel a booking
+      description: 'Records `cancellation_reason: "tenant"`.'
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Cancel' }
+      responses:
+        '200':
+          description: Canceled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/bookings/{publicId}/confirmation-token:
+    post:
+      tags: [bookings]
+      operationId: mintConfirmationToken
+      summary: Re-mint the confirmation token
+      description: |
+        For "resend the confirmation email". The previous token **stops working** — a re-mint is
+        a replacement, not an addition, so a leaked link from an earlier send cannot be used
+        after the customer asked for a new one.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The new token. Returned once.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [confirmation_token]
+                properties:
+                  confirmation_token: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/bookings/{publicId}/management-token:
+    post:
+      tags: [bookings]
+      operationId: mintManagementToken
+      summary: Re-mint the management token
+      description: For "resend my booking link". The previous token stops working.
+      security: [{ secretKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The new token. Returned once.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [management_token]
+                properties:
+                  management_token: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ── webhooks, tenant tier ──────────────────────────────────────────────────────────
+  /v1/event-types:
+    get:
+      tags: [webhooks]
+      operationId: listEventTypes
+      summary: The event catalogue
+      description: |
+        **Build subscription UIs from this, not from a hardcoded list.** A checkbox list copied
+        into another repository is wrong the day any service adds an event, silently, and the
+        symptom is an operator who cannot subscribe to something that exists.
+      security: [{ secretKey: [] }]
+      responses:
+        '200':
+          description: Every event type this service can emit.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/EventType' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-endpoints:
+    get:
+      tags: [webhooks]
+      operationId: listWebhookEndpoints
+      summary: This tenant's endpoints
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: enabled, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Endpoints.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/WebhookEndpoint' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [webhooks]
+      operationId: createWebhookEndpoint
+      summary: Register an endpoint
+      description: |
+        The signing secret is in the response, **once**. Verify every delivery with it: compute
+        `HMAC-SHA256` over the raw body and compare in constant time against `X-Signature`.
+
+        The URL must be HTTPS on a public host, and it is **re-validated at every delivery** —
+        a hostname that resolves to a private address later is refused later, because DNS is not
+        a promise.
+      security: [{ secretKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEndpointCreate' }
+      responses:
+        '201':
+          description: Registered. Store `secret` now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedWebhookEndpoint' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: '`endpoint_limit_reached`.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-endpoints/{id}:
+    get:
+      tags: [webhooks]
+      operationId: getWebhookEndpoint
+      summary: Read an endpoint
+      security: [{ secretKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: The endpoint.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [webhooks]
+      operationId: updateWebhookEndpoint
+      summary: Update an endpoint
+      security: [{ secretKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEndpointUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [webhooks]
+      operationId: deleteWebhookEndpoint
+      summary: Delete an endpoint
+      description: |
+        Its delivery history goes with it. To stop deliveries while keeping the record, disable
+        it instead.
+      security: [{ secretKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-endpoints/{id}/enable:
+    post:
+      tags: [webhooks]
+      operationId: enableWebhookEndpoint
+      summary: Enable an endpoint
+      description: |
+        Clears `disabled_reason` and resets `consecutive_failures`. Events that fired while it
+        was disabled are **not** replayed — redeliver them individually if you need them.
+      security: [{ secretKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Enabled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-endpoints/{id}/disable:
+    post:
+      tags: [webhooks]
+      operationId: disableWebhookEndpoint
+      summary: Disable an endpoint
+      description: |
+        Takes **no body**. `disabled_reason` is set to a fixed `Disabled by an operator.` and is
+        not caller-supplied — anything sent here is read by nobody.
+      security: [{ secretKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Disabled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-endpoints/{id}/rotate-secret:
+    post:
+      tags: [webhooks]
+      operationId: rotateWebhookSecret
+      summary: Rotate the signing secret
+      description: |
+        Returns the new secret **once**. Deliveries in flight were signed with the old one — a
+        receiver that verifies strictly should accept both for a few minutes, which is the
+        normal shape of a signing-key rotation.
+      security: [{ secretKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Rotated. Store `secret` now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedWebhookEndpoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-endpoints/{id}/test:
+    post:
+      tags: [webhooks]
+      operationId: testWebhookEndpoint
+      summary: Send a ping
+      description: |
+        A real signed delivery of a `ping` event, through the real path — so verifying it proves
+        the receiver's signature check works, not merely that the URL answers.
+      security: [{ secretKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '202':
+          description: Queued. Watch the deliveries listing for the outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_public_id: { type: string, format: uuid }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-events:
+    get:
+      tags: [webhooks]
+      operationId: listWebhookEvents
+      summary: Stored events
+      description: |
+        What was emitted, regardless of who received it. `data.customer` is **stripped here**
+        even for endpoints that receive it — a listing should not be a second place a tenant's
+        customers' addresses are published.
+
+        `from` is inclusive and `until` is exclusive, so two adjacent windows neither overlap
+        nor drop the instant between them.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: event_type, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Events, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/WebhookEvent' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-deliveries:
+    get:
+      tags: [webhooks]
+      operationId: listWebhookDeliveries
+      summary: Delivery attempts
+      description: |
+        One row per (event, endpoint). `status: dead` is the dead-letter — permanently failed,
+        kept so somebody can decide what to do, and never swept.
+      security: [{ secretKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/DeliveryStatus' } }
+        - { name: endpoint, in: query, schema: { type: string, format: uuid } }
+        - { name: event_type, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Deliveries.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/WebhookDelivery' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/webhook-deliveries/{id}/redeliver:
+    post:
+      tags: [webhooks]
+      operationId: redeliverWebhook
+      summary: Retry a delivery
+      description: |
+        Re-sends the **stored** payload byte for byte, so the signature a receiver verifies is
+        the one it would have verified the first time. It is not a re-render of current state.
+      security: [{ secretKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '202':
+          description: Queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDelivery' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  # ── admin tier (bad_) ──────────────────────────────────────────────────────────────
+  /v1/admin/me:
+    get:
+      tags: [operations]
+      operationId: getAdminMe
+      summary: Which admin key this is
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: The key, its scopes and its IP allowlist.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [key]
+                properties:
+                  key: { $ref: '#/components/schemas/AdminKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/health:
+    get:
+      tags: [operations]
+      operationId: getAdminHealth
+      summary: Operational counts
+      description: |
+        **The operator's dashboard.** Always 200; the diagnosis is in the body.
+
+        Every count drills into a listing through the *same* predicate the count uses, so the
+        number and the list are the same set by construction — a count nobody can drill into is
+        a number nobody can act on.
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Counts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/tenants:
+    get:
+      tags: [tenancy]
+      operationId: listTenants
+      summary: Tenants
+      description: |
+        `without_external_ref=true` is the drill-down behind the health count of the same name —
+        tenants whose events cannot be routed cross-service.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: active, in: query, schema: { type: boolean } }
+        - { name: without_external_ref, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Tenants.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Tenant' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [tenancy]
+      operationId: createTenant
+      summary: Provision a tenant
+      description: |
+        Creates the tenant and its default settings. Set `external_ref` to the lamido-admin
+        account id — without it this tenant's events cannot be routed, and admin health will
+        keep saying so.
+      security: [{ adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                external_ref: { type: [string, 'null'] }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/tenants/{publicId}:
+    get:
+      tags: [tenancy]
+      operationId: getTenant
+      summary: Read a tenant
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The tenant.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [tenancy]
+      operationId: updateTenant
+      summary: Update a tenant
+      description: |
+        `active: false` stops **every** tier for this tenant — their keys start answering 401.
+        It is the switch to reach for when a tenant is offboarded, and it is not subtle.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string }
+                external_ref: { type: [string, 'null'] }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/tenants/{publicId}/settings:
+    get:
+      tags: [tenancy]
+      operationId: getTenantSettings
+      summary: Read a tenant's settings
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [tenancy]
+      operationId: updateTenantSettings
+      summary: Change a tenant's settings
+      description: |
+        Every change here is audited. Two are worth pausing over:
+        `public_booking_create_enabled` opens a write surface to a key that lives in page
+        source, and `reminder_offsets_minutes` changes **which events fire** — existing
+        scheduled reminders are rescheduled to match.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                hold_ttl_seconds: { type: integer, minimum: 30, maximum: 3600 }
+                pending_ttl_seconds: { type: integer, minimum: 60, maximum: 86400 }
+                min_lead_time_minutes: { type: integer, minimum: 0, maximum: 43200 }
+                booking_horizon_days: { type: integer, minimum: 1, maximum: 730 }
+                slot_granularity_minutes: { type: integer, minimum: 5, maximum: 240 }
+                reschedule_window_minutes: { type: integer, minimum: 0, maximum: 43200 }
+                cancel_window_minutes: { type: integer, minimum: 0, maximum: 43200 }
+                reminder_offsets_minutes:
+                  type: array
+                  maxItems: 3
+                  items: { type: integer, minimum: 5, maximum: 43200 }
+                allowed_origins: { type: array, maxItems: 20, items: { type: string } }
+                require_confirmation: { type: boolean }
+                public_booking_create_enabled: { type: boolean }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantSettings' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/tenants/{publicId}/keys:
+    get:
+      tags: [tenancy]
+      operationId: listTenantKeys
+      summary: A tenant's keys
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Keys.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/TenantKey' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [tenancy]
+      operationId: mintTenantKey
+      summary: Mint a key for a tenant
+      description: |
+        The onboarding path — a new tenant has no key with which to mint its first one. The
+        plaintext comes back once; hand it over out of band and do not keep a copy.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, label]
+              properties:
+                kind: { type: string, enum: [publishable, secret] }
+                label: { type: string }
+      responses:
+        '201':
+          description: Minted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedTenantKey' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/tenants/{publicId}/keys/{keyId}/revoke:
+    post:
+      tags: [tenancy]
+      operationId: adminRevokeTenantKey
+      summary: Revoke a tenant's key
+      description: '**Update the consumer first.** Revoking before the replacement is deployed is an outage.'
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - { name: keyId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Revoked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/tenants/{publicId}/keys/{keyId}/rotate:
+    post:
+      tags: [tenancy]
+      operationId: adminRotateTenantKey
+      summary: Rotate a tenant's key
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - { name: keyId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201':
+          description: The successor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedTenantKey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/tenants/{publicId}/webhook-endpoints:
+    get:
+      tags: [webhooks]
+      operationId: listTenantWebhookEndpoints
+      summary: One tenant's endpoints
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: enabled, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Endpoints.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/WebhookEndpoint' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [webhooks]
+      operationId: createTenantWebhookEndpoint
+      summary: Register an endpoint for a tenant
+      description: |
+        The onboarding path, for setting up a tenant's receiver before they hold a key. Secret
+        returned once.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEndpointCreate' }
+      responses:
+        '201':
+          description: Registered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedWebhookEndpoint' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/bookings:
+    get:
+      tags: [bookings, operations]
+      operationId: adminListBookings
+      summary: Bookings across tenants
+      description: |
+        Filter by `tenant_id` to scope to one. Without it this spans every tenant, which is what
+        makes it useful for support and what makes it worth an audited key.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: tenant_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/BookingStatus' } }
+      responses:
+        '200':
+          description: Bookings.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/BookingCommon' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/bookings/{publicId}:
+    get:
+      tags: [bookings, operations]
+      operationId: adminGetBooking
+      summary: Read any booking
+      description: |
+        The admin tier gets **read, reschedule and cancel** — not the full lifecycle. An
+        operator needs to *fix* a booking from a support ticket; creating, confirming and
+        completing belong to the tenant's own backend, which is what should be driving them.
+
+        Read exists so that an operator acting on a booking has seen it first, rather than
+        working from an id and hoping.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '200':
+          description: The booking.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/bookings/{publicId}/reschedule:
+    post:
+      tags: [bookings, operations]
+      operationId: adminRescheduleBooking
+      summary: Move any booking
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PublicId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Reschedule' }
+      responses:
+        '201':
+          description: The new booking.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/bookings/{publicId}/cancel:
+    post:
+      tags: [bookings, operations]
+      operationId: adminCancelBooking
+      summary: Cancel any booking
+      description: |
+        Records `cancellation_reason: "tenant"` — **not** a distinct `admin` reason. That field
+        is what an integrator's refund policy keys on, and from the customer's side an operator
+        cancelling and the business cancelling are the same event. **Who** did it is in the
+        booking's event log, which is where that question belongs.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Cancel' }
+      responses:
+        '200':
+          description: Canceled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/audit:
+    get:
+      tags: [operations]
+      operationId: listAuditLog
+      summary: The audit trail
+      description: |
+        Reading back what operators and integrators did. Every admin-tier mutation writes a row
+        here, and so do the tenant-tier ones that change configuration — so `actor_type` is the
+        filter that keeps a report from coming back silently partial across the two tiers.
+
+        `metadata` is **allowlisted per action** at write time, at compile time and again at
+        runtime. It can never contain an email address, a token or a secret, which is why this
+        endpoint applies no second filter of its own.
+
+        A booking's own transitions are **not** here: they live in `booking_events`, carrying
+        the same actor, with their own retention and their own audience.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: actor_type
+          in: query
+          schema: { type: string, enum: [admin_key, tenant_key, customer, system] }
+        - name: target_type
+          in: query
+          schema:
+            type: string
+            enum: [tenant, tenant_api_key, admin_api_key, booking, webhook_endpoint, webhook_delivery, calendar_connection, job]
+        - { name: action, in: query, description: 'Exact match, never a prefix.', schema: { type: string } }
+        - { name: target_id, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Audit rows, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/AuditRow' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        # Reachable from 2026-08-24: a wrong admin key spends the failed-authentication budget
+        # (HR-15), and this was the one authenticated operation that declared no 429.
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/jobs:
+    get:
+      tags: [operations]
+      operationId: listJobs
+      summary: The job queue
+      description: |
+        The drill-down behind `due_jobs` and `dead_jobs`. `status=due` is a **derived** filter —
+        pending and ready to run now — because "how far behind are we" is the question an
+        operator actually has, and no stored status answers it.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, running, done, dead, canceled, due] }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: tenant_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Jobs.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/Job' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/jobs/{id}/retry:
+    post:
+      tags: [operations]
+      operationId: retryJob
+      summary: Revive a dead job
+      description: |
+        Resets it to `pending`, due now, with its attempt count cleared. **Fix the cause first**
+        — a retry against an unchanged failure just walks the same ladder back to dead.
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Queued again.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/jobs/{id}/cancel:
+    post:
+      tags: [operations]
+      operationId: cancelJob
+      summary: Cancel a job
+      description: |
+        For work that should never run — a reminder for a booking that is no longer happening,
+        a push to a calendar that has been disconnected.
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Canceled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/calendar/connections:
+    get:
+      tags: [operations]
+      operationId: listCalendarConnections
+      summary: Calendar connections across tenants
+      description: |
+        The drill-down behind `degraded_calendar_connections`, and it shares that count's exact
+        predicate: `status=degraded` matches **both** `degraded` and `revoked`, because both mean
+        "this calendar is not syncing" and the count says so too.
+
+        Ordered by `created_at` descending, which is what the cursor walks.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: status, in: query, schema: { type: string, enum: [active, degraded, revoked] } }
+      responses:
+        '200':
+          description: Connections.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/CalendarConnection' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/calendar/connections/{id}/resync:
+    post:
+      tags: [operations]
+      operationId: resyncCalendar
+      summary: Force a full resync
+      description: |
+        Drops the stored sync token and pulls the window fresh. For when busy data is suspected
+        stale — a resync is always safe, only slower.
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '202':
+          description: |
+            The pull is queued. **No job id is returned** — watch the queue counts on
+            `/v1/admin/health`, or list `/v1/admin/jobs`, to see it drain.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [resync_enqueued] }
+              example: { status: resync_enqueued }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/calendar/connections/{id}/rewatch:
+    post:
+      tags: [operations]
+      operationId: rewatchCalendar
+      summary: Re-establish the push channel
+      description: |
+        Watches expire. Renewal is scheduled, and this is the manual lever for when it has not
+        happened. Losing a watch degrades latency, never correctness — polling is the floor.
+
+        **Synchronous, and the odd one out of the three calendar levers** — it establishes the
+        watch inline and answers `200` with the new expiry, because an operator clicking this
+        wants the answer, not a queue position.
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: The channel is established. Not queued — this already happened.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, expires_at]
+                properties:
+                  status: { type: string, enum: [watching] }
+                  expires_at:
+                    type: string
+                    format: date-time
+                    description: When this channel lapses and needs renewing again.
+              example: { status: watching, expires_at: '2026-08-17T09:00:00.000Z' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/calendar/bookings/{publicId}/repush:
+    post:
+      tags: [operations]
+      operationId: repushBooking
+      summary: Re-push one booking to its calendar
+      description: |
+        For a booking missing from a staff calendar. The event id is **derived** from the
+        booking, so a re-push overwrites rather than duplicating — running it twice is safe.
+      security: [{ adminKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PublicId' }]
+      responses:
+        '202':
+          description: |
+            The push is queued. **No job id is returned** — watch the queue counts on
+            `/v1/admin/health`, or list `/v1/admin/jobs`, to see it drain.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [push_enqueued] }
+              example: { status: push_enqueued }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/event-types:
+    get:
+      tags: [webhooks, operations]
+      operationId: adminListEventTypes
+      summary: The event catalogue
+      description: The same catalogue as the tenant tier, from the same source. See `GET /v1/event-types`.
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Every event type.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/EventType' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-endpoints:
+    get:
+      tags: [webhooks, operations]
+      operationId: adminListWebhookEndpoints
+      summary: Endpoints across tenants
+      description: The drill-down behind `disabled_endpoints`.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: enabled, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Endpoints.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/WebhookEndpoint' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-endpoints/{id}:
+    get:
+      tags: [webhooks, operations]
+      operationId: adminGetWebhookEndpoint
+      summary: Read any endpoint
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: The endpoint.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [webhooks, operations]
+      operationId: adminUpdateWebhookEndpoint
+      summary: Update any endpoint
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookEndpointUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [webhooks, operations]
+      operationId: adminDeleteWebhookEndpoint
+      summary: Delete any endpoint
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-endpoints/{id}/enable:
+    post:
+      tags: [webhooks, operations]
+      operationId: adminEnableWebhookEndpoint
+      summary: Enable any endpoint
+      description: |
+        The usual reason an operator is here: an endpoint auto-disabled after five consecutive
+        failures and somebody has since fixed the receiver.
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Enabled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-endpoints/{id}/disable:
+    post:
+      tags: [webhooks, operations]
+      operationId: adminDisableWebhookEndpoint
+      summary: Disable any endpoint
+      description: |
+        Takes **no body**. `disabled_reason` is set to a fixed `Disabled by an operator.` and is
+        not caller-supplied — anything sent here is read by nobody.
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Disabled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookEndpoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-endpoints/{id}/rotate-secret:
+    post:
+      tags: [webhooks, operations]
+      operationId: adminRotateWebhookSecret
+      summary: Rotate any endpoint's secret
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Rotated. Store `secret` now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintedWebhookEndpoint' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-endpoints/{id}/test:
+    post:
+      tags: [webhooks, operations]
+      operationId: adminTestWebhookEndpoint
+      summary: Ping any endpoint
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '202':
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_public_id: { type: string, format: uuid }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-events:
+    get:
+      tags: [webhooks, operations]
+      operationId: adminListWebhookEvents
+      summary: Stored events across tenants
+      description: |
+        `data.customer` is stripped here too — the admin tier is not an exemption from
+        minimisation.
+
+        `tenant` narrows the listing to one tenant's events, by `public_id`; an id no tenant
+        holds is a `404`. `from` is inclusive and `until` is exclusive.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: event_type, in: query, schema: { type: string } }
+        - { name: tenant, in: query, schema: { type: string, format: uuid } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/WebhookEvent' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        # `tenant` names a tenant that does not exist.
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-deliveries:
+    get:
+      tags: [webhooks, operations]
+      operationId: adminListWebhookDeliveries
+      summary: Deliveries across tenants
+      description: The drill-down behind `pending_deliveries` and `dead_lettered_deliveries`.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/DeliveryStatus' } }
+        - { name: endpoint, in: query, schema: { type: string, format: uuid } }
+        - { name: event_type, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Deliveries.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: array, items: { $ref: '#/components/schemas/WebhookDelivery' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /v1/admin/webhook-deliveries/{id}/redeliver:
+    post:
+      tags: [webhooks, operations]
+      operationId: adminRedeliverWebhook
+      summary: Retry any delivery
+      description: |
+        The dead-letter's exit. Re-sends the stored payload byte for byte, so the signature is
+        the one the receiver would have verified originally.
+      security: [{ adminKey: [] }]
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '202':
+          description: Queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDelivery' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  # ── internal ───────────────────────────────────────────────────────────────────────
+  # Not the contract. Here so the routing table and this file can be compared without an
+  # exemption list — an exemption list is where drift hides.
+  /v1/providers/google/oauth:
+    get:
+      tags: [internal]
+      operationId: googleOauthCallback
+      summary: Google's OAuth redirect target
+      x-internal: true
+      description: |
+        Google redirects the staff member here after consent. `state` is single-use and is
+        consumed **first and unconditionally** — a callback carrying `error` still burns it, so a
+        refused consent cannot be replayed into a successful one.
+
+        Renders nothing. Every outcome that has a usable `state` ends in a **302 back to the
+        `return_url`** given at authorize time, with `?calendar=` appended saying what happened.
+        The outcome travels as a query parameter rather than a status code because a browser
+        following a redirect shows the page, not the code.
+      security: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - name: error
+          in: query
+          description: Present when the staff member declined. Not a failure of ours.
+          schema: { type: string }
+      responses:
+        '302':
+          description: |
+            Back to the tenant's `return_url` with `calendar` set to the outcome:
+            `connected` (stored), `denied` (declined, or Google refused), or `gone` (the employee
+            was deleted while the operator was on the consent screen).
+          headers:
+            Location:
+              description: The `return_url`, with `calendar=connected|denied|gone` appended.
+              schema: { type: string, format: uri }
+              example: https://acme.example.com/settings/calendar?calendar=connected
+        '400':
+          description: |
+            `state` was missing, unknown, expired or already used. Answered as a problem document
+            rather than a redirect, because with no usable `state` there is no `return_url` to go
+            back to.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/providers/google/notifications:
+    post:
+      tags: [internal]
+      operationId: googleWatchNotification
+      summary: Google's calendar push channel
+      x-internal: true
+      description: |
+        A content-free nudge — Google says "something changed", never what. Authenticated by the
+        per-connection channel token issued when the watch was created, and answered **200 with an
+        empty body on every path**: the `sync` handshake, a missing channel id, an unknown channel,
+        a wrong token, and the real thing all get the same answer.
+
+        An unrecognised channel deliberately gets a 200 rather than a 401. A 401 would make Google
+        retry and then **disable the channel**, punishing the connection for what an impostor did.
+
+        This is an optimisation. Polling is the floor, and losing every notification costs
+        latency, not correctness.
+      security: []
+      parameters:
+        - name: X-Goog-Channel-ID
+          in: header
+          description: The channel this ping belongs to. Absent → 200, no work.
+          schema: { type: string }
+        - name: X-Goog-Channel-Token
+          in: header
+          description: Must match the channel's stored token, or the ping is ignored (still 200).
+          schema: { type: string }
+        - name: X-Goog-Resource-State
+          in: header
+          description: '`sync` is Google''s handshake on `events.watch` — acknowledged, no work.'
+          schema: { type: string }
+      responses:
+        '200':
+          description: Noted. Empty body, whether or not any work was queued.
+
+  /api/cron/jobs:
+    get: &cronJobs
+      tags: [internal]
+      operationId: cronDrainJobs
+      summary: Drain the job queue
+      x-internal: true
+      description: |
+        Vercel's scheduler calls this. **Fails closed** — `CRON_SECRET` unset or wrong is 401 to
+        everyone, Vercel included, because a queue drain anybody can trigger is a queue drain
+        anybody can exhaust.
+
+        `GET` and `POST` both exist because Vercel's scheduler issues `GET` while a human
+        triggering a drain by hand reaches for `POST`. They are the same handler.
+
+        The drain is bounded by time, not by count: falling behind must show up as a rising
+        `due_jobs` on admin health, never as a timeout.
+      security: [{ cronSecret: [] }]
+      responses:
+        '200':
+          description: What was drained.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claimed: { type: integer }
+                  succeeded: { type: integer }
+                  failed: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post: *cronJobs
+
+  /api/cron/calendar:
+    get: &cronCalendar
+      tags: [internal]
+      operationId: cronSyncCalendars
+      summary: Poll calendars and renew watches
+      x-internal: true
+      description: |
+        The floor under the push channel. Enqueues a pull for every active connection and a
+        renewal for every watch nearing expiry. Fails closed, like every cron here.
+      security: [{ cronSecret: [] }]
+      responses:
+        '200':
+          description: What was enqueued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enqueued: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post: *cronCalendar
+
+  /api/cron/maintenance:
+    get: &cronMaintenance
+      tags: [internal]
+      operationId: cronMaintenance
+      summary: Housekeeping
+      x-internal: true
+      description: |
+        Expires overdue pending bookings and trims rate-limit windows.
+
+        **It deletes no tenant data.** Retention and erasure are CLIs, run by a human, dry-run
+        by default — a scheduled deleter is the thing this service deliberately does not have.
+      security: [{ cronSecret: [] }]
+      responses:
+        '200':
+          description: What was done.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post: *cronMaintenance
+
+components:
+  securitySchemes:
+    publishableKey:
+      type: http
+      scheme: bearer
+      description: A `bpk_` key. Belongs in page source; treat it as public.
+    secretKey:
+      type: http
+      scheme: bearer
+      description: |
+        A `bsk_` key. **Server-side only** — see the browser tripwire above. Compromise is
+        assumed the moment it reaches a browser.
+    adminKey:
+      type: http
+      scheme: bearer
+      description: |
+        A `bad_` key, scoped and optionally IP-allowlisted. Grants access across tenants.
+    bookingToken:
+      type: apiKey
+      in: header
+      name: X-Booking-Token
+      description: |
+        A booking's capability token. Presented alongside a `bpk_` key: the key says which
+        tenant, the token says which booking.
+    cronSecret:
+      type: http
+      scheme: bearer
+      description: |
+        `CRON_SECRET`. Fails **closed** — unset or wrong is 401 to everyone, Vercel included.
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Page size. Defaults to 50, capped at 200.
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: An opaque keyset cursor — the previous page's `next_cursor`, unmodified.
+      schema: { type: string }
+    PublicId:
+      name: publicId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: |
+        A client-generated key, unique per intended creation. Replaying it returns the original
+        response rather than creating a second booking; reusing it with a **different** body is
+        `409 idempotency_mismatch`, because that is a bug in the caller and silence would hide
+        it.
+      schema: { type: string, minLength: 1, maxLength: 255 }
+
+  headers:
+    RequestId:
+      description: The request's id. Also in every problem body. Quote it in support requests.
+      schema: { type: string }
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema: { type: integer }
+    ETag:
+      description: |
+        A strong validator over the inputs to this response. Send it back as
+        `If-None-Match` to get a `304`.
+      schema: { type: string }
+    Sunset:
+      description: Present only on a surface being withdrawn. At least 90 days out.
+      schema: { type: string }
+
+  responses:
+    NotModified:
+      description: The `If-None-Match` validator still matches. No body.
+    NoContent:
+      description: Done. No body.
+    ValidationFailed:
+      description: |
+        The body or query failed validation. `errors` locates each failure by JSON Pointer, so a
+        form can highlight the field rather than showing a sentence.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: urn:booking-service:problem:validation
+            title: Bad Request
+            status: 400
+            detail: The request body failed validation.
+            instance: /v1/bookings
+            request_id: 019e5c31-0000-7000-8000-0000000000ff
+            errors:
+              - pointer: /customer/email
+                detail: Invalid email
+    Unauthorized:
+      description: No key, an unknown key, a revoked key, or the wrong tier for this surface.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: |
+        Authenticated but not allowed — a missing admin scope, an IP outside the allowlist, a
+        capability token that does not match this booking, or the **browser tripwire**, which
+        fires before authentication and so also answers here.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: |
+        No such resource **in your tenant**. A resource belonging to somebody else is a 404, not
+        a 403: a 403 would confirm it exists.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: |
+        The request cannot be satisfied in the current state. Branch on `code`, never on
+        `detail`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: urn:booking-service:problem:conflict
+            title: Conflict
+            status: 409
+            detail: That slot was taken while you were booking it.
+            instance: /v1/bookings
+            request_id: 019e5c31-0000-7000-8000-0000000000ff
+            code: slot_taken
+    Unprocessable:
+      description: |
+        Understood, well-formed, and refused on a rule — a closed window, a terminal booking, a
+        lead time. Carries a `code`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PayloadTooLarge:
+      description: The body exceeded the limit for this surface.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: Too many requests. `Retry-After` and `retry_after` both say how long.
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InternalError:
+      description: |
+        Something failed on our side. The body never carries a driver message, a stack or a
+        connection string — a trace carries the password. `request_id` is how we find it.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    # ── problems ─────────────────────────────────────────────────────────────────────
+    Problem:
+      type: object
+      description: |
+        RFC 9457. The `type` set is **closed** — a new member is an API change — so machine
+        branching goes on `code`, never on a new type and never on prose.
+      required: [type, title, status, detail, instance]
+      properties:
+        type:
+          type: string
+          enum:
+            - urn:booking-service:problem:validation
+            - urn:booking-service:problem:unauthorized
+            - urn:booking-service:problem:forbidden
+            - urn:booking-service:problem:not-found
+            - urn:booking-service:problem:conflict
+            - urn:booking-service:problem:payload-too-large
+            - urn:booking-service:problem:rate-limit
+            - urn:booking-service:problem:internal
+        title:
+          type: string
+          description: Describes the **status**, not the type — a 422 carrying `conflict` reads "Unprocessable Entity".
+        status: { type: integer }
+        detail:
+          type: string
+          description: For a human. Wording changes without notice; never branch on it.
+        instance:
+          type: string
+          description: The request **path**. Never a full URL, never a query string.
+        request_id: { type: [string, 'null'] }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/ProblemFieldError' }
+        code: { $ref: '#/components/schemas/ProblemCode' }
+        retry_after: { type: integer }
+        provider_error:
+          type: string
+          description: An upstream provider's own message, verbatim, on a 502.
+    ProblemFieldError:
+      type: object
+      required: [pointer, detail]
+      properties:
+        pointer:
+          type: string
+          description: RFC 6901 JSON Pointer into the request body — `/customer/email`.
+        detail: { type: string }
+    ProblemCode:
+      type: string
+      description: |
+        The closed sub-reason set for 409 / 422 / 502. **This is the member to branch on.**
+      enum:
+        - slot_taken
+        - hold_expired
+        - hold_not_yours
+        - already_confirmed
+        - pending_expired
+        - invalid_confirmation_token
+        - public_create_disabled
+        - outside_reschedule_window
+        - outside_cancel_window
+        - booking_terminal
+        - idempotency_mismatch
+        - idempotency_in_flight
+        - employee_unavailable
+        - service_inactive
+        - lead_time_violated
+        - horizon_exceeded
+        - endpoint_limit_reached
+
+    # ── pagination ───────────────────────────────────────────────────────────────────
+    ListEnvelope:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data: { type: array, items: {} }
+        next_cursor:
+          type: [string, 'null']
+          description: |
+            Pass back as `cursor`. `null` is the end. Keyset, not offset — a page boundary
+            cannot skip or duplicate a row when something is inserted mid-scroll.
+
+    # ── catalogue ────────────────────────────────────────────────────────────────────
+    Location:
+      type: object
+      required: [public_id, name, slug, timezone, address, active, created_at, updated_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        timezone:
+          type: string
+          description: IANA. Every slot and booking carries it, so a client never guesses a zone.
+        address: { type: [object, 'null'], additionalProperties: true }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PublicLocation:
+      type: object
+      description: No `active` — an inactive location is simply absent — and no timestamps.
+      required: [public_id, name, slug, timezone, address]
+      properties:
+        public_id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        timezone: { type: string }
+        address: { type: [object, 'null'], additionalProperties: true }
+    Service:
+      type: object
+      required:
+        - public_id
+        - location_id
+        - name
+        - slug
+        - description
+        - duration_minutes
+        - buffer_before_minutes
+        - buffer_after_minutes
+        - price_minor
+        - currency
+        - active
+        - created_at
+        - updated_at
+      properties:
+        public_id: { type: string, format: uuid }
+        location_id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: [string, 'null'] }
+        duration_minutes: { type: integer }
+        buffer_before_minutes:
+          type: integer
+          description: Blocks the calendar before the appointment. Never published as part of a booking's window.
+        buffer_after_minutes: { type: integer }
+        price_minor: { $ref: '#/components/schemas/MinorAmount' }
+        currency: { type: string, example: HUF }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PublicService:
+      type: object
+      description: Buffers and `active` are the tenant's business, not the browser's.
+      required: [public_id, location_id, name, slug, description, duration_minutes, price_minor, currency]
+      properties:
+        public_id: { type: string, format: uuid }
+        location_id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: [string, 'null'] }
+        duration_minutes: { type: integer }
+        price_minor: { $ref: '#/components/schemas/MinorAmount' }
+        currency: { type: string }
+    MinorAmount:
+      type: [string, 'null']
+      # Mirrors MINOR in src/lib/money/index.ts, and a test compares the two. No sign and no
+      # leading zero: the previous `^-?\d+$` admitted both, and the code rejected both.
+      pattern: '^(0|[1-9][0-9]{0,15})$'
+      description: |
+        Minor units as a **decimal string**. A currency's minor unit is whatever that currency
+        says it is: HUF is **zero-decimal**, so `"4500"` is 4500 Ft, not 45.00. In a
+        two-decimal currency the same string would be 45.00. Read it with the `currency`
+        member beside it and never divide by 100 unconditionally.
+
+        Never a JSON number: a float cannot hold every minor amount exactly, and money that is
+        nearly right is wrong. `null` means "not displayed", which is not zero.
+    Employee:
+      type: object
+      required: [public_id, name, email, active, created_at, updated_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        name: { type: string }
+        email:
+          type: string
+          description: Internal — calendar OAuth and staff notification. **Never on the public tier.**
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PublicEmployee:
+      type: object
+      description: |
+        Name only. A staff list with addresses, behind a key that ships in page source, is a
+        spam list with extra steps.
+      required: [public_id, name]
+      properties:
+        public_id: { type: string, format: uuid }
+        name: { type: string }
+
+    # ── availability ─────────────────────────────────────────────────────────────────
+    AvailabilityRule:
+      type: object
+      description: A recurring weekly working window, in the location's **wall-clock** time.
+      required: [public_id, day_of_week, starts_time, ends_time, effective_from, effective_until, active, created_at, updated_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: '**0 = Monday** (ISO). Stated because the alternative is a one-day shift.'
+        starts_time: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+        ends_time: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+        effective_from: { type: [string, 'null'], format: date }
+        effective_until: { type: [string, 'null'], format: date }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AvailabilityException:
+      type: object
+      description: |
+        A single date that overrides the rules — a closure, or an opening outside normal hours.
+      required: [public_id, date, kind, starts_time, ends_time, reason, created_at, updated_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        date: { type: string, format: date }
+        kind: { type: string, enum: [closed, open] }
+        starts_time: { type: [string, 'null'] }
+        ends_time: { type: [string, 'null'] }
+        reason: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Slot:
+      type: object
+      required: [starts_at, ends_at, employee_ids]
+      properties:
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        employee_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: |
+            Everyone free at this instant. Pick one, or let the customer pick — the booking
+            create names an employee explicitly, so a slot with three is three chances, not one.
+    Availability:
+      type: object
+      required: [timezone, service_id, duration_minutes, window, slots]
+      properties:
+        timezone: { type: string }
+        service_id: { type: string, format: uuid }
+        duration_minutes: { type: integer }
+        window: { $ref: '#/components/schemas/DateWindow' }
+        slots: { type: array, items: { $ref: '#/components/schemas/Slot' } }
+    AvailabilityDays:
+      type: object
+      required: [timezone, service_id, window, days]
+      properties:
+        timezone: { type: string }
+        service_id: { type: string, format: uuid }
+        window: { $ref: '#/components/schemas/DateWindow' }
+        days:
+          type: array
+          items:
+            type: object
+            required: [date, slot_count, first_slot_at, last_slot_at]
+            properties:
+              date: { type: string, format: date }
+              slot_count: { type: integer }
+              first_slot_at: { type: [string, 'null'], format: date-time }
+              last_slot_at: { type: [string, 'null'], format: date-time }
+    DateWindow:
+      type: object
+      description: Location-**local** dates. `from` inclusive, `until` exclusive.
+      required: [from, until]
+      properties:
+        from: { type: string, format: date }
+        until: { type: string, format: date }
+
+    # ── bookings ─────────────────────────────────────────────────────────────────────
+    BookingStatus:
+      type: string
+      description: |
+        Terminal states are `canceled`, `completed` and `no_show`; nothing leaves them.
+        **Treat an unknown member as unknown** — this list can grow within `/v1`.
+      enum: [pending, confirmed, canceled, completed, no_show]
+    CancellationReason:
+      type: [string, 'null']
+      description: |
+        **Why the slot freed up** — which is why `no_show` is a member here as well as a status.
+        An operator cancelling on a tenant's behalf records `tenant`; **who** clicked is in the
+        booking's event log, which is where that question belongs.
+
+        `system_pending_expired` is the one nobody chose: a booking that was never confirmed
+        before its window ran out.
+      enum: [customer, tenant, no_show, system_pending_expired, null]
+    BookingCommon:
+      type: object
+      required:
+        - public_id
+        - status
+        - location_id
+        - service_id
+        - service_name
+        - employee_id
+        - employee_name
+        - starts_at
+        - ends_at
+        - timezone
+        - pending_reason
+        - expires_at
+        - confirmed_at
+        - canceled_at
+        - completed_at
+        - cancellation_reason
+        - rescheduled_from_id
+        - rescheduled_to_id
+        - created_at
+        - updated_at
+      properties:
+        public_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/BookingStatus' }
+        location_id: { type: string, format: uuid }
+        service_id: { type: string, format: uuid }
+        service_name: { type: string }
+        employee_id: { type: string, format: uuid }
+        employee_name: { type: string }
+        starts_at:
+          type: string
+          format: date-time
+          description: The **service** window. The blocking window, buffers included, is not published.
+        ends_at: { type: string, format: date-time }
+        timezone: { type: string }
+        pending_reason:
+          type: [string, 'null']
+          description: |
+            **Opaque.** The tenant's own string — `"awaiting_payment"`, whatever their UI needs —
+            stored, returned, and never interpreted by this service. Do not expect a fixed set.
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: When a `pending` booking stops holding its slot. Null once it is not pending.
+        confirmed_at: { type: [string, 'null'], format: date-time }
+        canceled_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        cancellation_reason: { $ref: '#/components/schemas/CancellationReason' }
+        rescheduled_from_id:
+          type: [string, 'null']
+          format: uuid
+          description: A reschedule creates a **new** booking and cancels the old one. Both ends are here, so a client can walk the chain either way.
+        rescheduled_to_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Booking:
+      allOf:
+        - $ref: '#/components/schemas/BookingCommon'
+        - type: object
+          description: The tenant and admin view — the customer's record and the tenant's metadata.
+          required: [customer, metadata]
+          properties:
+            customer: { $ref: '#/components/schemas/Customer' }
+            metadata:
+              type: object
+              additionalProperties: { type: [string, number, boolean, 'null'] }
+              description: |
+                The tenant's own correlation data. Flat, ≤ 4 KB serialized, stored and returned
+                untouched. This service never reads it — including when erasing a customer,
+                which reports metadata-bearing bookings rather than rewriting them.
+    PublicBooking:
+      allOf:
+        - $ref: '#/components/schemas/BookingCommon'
+        - type: object
+          description: |
+            The token-holder's view. **No email, no phone, no metadata.** The holder knows their
+            own address already; publishing it back into a link-shaped flow helps only whoever
+            the link leaks to.
+          required: [customer]
+          properties:
+            customer:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+    BookingWithTokens:
+      allOf:
+        - $ref: '#/components/schemas/PublicBooking'
+        - type: object
+          description: |
+            The **only** shape carrying capability tokens, and it carries them once. No read
+            endpoint returns them again — a lost token is re-minted, never recovered.
+          required: [management_token, confirmation_token]
+          properties:
+            management_token: { type: string }
+            confirmation_token:
+              type: [string, 'null']
+              description: Null when the tenant does not require confirmation — nothing was minted.
+    BookingWindows:
+      type: object
+      description: |
+        When the customer may still act, as instants — so a UI can say "cancel until 14:00"
+        instead of finding out by being refused. `null` means the operation is not offered at
+        all, which a UI should word differently from "the window has closed".
+      required: [cancel_until, reschedule_until]
+      properties:
+        cancel_until: { type: [string, 'null'], format: date-time }
+        reschedule_until: { type: [string, 'null'], format: date-time }
+    Customer:
+      type: object
+      required: [public_id, name, email, phone, external_ref]
+      properties:
+        public_id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: [string, 'null'], description: 'E.164 — `+3612345678`.' }
+        external_ref: { type: [string, 'null'] }
+    CustomerInput:
+      type: object
+      description: |
+        Matched on `email` within the tenant, case-insensitively. An existing customer's name
+        and phone are updated from what you send.
+      required: [email, name]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email, maxLength: 320 }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        phone: { type: [string, 'null'], pattern: '^\+[1-9]\d{6,14}$' }
+        external_ref: { type: [string, 'null'], maxLength: 200 }
+    Hold:
+      type: object
+      description: |
+        A short reservation on one slot. **Expiry is a predicate, not a state** — a hold stops
+        working the instant `expires_at` passes, with nothing needing to run.
+      required: [hold_id, service_id, employee_id, starts_at, ends_at, expires_at]
+      properties:
+        hold_id: { type: string, format: uuid }
+        service_id: { type: string, format: uuid }
+        employee_id: { type: string, format: uuid }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    HoldCreate:
+      type: object
+      required: [service_id, employee_id, starts_at, nonce]
+      properties:
+        service_id: { type: string, format: uuid }
+        employee_id: { type: string, format: uuid }
+        starts_at: { type: string, format: date-time }
+        nonce:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: |
+            Yours, generated per hold. Redeeming requires the same value, which proves the hold
+            is yours **without a session**. Keep it until you book or the hold expires.
+    BookingCreate:
+      type: object
+      required: [service_id, employee_id, starts_at, customer]
+      properties:
+        service_id: { type: string, format: uuid }
+        employee_id: { type: string, format: uuid }
+        starts_at: { type: string, format: date-time }
+        customer: { $ref: '#/components/schemas/CustomerInput' }
+        hold_id:
+          type: string
+          format: uuid
+          description: |
+            Optional. Without one, creation simply races the database's exclusion constraint and
+            loses cleanly with `409 slot_taken` — a hold makes the race unlikely, not the
+            correctness different.
+        nonce: { type: string, minLength: 8, maxLength: 128, description: Required whenever `hold_id` is present. }
+        pending_reason: { type: [string, 'null'], maxLength: 64 }
+        metadata:
+          type: object
+          additionalProperties: { type: [string, number, boolean, 'null'] }
+          description: Flat, ≤ 4 KB serialized. Nesting is refused rather than truncated.
+    Reschedule:
+      type: object
+      required: [starts_at]
+      properties:
+        starts_at: { type: string, format: date-time }
+        employee_id: { type: string, format: uuid, description: Absent keeps the current employee. }
+        hold_id: { type: string, format: uuid }
+        nonce: { type: string, minLength: 8, maxLength: 128 }
+    Cancel:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Recorded on the booking's event, not on the booking — it describes the act, not the state.
+
+    # ── tenancy ──────────────────────────────────────────────────────────────────────
+    Tenant:
+      type: object
+      required: [public_id, name, slug, external_ref, active, created_at, updated_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        external_ref:
+          type: [string, 'null']
+          description: |
+            The lamido-admin account id, and nothing else. A null makes this tenant's events
+            unroutable cross-service, which is why admin health counts them.
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    TenantSelf:
+      type: object
+      description: What a tenant may see about itself. It knows it is active — it is calling.
+      required: [public_id, name, slug, external_ref]
+      properties:
+        public_id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        external_ref: { type: [string, 'null'] }
+    TenantSettings:
+      type: object
+      description: |
+        Every knob a tenant has. These are **settings, not modes** — there is no "orchestrated"
+        flag, and no behaviour keys on the shape of the integration.
+      required:
+        - hold_ttl_seconds
+        - pending_ttl_seconds
+        - min_lead_time_minutes
+        - booking_horizon_days
+        - slot_granularity_minutes
+        - reschedule_window_minutes
+        - cancel_window_minutes
+        - reminder_offsets_minutes
+        - allowed_origins
+        - require_confirmation
+        - public_booking_create_enabled
+        - updated_at
+      properties:
+        hold_ttl_seconds: { type: integer, minimum: 30, maximum: 3600 }
+        pending_ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          description: Keep it short — it is what makes a flood of unconfirmed bookings self-clear.
+        min_lead_time_minutes: { type: integer, minimum: 0, maximum: 43200 }
+        booking_horizon_days: { type: integer, minimum: 1, maximum: 730 }
+        slot_granularity_minutes: { type: integer, minimum: 5, maximum: 240 }
+        reschedule_window_minutes:
+          type: integer
+          minimum: 0
+          maximum: 43200
+          description: |
+            How long **before** the appointment a customer may still reschedule. `0` disables
+            customer rescheduling entirely — a larger number closes the window earlier.
+        cancel_window_minutes: { type: integer, minimum: 0, maximum: 43200 }
+        reminder_offsets_minutes:
+          type: array
+          maxItems: 3
+          items: { type: integer, minimum: 5, maximum: 43200 }
+          description: |
+            When to **emit** `booking.reminder_reached`. Distinct values. This service still
+            sends nothing — the receiver decides whether a human hears about it.
+        allowed_origins:
+          type: array
+          maxItems: 20
+          items: { type: string }
+          description: Exact `scheme://host[:port]`. No wildcards, no path, no trailing slash.
+        require_confirmation:
+          type: boolean
+          description: '`false` → create returns `confirmed` immediately, with no token and no expiry.'
+        public_booking_create_enabled:
+          type: boolean
+          description: |
+            Opt-in. A `bpk_` write surface is the slot-exhaustion vector, so it is off until a
+            tenant asks for it.
+        updated_at: { type: string, format: date-time }
+    TenantKey:
+      type: object
+      description: '`last4` is the whole readback. Never the hash, never the plaintext.'
+      required: [public_id, kind, label, last4, last_used_at, revoked_at, created_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        kind: { type: string, enum: [publishable, secret] }
+        label: { type: string, description: Becomes the audit identity, so it must say who holds the key. }
+        last4: { type: string }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    MintedTenantKey:
+      allOf:
+        - $ref: '#/components/schemas/TenantKey'
+        - type: object
+          description: The only response carrying a plaintext key, and it carries it **once**.
+          required: [key]
+          properties:
+            key: { type: string, example: bsk_YOUR_BSK_KEY }
+    AdminKey:
+      type: object
+      required: [public_id, label, last4, scopes, allowed_ips, last_used_at, revoked_at, created_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        label: { type: string }
+        last4: { type: string }
+        scopes: { type: array, items: { type: string } }
+        allowed_ips: { type: [array, 'null'], items: { type: string } }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+
+    # ── webhooks ─────────────────────────────────────────────────────────────────────
+    WebhookEndpoint:
+      type: object
+      description: |
+        Identical members to every other service in the estate, so one admin screen renders
+        five services.
+      required:
+        - public_id
+        - url
+        - description
+        - subscribed_events
+        - contract_version
+        - enabled
+        - disabled_reason
+        - consecutive_failures
+        - secret_last4
+        - secret_fingerprint
+        - include_customer
+        - created_at
+        - updated_at
+      properties:
+        public_id: { type: string, format: uuid }
+        url: { type: string, format: uri, description: 'HTTPS, public host. Re-validated at every delivery, not only at create.' }
+        description: { type: [string, 'null'] }
+        subscribed_events:
+          type: [array, 'null']
+          items: { type: string }
+          description: '`null` = every type in the catalogue, which is how a new type reaches you for free.'
+        contract_version: { type: integer }
+        enabled: { type: boolean }
+        disabled_reason:
+          type: [string, 'null']
+          description: Non-null **only** when `enabled` is false — a database constraint says so.
+        consecutive_failures:
+          type: integer
+          description: Five in a row disables the endpoint. Any success resets it to zero.
+        secret_last4: { type: string }
+        secret_fingerprint: { type: string, description: First 8 hex of SHA-256 — useless for offline search. }
+        include_customer:
+          type: boolean
+          description: |
+            Off by default. Turning it on puts customer contact details in every payload you
+            receive; both directions are audited.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    MintedWebhookEndpoint:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEndpoint'
+        - type: object
+          description: The only response carrying the signing secret, and it carries it **once**.
+          required: [secret]
+          properties:
+            secret: { type: string }
+    WebhookEndpointCreate:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+        description: { type: [string, 'null'], maxLength: 500 }
+        subscribed_events: { type: [array, 'null'], items: { type: string } }
+        contract_version: { type: integer }
+        enabled: { type: boolean }
+        include_customer: { type: boolean }
+    DeliveryStatus:
+      type: string
+      enum: [pending, delivered, dead_lettered]
+      description: |
+        A delivery's lifecycle, and the closed set `?status=` accepts. **Three members, not
+        five** — there is no `delivering` (an attempt in flight is still `pending`, because a
+        function that dies mid-attempt must leave a state the drain can re-claim) and no
+        separate `failed` (a failed attempt that has rungs left is `pending` with a
+        `next_attempt_at`).
+
+        `dead_lettered` is the terminal one: the ladder is spent and the delivery will not be
+        retried without an operator redelivering it. It is the value the dead-letter
+        drill-down on `GET /v1/admin/health` filters by.
+    WebhookEndpointUpdate:
+      type: object
+      description: At least one field. An empty body is a validation error, not a no-op.
+      minProperties: 1
+      properties:
+        url: { type: string, format: uri }
+        description: { type: [string, 'null'], maxLength: 500 }
+        subscribed_events: { type: [array, 'null'], items: { type: string } }
+        enabled: { type: boolean }
+        include_customer: { type: boolean }
+    EventType:
+      type: object
+      description: |
+        The catalogue as data. Without this route every trigger checkbox list in an admin UI is
+        a hardcoded array in a sixth repository, edited whenever any of five services adds an
+        event — so it will be wrong, silently.
+      required: [event_type, resource, fires_when, target_status, contract_version, sensitive_blocks, cross_service]
+      properties:
+        event_type: { type: string, example: booking.confirmed }
+        resource: { type: string, example: booking }
+        fires_when: { type: string }
+        target_status: { type: [string, 'null'] }
+        contract_version: { type: integer }
+        sensitive_blocks:
+          type: array
+          items: { type: string }
+          description: Payload blocks withheld unless the endpoint opted in — `customer`.
+        cross_service: { type: boolean }
+    WebhookEvent:
+      type: object
+      description: |
+        A stored event. `data.customer` is **stripped here** even when the endpoint that
+        received it had opted in: it is stored so two attempts of one delivery are byte-identical
+        for the signature, and gated on read so a listing is not a second place a tenant's
+        customers' addresses are published.
+      required: [public_id, event_type, contract_version, occurred_at, correlation_id, causation_id, hop, payload, created_at]
+      properties:
+        public_id: { type: string, format: uuid, description: 'Is the `event_id` on the wire and in `X-Event-Id`. One id, not two.' }
+        event_type: { type: string }
+        contract_version: { type: integer }
+        occurred_at: { type: string, format: date-time }
+        correlation_id: { type: [string, 'null'] }
+        causation_id: { type: [string, 'null'] }
+        hop: { type: integer, description: How many services this has passed through. A loop breaker. }
+        payload: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    WebhookDelivery:
+      type: object
+      description: One attempt-carrying row per (event, endpoint). The fan-out is frozen at emission.
+      required:
+        - public_id
+        - endpoint_public_id
+        - event_public_id
+        - event_type
+        - status
+        - attempt
+        - next_attempt_at
+        - response_status
+        - response_excerpt
+        - error
+        - delivered_at
+        - created_at
+        - updated_at
+      properties:
+        public_id: { type: string, format: uuid }
+        endpoint_public_id: { type: string, format: uuid }
+        event_public_id: { type: string, format: uuid }
+        event_type: { type: string }
+        status: { $ref: '#/components/schemas/DeliveryStatus' }
+        attempt: { type: integer }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
+        response_status: { type: [integer, 'null'] }
+        response_excerpt: { type: [string, 'null'], description: '≤ 500 bytes. Never parsed, never branched on.' }
+        error: { type: [string, 'null'] }
+        delivered_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # ── operations ───────────────────────────────────────────────────────────────────
+    Job:
+      type: object
+      required: [id, tenant_id, type, payload, unique_key, run_after, status, attempts, max_attempts, claimed_until, last_error, canceled_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: [string, 'null'], format: uuid }
+        type: { type: string }
+        payload:
+          type: object
+          additionalProperties: true
+          description: Ids only, by construction. A job payload never carries a denormalised body.
+        unique_key: { type: [string, 'null'] }
+        run_after: { type: string, format: date-time }
+        status: { type: string, enum: [pending, running, done, dead, canceled] }
+        attempts: { type: integer }
+        max_attempts: { type: integer }
+        claimed_until: { type: [string, 'null'], format: date-time }
+        last_error: { type: [string, 'null'], description: Truncated to 1 000 characters on write. }
+        canceled_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CalendarConnection:
+      type: object
+      description: 'A staff member''s Google calendar. **No endpoint ever returns a token.**'
+      required:
+        - public_id
+        - employee_id
+        - employee_name
+        - provider
+        - google_account_email
+        - calendar_id
+        - status
+        - last_error
+        - last_synced_at
+        - watch_active
+        - watch_expires_at
+        - token_fingerprint
+        - created_at
+        - updated_at
+      properties:
+        public_id: { type: string, format: uuid }
+        employee_id: { type: string, format: uuid }
+        employee_name: { type: string }
+        provider: { type: string, enum: [google] }
+        google_account_email: { type: string }
+        calendar_id: { type: string }
+        status:
+          type: string
+          enum: [active, degraded, revoked]
+          description: |
+            `degraded` — we could not sync recently. `revoked` — the user disconnected us and
+            only a re-authorisation fixes it. Both are availability bugs a tenant must see.
+        last_error: { type: [string, 'null'] }
+        last_synced_at: { type: [string, 'null'], format: date-time }
+        watch_active:
+          type: boolean
+          description: Whether near-realtime push is live. An optimisation, never a dependency — polling still runs.
+        watch_expires_at: { type: [string, 'null'], format: date-time }
+        token_fingerprint: { type: string, description: Of the **ciphertext** — identifies the stored credential without revealing it. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Health:
+      type: object
+      description: |
+        **Always 200**, even when a dependency is degraded — a status code is for the transport,
+        a diagnosis is for the body. A monitor that checks `response.ok` and stops would
+        otherwise never read the diagnosis it asked for.
+      required: [status, database]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        database: { type: string, enum: [ok, degraded] }
+        tenants_without_external_ref:
+          type: integer
+          description: Tenants whose events cannot be routed cross-service. Drills into `GET /v1/admin/tenants?without_external_ref=true`, through the same predicate.
+        due_jobs: { type: integer }
+        dead_jobs: { type: integer, description: Permanently failed. An operator's to-do list — never garbage-collected. }
+        oldest_pending_job_age_seconds:
+          type: [integer, 'null']
+          description: |
+            Beside `due_jobs` because a count alone cannot tell "fifty just enqueued" from
+            "nothing has drained since Tuesday" — which, on a once-a-day cron tier, is the
+            whole question.
+        pending_deliveries: { type: integer }
+        dead_lettered_deliveries: { type: integer }
+        disabled_endpoints: { type: integer }
+        degraded_calendar_connections: { type: integer }
+    AuditRow:
+      type: object
+      description: |
+        One entry in the trail. Append-only and never updated; the actor's label is denormalised
+        so it survives the deletion of the key that made the row.
+      required:
+        [id, actor_type, actor_id, actor_label, action, target_type, target_id, metadata, ip, request_id, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        actor_type: { type: string, enum: [admin_key, tenant_key, customer, system] }
+        actor_id: { type: [string, 'null'], format: uuid, description: 'No foreign key — history outlives the key.' }
+        actor_label: { type: string }
+        action: { type: string, description: '`<target>.<verb>`, from a closed catalogue.' }
+        target_type: { type: string }
+        target_id: { type: [string, 'null'] }
+        metadata: { type: object, additionalProperties: true, description: 'Allowlisted per action. Never an address, a token or a secret.' }
+        ip: { type: [string, 'null'] }
+        request_id: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    ServiceHealth:
+      type: object
+      description: |
+        Unauthenticated liveness. 200 whenever the process is alive, and it touches no
+        dependency — so it is safe to probe at any cadence, and it can tell you nothing about
+        the database. Use `GET /v1/admin/health` for that.
+      required: [status, version, commit, now]
+      properties:
+        # One member, deliberately. `degraded` was removed on 2026-08-16 — see the deprecation
+        # note in operations.md. Producing it required a query, which HR-17 forbids here.
+        status: { type: string, enum: [ok] }
+        version: { type: string }
+        commit: { type: string, description: 'The deployed sha. The one way to catch "we deployed the wrong build".' }
+        now: { type: string, format: date-time }

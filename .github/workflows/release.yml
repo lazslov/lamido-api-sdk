@@ -81,6 +81,17 @@ jobs:
           INVOICE_SERVICE_PROVIDER_CONFIG_ID: ${{ secrets.INVOICE_SERVICE_PROVIDER_CONFIG_ID }}
           PAYMENT_SERVICE_URL: ${{ secrets.PAYMENT_SERVICE_URL }}
           PAYMENT_SERVICE_KEY: ${{ secrets.PAYMENT_SERVICE_KEY }}
+          AUTH_SERVICE_BASE_URL: ${{ secrets.AUTH_SERVICE_BASE_URL }}
+          AUTH_SERVICE_PUBLISHABLE_KEY: ${{ secrets.AUTH_SERVICE_PUBLISHABLE_KEY }}
+          AUTH_SERVICE_APPLICATION_KEY: ${{ secrets.AUTH_SERVICE_APPLICATION_KEY }}
+          BOOKING_SERVICE_BASE_URL: ${{ secrets.BOOKING_SERVICE_BASE_URL }}
+          BOOKING_SERVICE_PUBLISHABLE_KEY: ${{ secrets.BOOKING_SERVICE_PUBLISHABLE_KEY }}
+          BOOKING_SERVICE_SECRET_KEY: ${{ secrets.BOOKING_SERVICE_SECRET_KEY }}
+          EMAIL_SERVICE_BASE_URL: ${{ secrets.EMAIL_SERVICE_BASE_URL }}
+          EMAIL_SERVICE_API_KEY: ${{ secrets.EMAIL_SERVICE_API_KEY }}
+          WEBSHOP_SERVICE_BASE_URL: ${{ secrets.WEBSHOP_SERVICE_BASE_URL }}
+          WEBSHOP_PUBLISHABLE_KEY: ${{ secrets.WEBSHOP_PUBLISHABLE_KEY }}
+          WEBSHOP_SECRET_KEY: ${{ secrets.WEBSHOP_SECRET_KEY }}
         run: pnpm test:live
 
       # Core first, then the three service packages — `pnpm publish -r` walks the workspace in

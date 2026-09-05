@@ -1,7 +1,7 @@
 # Live testing — what to provision, and why
 
-`pnpm test:live` is the only suite that proves the SDK's *understanding of the three services* is
-still true. Everything else proves something narrower:
+`pnpm test:live` is the only suite that proves the SDK's *understanding of the services* is
+still true — the three original ones in depth, and the four phase 9 added through their refusals. Everything else proves something narrower:
 
 | Suite | Proves | Cannot notice |
 | --- | --- | --- |
@@ -161,6 +161,25 @@ pnpm dev                                         # http://localhost:3300
 - [ ] In the wizard, set the credential's mode to **`sandbox`**. This is what makes every payment under
       that key a sandbox payment.
 - [ ] Confirm with one read that the key works before running the suite.
+
+### 3b · The four services phase 9 added
+
+auth-service, booking-service, email-service and webshop-service each need a scratch tenant and one
+key per tier the suite reads — see `.env.live.example` for the exact variable names. Their bootstrap
+steps are in each knowledge-base folder's `operations.md` (environment, CLI, migrations) and, for
+auth-service, in `examples.http` §0, which takes a tenant from nothing to a working sign-in in four
+requests. This file does not restate them: those documents move with the services, and a copy here
+would be the one that drifted.
+
+Two facts decide how you do it:
+
+- [ ] **Their live cases are negative only.** Each suite asserts a `401` for an unknown key, a `403`
+      for the browser tripwire on a server tier, a `404` for a stranger's id and one `400` that creates
+      nothing. None sends mail, takes a booking, creates a cart or checks out — so a tenant with no
+      provider credential, no templates and no products is enough.
+- [ ] **The release cannot pass until these four are configured.** `LIVE_REQUIRE_CONFIGURED=true`
+      turns every unconfigured service into a failed release, by design. Set the eleven new secrets on
+      the `release` environment through `scripts/push-release-secrets.sh` before tagging.
 
 ### 4 · Wire it up here
 

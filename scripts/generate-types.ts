@@ -10,6 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { dedupeOperations } from "./lib/dedupe-operations.js";
 import { contractPath, generatedSchemaPath, repoRoot, services } from "./lib/paths.js";
 
 /** Prepended to every generated file, above openapi-typescript's own banner. */
@@ -41,9 +42,17 @@ function main(): void {
     // openapi-typescript writes CRLF-agnostic content; normalise so the committed file is
     // identical on every platform and `git diff --exit-code` means what it says in CI.
     const generated = readFileSync(output, "utf8").replace(/\r\n/g, "\n");
-    writeFileSync(output, header(service.id) + generated, "utf8");
 
-    console.log(`${service.id.padEnd(16)} → packages/${service.pkg}/src/generated/schema.ts`);
+    // An `operationId` a YAML alias duplicates emits the same member twice, which does not
+    // compile. See scripts/lib/dedupe-operations.ts for which contract does it and why.
+    const { source, removed } = dedupeOperations(generated);
+    writeFileSync(output, header(service.id) + source, "utf8");
+
+    const note =
+      removed.length === 0 ? "" : `  (duplicate operations dropped: ${removed.join(", ")})`;
+    console.log(
+      `${service.id.padEnd(16)} → packages/${service.pkg}/src/generated/schema.ts${note}`,
+    );
   }
 }
 

@@ -1,0 +1,919 @@
+[
+  {
+    "file": "README.md",
+    "line": 97,
+    "context": "2. Take the slot",
+    "json": {
+      "public_id": "019e5c31-0000-7000-8000-000000000105",
+      "status": "pending",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "timezone": "Europe/Budapest",
+      "expires_at": "2026-09-14T07:10:00Z",
+      "management_token": "…",
+      "confirmation_token": "…"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 50,
+    "context": "`GET /v1/admin/health` — the dashboard",
+    "json": {
+      "status": "ok",
+      "database": "ok",
+      "tenants_without_external_ref": 0,
+      "due_jobs": 3,
+      "dead_jobs": 0,
+      "oldest_pending_job_age_seconds": 12,
+      "pending_deliveries": 1,
+      "dead_lettered_deliveries": 0,
+      "disabled_endpoints": 0,
+      "degraded_calendar_connections": 0
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 115,
+    "context": "Creating one",
+    "json": {
+      "name": "Acme Kft.",
+      "slug": "acme",
+      "external_ref": "acct_01H8XYZ"
+    }
+  },
+  {
+    "file": "admin-api.md",
+    "line": 219,
+    "context": "`GET /v1/admin/audit`",
+    "json": {
+      "data": [
+        {
+          "id": "019e5c31-0000-7000-8000-0000000002a0",
+          "actor_type": "admin_key",
+          "actor_id": "019e5c31-0000-7000-8000-000000000010",
+          "actor_label": "ops-oncall",
+          "action": "webhook_endpoint.disable",
+          "target_type": "webhook_endpoint",
+          "target_id": "019e5c31-0000-7000-8000-000000000201",
+          "metadata": {
+            "slug": "acme",
+            "endpoint_public_id": "019e5c31-…-201",
+            "reason": "Disabled by an operator."
+          },
+          "ip": "203.0.113.7",
+          "request_id": "019e5c31-0000-7000-8000-0000000003f0",
+          "created_at": "2026-08-16T09:12:00.000Z"
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 146,
+    "context": "3. Response shape",
+    "json": {
+      "public_id": "019e5c31-…",
+      "status": "confirmed",
+      "starts_at": "2026-09-14T08:00:00Z"
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 169,
+    "context": "4. Errors — RFC 9457 problem details",
+    "json": {
+      "type": "urn:booking-service:problem:conflict",
+      "title": "Conflict",
+      "status": 409,
+      "detail": "That slot was taken while you were booking it.",
+      "instance": "/v1/bookings",
+      "request_id": "019e5c31-0000-7000-8000-0000000000ff",
+      "code": "slot_taken"
+    }
+  },
+  {
+    "file": "conventions.md",
+    "line": 267,
+    "context": "Validation errors locate the field",
+    "json": {
+      "errors": [
+        {
+          "pointer": "/customer/email",
+          "detail": "Invalid email"
+        }
+      ]
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 111,
+    "context": "POST {{base}}/v1/public/holds",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "nonce": "{{holdNonce}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 125,
+    "context": "POST {{base}}/v1/public/holds",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "nonce": "a-different-nonce"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 146,
+    "context": "POST {{base}}/v1/public/bookings",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "hold_id": "{{holdId}}",
+      "nonce": "{{holdNonce}}",
+      "customer": {
+        "email": "anna@example.com",
+        "name": "Anna Kovács",
+        "phone": "+36301234567"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 167,
+    "context": "POST {{base}}/v1/public/bookings",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "hold_id": "{{holdId}}",
+      "nonce": "{{holdNonce}}",
+      "customer": {
+        "email": "anna@example.com",
+        "name": "Anna Kovács",
+        "phone": "+36301234567"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 189,
+    "context": "POST {{base}}/v1/public/bookings",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-09-14T09:00:00Z",
+      "customer": {
+        "email": "anna@example.com",
+        "name": "Anna Kovács"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 203,
+    "context": "POST {{base}}/v1/public/bookings/{{bookingId}}/confirm",
+    "json": {
+      "token": "{{confirmationToken}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 212,
+    "context": "POST {{base}}/v1/public/bookings/{{bookingId}}/confirm",
+    "json": {
+      "token": "{{confirmationToken}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 230,
+    "context": "POST {{base}}/v1/public/bookings/{{bookingId}}/reschedule",
+    "json": {
+      "starts_at": "2026-09-15T08:00:00Z"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 240,
+    "context": "POST {{base}}/v1/public/bookings/{{bookingId}}/reschedule",
+    "json": {
+      "starts_at": "2026-09-16T08:00:00Z"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 249,
+    "context": "POST {{base}}/v1/public/bookings/{{bookingId}}/cancel",
+    "json": {
+      "reason": "Something came up"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 324,
+    "context": "POST {{base}}/v1/locations",
+    "json": {
+      "name": "Belváros",
+      "slug": "belvaros",
+      "timezone": "Europe/Budapest",
+      "address": {
+        "street": "Váci utca 1",
+        "city": "Budapest"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 338,
+    "context": "POST {{base}}/v1/locations",
+    "json": {
+      "name": "Belváros again",
+      "slug": "belvaros",
+      "timezone": "Europe/Budapest"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 355,
+    "context": "PATCH {{base}}/v1/locations/{{locationId}}",
+    "json": {
+      "name": "Belváros — Váci utca"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 367,
+    "context": "POST {{base}}/v1/locations/{{locationId}}/services",
+    "json": {
+      "name": "Hajvágás",
+      "slug": "hajvagas",
+      "duration_minutes": 45,
+      "buffer_after_minutes": 15,
+      "price_minor": "4500",
+      "currency": "HUF"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 382,
+    "context": "POST {{base}}/v1/locations/{{locationId}}/services",
+    "json": {
+      "name": "Szakáll",
+      "slug": "szakall",
+      "duration_minutes": 20,
+      "buffer_after_minute": 5
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 399,
+    "context": "PATCH {{base}}/v1/services/{{serviceId}}",
+    "json": {
+      "price_minor": "5000"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 408,
+    "context": "POST {{base}}/v1/employees",
+    "json": {
+      "name": "Béla",
+      "email": "bela@example.com"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 425,
+    "context": "PATCH {{base}}/v1/employees/{{employeeId}}",
+    "json": {
+      "name": "Béla Nagy"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 466,
+    "context": "POST {{base}}/v1/availability/rules",
+    "json": {
+      "employee_id": "{{employeeId}}",
+      "location_id": "{{locationId}}",
+      "day_of_week": 0,
+      "starts_time": "09:00",
+      "ends_time": "17:00"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 481,
+    "context": "POST {{base}}/v1/availability/rules",
+    "json": {
+      "employee_id": "{{employeeId}}",
+      "location_id": "{{locationId}}",
+      "day_of_week": 4,
+      "starts_time": "22:00",
+      "ends_time": "02:00"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 498,
+    "context": "PATCH {{base}}/v1/availability/rules/{{ruleId}}",
+    "json": {
+      "ends_time": "18:00"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 511,
+    "context": "POST {{base}}/v1/availability/exceptions",
+    "json": {
+      "employee_id": "{{employeeId}}",
+      "location_id": null,
+      "date": "2026-12-24",
+      "kind": "closed",
+      "reason": "Szenteste"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 525,
+    "context": "POST {{base}}/v1/availability/exceptions",
+    "json": {
+      "employee_id": "{{employeeId}}",
+      "location_id": "{{locationId}}",
+      "date": "2026-09-19",
+      "kind": "open",
+      "starts_time": "18:00",
+      "ends_time": "21:00"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 558,
+    "context": "POST {{base}}/v1/employees/{{employeeId}}/calendar/authorize",
+    "json": {
+      "return_url": "https://acme.example.com/settings/calendar"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 582,
+    "context": "POST {{base}}/v1/holds",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "nonce": "{{holdNonce}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 606,
+    "context": "POST {{base}}/v1/bookings",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "pending_reason": "awaiting_payment",
+      "customer": {
+        "email": "anna@example.com",
+        "name": "Anna Kovács",
+        "phone": "+36301234567",
+        "external_ref": "crm-8842"
+      },
+      "metadata": {
+        "campaign": "autumn-2026",
+        "source": "instagram"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 627,
+    "context": "POST {{base}}/v1/bookings",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-08-09T14:05:00Z",
+      "customer": {
+        "email": "anna@example.com",
+        "name": "Anna Kovács"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 640,
+    "context": "POST {{base}}/v1/bookings",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2029-01-01T08:00:00Z",
+      "customer": {
+        "email": "anna@example.com",
+        "name": "Anna Kovács"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 653,
+    "context": "POST {{base}}/v1/bookings",
+    "json": {
+      "service_id": "{{serviceId}}",
+      "employee_id": "{{employeeId}}",
+      "starts_at": "2026-12-24T08:00:00Z",
+      "customer": {
+        "email": "anna@example.com",
+        "name": "Anna Kovács"
+      }
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 703,
+    "context": "POST {{base}}/v1/bookings/{{bookingId}}/reschedule",
+    "json": {
+      "starts_at": "2026-09-15T09:00:00Z",
+      "employee_id": "{{employeeId}}"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 721,
+    "context": "POST {{base}}/v1/bookings/{{bookingId}}/cancel",
+    "json": {
+      "reason": "Staff illness"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 751,
+    "context": "POST {{base}}/v1/webhook-endpoints",
+    "json": {
+      "url": "https://acme.example.com/hooks/booking",
+      "description": "Production receiver",
+      "subscribed_events": [
+        "booking.confirmed",
+        "booking.canceled",
+        "booking.reminder_reached"
+      ],
+      "include_customer": true
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 766,
+    "context": "POST {{base}}/v1/webhook-endpoints",
+    "json": {
+      "url": "http://redacted.example.com/latest/meta-data/"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 787,
+    "context": "PATCH {{base}}/v1/webhook-endpoints/{{endpointId}}",
+    "json": {
+      "subscribed_events": null
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 794,
+    "context": "POST {{base}}/v1/webhook-endpoints/{{endpointId}}/disable",
+    "json": {
+      "reason": "Receiver being migrated"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 860,
+    "context": "POST {{base}}/v1/keys",
+    "json": {
+      "kind": "publishable",
+      "label": "acme-website-prod"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 912,
+    "context": "POST {{base}}/v1/admin/tenants",
+    "json": {
+      "name": "Acme Kft.",
+      "slug": "acme",
+      "external_ref": "acct_01H8XYZ"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 934,
+    "context": "PATCH {{base}}/v1/admin/tenants/{{tenantId}}",
+    "json": {
+      "external_ref": "acct_01H8XYZ"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 948,
+    "context": "PATCH {{base}}/v1/admin/tenants/{{tenantId}}/settings",
+    "json": {
+      "reminder_offsets_minutes": [
+        1440,
+        120
+      ],
+      "allowed_origins": [
+        "https://acme.example.com"
+      ],
+      "public_booking_create_enabled": true
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 965,
+    "context": "POST {{base}}/v1/admin/tenants/{{tenantId}}/keys",
+    "json": {
+      "kind": "secret",
+      "label": "acme-backend-prod"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1006,
+    "context": "POST {{base}}/v1/admin/bookings/{{bookingId}}/reschedule",
+    "json": {
+      "starts_at": "2026-09-16T09:00:00Z"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1092,
+    "context": "PATCH {{base}}/v1/admin/webhook-endpoints/{{endpointId}}",
+    "json": {
+      "description": "Migrated 2026-08"
+    }
+  },
+  {
+    "file": "examples.http",
+    "line": 1105,
+    "context": "POST {{base}}/v1/admin/webhook-endpoints/{{endpointId}}/disable",
+    "json": {
+      "reason": "Receiver returning 500 since 14:00"
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 68,
+    "context": "`GET /v1/public/locations` — bookable locations",
+    "json": {
+      "data": [
+        {
+          "public_id": "019e5c31-0000-7000-8000-000000000101",
+          "name": "Belváros",
+          "slug": "belvaros",
+          "timezone": "Europe/Budapest",
+          "address": {
+            "street": "Váci utca 1",
+            "city": "Budapest"
+          }
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 99,
+    "context": "`GET /v1/public/locations/{publicId}/services` — services at a location",
+    "json": {
+      "data": [
+        {
+          "public_id": "019e5c31-0000-7000-8000-000000000102",
+          "location_id": "019e5c31-0000-7000-8000-000000000101",
+          "name": "Hajvágás",
+          "slug": "hajvagas",
+          "description": "Mosás, vágás, szárítás",
+          "duration_minutes": 45,
+          "price_minor": "4500",
+          "currency": "HUF"
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 130,
+    "context": "`GET /v1/public/services/{publicId}/employees` — who performs a service",
+    "json": {
+      "data": [
+        {
+          "public_id": "019e5c31-…-103",
+          "name": "Béla"
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 162,
+    "context": "`GET /v1/public/availability` — bookable slots",
+    "json": {
+      "timezone": "Europe/Budapest",
+      "service_id": "019e5c31-…-102",
+      "duration_minutes": 45,
+      "window": {
+        "from": "2026-09-14",
+        "until": "2026-09-15"
+      },
+      "slots": [
+        {
+          "starts_at": "2026-09-14T08:00:00.000Z",
+          "ends_at": "2026-09-14T08:45:00.000Z",
+          "employee_ids": [
+            "019e5c31-…-103",
+            "019e5c31-…-104"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 192,
+    "context": "`GET /v1/public/availability/days` — per-day summary",
+    "json": {
+      "timezone": "Europe/Budapest",
+      "service_id": "019e5c31-…-102",
+      "window": {
+        "from": "2026-09-01",
+        "until": "2026-10-01"
+      },
+      "days": [
+        {
+          "date": "2026-09-14",
+          "slot_count": 12,
+          "first_slot_at": "2026-09-14T06:00:00.000Z",
+          "last_slot_at": "2026-09-14T15:00:00.000Z"
+        },
+        {
+          "date": "2026-09-15",
+          "slot_count": 0,
+          "first_slot_at": null,
+          "last_slot_at": null
+        }
+      ]
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 221,
+    "context": "`POST /v1/public/holds` — hold a slot",
+    "json": {
+      "service_id": "019e5c31-…-102",
+      "employee_id": "019e5c31-…-103",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "nonce": "a-random-string-you-generated"
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 239,
+    "context": "`POST /v1/public/holds` — hold a slot",
+    "json": {
+      "hold_id": "019e5c31-…-105",
+      "service_id": "019e5c31-…-102",
+      "employee_id": "019e5c31-…-103",
+      "starts_at": "2026-09-14T08:00:00.000Z",
+      "ends_at": "2026-09-14T08:45:00.000Z",
+      "expires_at": "2026-09-14T07:10:00.000Z"
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 279,
+    "context": "`POST /v1/public/bookings` — create a booking",
+    "json": {
+      "service_id": "019e5c31-…-102",
+      "employee_id": "019e5c31-…-103",
+      "starts_at": "2026-09-14T08:00:00Z",
+      "hold_id": "019e5c31-…-105",
+      "nonce": "a-random-string-you-generated",
+      "customer": {
+        "email": "anna@example.com",
+        "name": "Anna Kovács",
+        "phone": "+36301234567"
+      }
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 311,
+    "context": "`POST /v1/public/bookings` — create a booking",
+    "json": {
+      "public_id": "019e5c31-…-106",
+      "status": "pending",
+      "location_id": "019e5c31-…-101",
+      "service_id": "019e5c31-…-102",
+      "service_name": "Hajvágás",
+      "employee_id": "019e5c31-…-103",
+      "employee_name": "Béla",
+      "starts_at": "2026-09-14T08:00:00.000Z",
+      "ends_at": "2026-09-14T08:45:00.000Z",
+      "timezone": "Europe/Budapest",
+      "pending_reason": null,
+      "expires_at": "2026-09-14T07:10:00.000Z",
+      "confirmed_at": null,
+      "canceled_at": null,
+      "completed_at": null,
+      "cancellation_reason": null,
+      "rescheduled_from_id": null,
+      "rescheduled_to_id": null,
+      "customer": {
+        "name": "Anna Kovács"
+      },
+      "created_at": "2026-09-14T07:00:00.000Z",
+      "updated_at": "2026-09-14T07:00:00.000Z",
+      "management_token": "…",
+      "confirmation_token": "…"
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 378,
+    "context": "`GET /v1/public/bookings/{publicId}` — read a booking",
+    "json": {
+      "windows": {
+        "cancel_until": "2026-09-14T06:00:00.000Z",
+        "reschedule_until": null
+      }
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 399,
+    "context": "`POST /v1/public/bookings/{publicId}/confirm` — confirm",
+    "json": {
+      "token": "THE_CONFIRMATION_TOKEN"
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 415,
+    "context": "`POST /v1/public/bookings/{publicId}/reschedule` — reschedule",
+    "json": {
+      "starts_at": "2026-09-15T08:00:00Z",
+      "employee_id": "…",
+      "hold_id": "…",
+      "nonce": "…"
+    }
+  },
+  {
+    "file": "public-api.md",
+    "line": 438,
+    "context": "`POST /v1/public/bookings/{publicId}/cancel` — cancel",
+    "json": {
+      "reason": "Something came up"
+    }
+  },
+  {
+    "file": "tenant-api.md",
+    "line": 118,
+    "context": "Rules — recurring weekly windows",
+    "json": {
+      "employee_id": "…",
+      "location_id": "…",
+      "day_of_week": 0,
+      "starts_time": "09:00",
+      "ends_time": "17:00",
+      "effective_from": null,
+      "effective_until": null,
+      "active": true
+    }
+  },
+  {
+    "file": "tenant-api.md",
+    "line": 146,
+    "context": "Exceptions — single dates",
+    "json": {
+      "employee_id": "…",
+      "location_id": null,
+      "date": "2026-12-24",
+      "kind": "closed",
+      "starts_time": null,
+      "ends_time": null,
+      "reason": "Szenteste"
+    }
+  },
+  {
+    "file": "tenant-api.md",
+    "line": 288,
+    "context": "The Booking object",
+    "json": {
+      "public_id": "019e5c31-…-106",
+      "status": "confirmed",
+      "location_id": "…",
+      "service_id": "…",
+      "service_name": "Hajvágás",
+      "employee_id": "…",
+      "employee_name": "Béla",
+      "starts_at": "2026-09-14T08:00:00.000Z",
+      "ends_at": "2026-09-14T08:45:00.000Z",
+      "timezone": "Europe/Budapest",
+      "pending_reason": null,
+      "expires_at": null,
+      "confirmed_at": "2026-09-14T07:02:00.000Z",
+      "canceled_at": null,
+      "completed_at": null,
+      "cancellation_reason": null,
+      "rescheduled_from_id": null,
+      "rescheduled_to_id": null,
+      "customer": {
+        "public_id": "019e5c31-…-104",
+        "name": "Anna Kovács",
+        "email": "anna@example.com",
+        "phone": "+36301234567",
+        "external_ref": "crm-8842"
+      },
+      "metadata": {
+        "campaign": "autumn-2026"
+      },
+      "created_at": "2026-09-14T07:00:00.000Z",
+      "updated_at": "2026-09-14T07:02:00.000Z"
+    }
+  },
+  {
+    "file": "webhooks.md",
+    "line": 89,
+    "context": "2. The envelope",
+    "json": {
+      "event_id": "019e5c31-0000-7000-8000-0000000001a0",
+      "event_type": "booking.confirmed",
+      "contract_version": 1,
+      "occurred_at": "2026-09-14T07:02:00.000Z",
+      "service": "booking-service",
+      "account_id": "acct_01H8XYZ",
+      "tenant": {
+        "kind": "tenant",
+        "public_id": "019e5c31-…-100"
+      },
+      "correlation_id": "019e5c31-0000-7000-8000-0000000001a0",
+      "causation_id": null,
+      "hop": 0,
+      "data": {}
+    }
+  },
+  {
+    "file": "webhooks.md",
+    "line": 121,
+    "context": "The `data` block for a booking event",
+    "json": {
+      "booking": {
+        "public_id": "019e5c31-…-106",
+        "status": "confirmed",
+        "pending_reason": null,
+        "starts_at": "2026-09-14T08:00:00.000Z",
+        "ends_at": "2026-09-14T08:45:00.000Z",
+        "timezone": "Europe/Budapest",
+        "cancellation_reason": null,
+        "rescheduled_from_id": null
+      },
+      "location": {
+        "public_id": "…"
+      },
+      "service": {
+        "public_id": "…",
+        "price_minor": "4500",
+        "currency": "HUF"
+      },
+      "employee": {
+        "public_id": "…"
+      },
+      "customer": {
+        "public_id": "…",
+        "name": "Anna Kovács",
+        "email": "anna@example.com",
+        "phone": "+36301234567"
+      }
+    }
+  },
+  {
+    "file": "webhooks.md",
+    "line": 304,
+    "context": "5. Registering an endpoint",
+    "json": {
+      "url": "https://acme.example.com/hooks/booking",
+      "description": "Production receiver",
+      "subscribed_events": [
+        "booking.confirmed",
+        "booking.canceled"
+      ],
+      "include_customer": false
+    }
+  }
+]

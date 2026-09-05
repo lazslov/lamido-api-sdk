@@ -1,6 +1,6 @@
 # Contributing
 
-Five packages, one repository, published independently. This file covers versioning, releasing
+Nine packages, one repository, published independently. This file covers versioning, releasing
 and the drift protocol. The rules about *how the code is written* are in [CLAUDE.md](CLAUDE.md);
 the decisions behind what exists are in [docs/ai-context.md](docs/ai-context.md).
 
@@ -35,7 +35,7 @@ Pick the packages, pick the bump, describe the change in the changelog's voice �
 reading it should learn what to do, not what was refactored. Commit the generated file in
 `.changeset/`.
 
-**All five packages are at `1.0.0`.** This rule used to say everything stays in `0.x` until two
+**Every package starts at `1.0.0`, and none is below it.** This rule used to say everything stays in `0.x` until two
 real client sites run on it — that `1.0.0` is a statement the shape has survived contact with a
 second project. The `0.x` half did not survive contact with the estate:
 
@@ -82,8 +82,9 @@ coordinated releases. Pinning it would undo the only reason core is a published 
 
 ### Every release records the contract it believes in
 
-Each package's `CHANGELOG.md` entry names the knowledge-base commit and all three services'
-`source_commit`, copied from [contracts/CONTRACTS.json](contracts/CONTRACTS.json):
+Each package's `CHANGELOG.md` entry names the knowledge-base commit and every pinned service's
+`source_commit`, copied from [contracts/CONTRACTS.json](contracts/CONTRACTS.json) — seven services
+today, and the test derives the list from the manifest rather than counting:
 
 ```md
 ## 1.0.0
@@ -124,10 +125,14 @@ and mirrors are fast, so a release that needs a gate skipped is a release that s
 publish step, and that `LIVE_REQUIRE_CONFIGURED` is set so a missing secret fails the release
 instead of silently skipping every case and reporting the same green as a full pass.
 
-The **first** release needs no changeset of its own: all five `@lazslov/*` packages already declare
-`1.0.0`, each with a changelog entry carrying its provenance line, so `pnpm release:version` has
-nothing left to apply. Tagging `v1.0.0` is the whole step. Every release after that follows the
-flow above.
+The **first** release of a package needs no changeset of its own: it already declares `1.0.0` with a
+changelog entry carrying its provenance line, so `pnpm release:version` has nothing left to apply.
+That was true of the original five at `v1.0.0`, and it is true of the four phase 9 added — tagging
+is the whole step for them. Every release after a package's first follows the flow above.
+
+**The four phase 9 packages are not published yet**, and the release that ships them fails until
+their live-suite secrets exist on the `release` environment. That is `LIVE_REQUIRE_CONFIGURED`
+doing its job; [docs/live-testing.md §3b](docs/live-testing.md) says what to provision.
 
 ### Before the first publish — all done, kept as the standing account checklist
 
@@ -152,8 +157,11 @@ them were discovered the hard way, noted inline.
       above on a private repository** — the API answers `422` naming the billing plan. And npm
       provenance needs a **public** repository, because the attestation names a public source. So
       the repository went public, which satisfied both at once.
-- [x] **The live-suite secrets are in that environment** — base URL and key for all three
-      services. Base URLs are secrets here too: no deployment host belongs in this repository.
+- [x] **The live-suite secrets are in that environment** — base URL and key for every service
+      the suite covers. Base URLs are secrets here too: no deployment host belongs in this repository.
+      **Phase 9 added four services, and their secrets are not set yet** — the release fails with
+      `LIVE_REQUIRE_CONFIGURED` naming them until they are (see
+      [docs/live-testing.md](docs/live-testing.md)).
 
       Fill in [`.env.live.example`](.env.live.example) once, then
       `./scripts/push-release-secrets.sh` sets every one of them from it. Values go to

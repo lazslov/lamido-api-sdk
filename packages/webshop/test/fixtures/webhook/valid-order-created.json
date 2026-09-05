@@ -1,0 +1,12 @@
+{
+  "name": "valid-order-created",
+  "describes": "the observation event, whose data.order.status must be read rather than assumed",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019f1c40-0000-7000-8000-0000000000a2\",\"event_type\":\"order.created\",\"contract_version\":1,\"occurred_at\":\"2026-08-17T09:12:02.881Z\",\"service\":\"webshop-service\",\"account_id\":\"7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46\",\"tenant\":{\"kind\":\"shop\",\"public_id\":\"019f1c40-0000-7000-8000-0000000000b2\"},\"correlation_id\":\"019f1c40-0000-7000-8000-0000000000a2\",\"causation_id\":null,\"hop\":0,\"data\":{\"order\":{\"public_id\":\"019f1c40-0000-7000-8000-0000000000c3\",\"status\":\"pending\",\"currency\":\"HUF\",\"subtotal\":\"12000\",\"discount_total\":\"0\",\"shipping_total\":\"1490\",\"tax_total\":\"2854\",\"grand_total\":\"13490\",\"shipping_method_name\":\"Házhoz szállítás\",\"shipping_method_price\":\"1490\",\"coupon_code\":null,\"coupon_discount\":null,\"items\":[{\"product_public_id\":\"019f1c40-0000-7000-8000-0000000000d4\",\"variant_public_id\":\"019f1c40-0000-7000-8000-0000000000e5\",\"product_name\":\"Kávébab, 1 kg\",\"variant_name\":\"Sötét pörkölés\",\"sku\":\"COF-DARK-1KG\",\"quantity\":1,\"unit_price\":\"12000\",\"discount_total\":\"0\",\"total\":\"12000\",\"currency\":\"HUF\"}],\"created_at\":\"2026-08-17T09:12:02.881Z\"}}}",
+  "timestamp": "1785168000",
+  "signature": "sha256=baeb66b126855b797d18ec5d24218be87980a518719dd12e34efb5357361dd25",
+  "nowSeconds": 1785168000,
+  "expect": {
+    "ok": true
+  }
+}

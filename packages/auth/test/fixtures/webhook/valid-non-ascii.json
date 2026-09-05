@@ -1,0 +1,12 @@
+{
+  "name": "valid-non-ascii",
+  "describes": "a body with Hungarian accented characters in an opted-in email",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019f0a10-0000-7000-8000-0000000000a3\",\"event_type\":\"customer.created\",\"contract_version\":1,\"occurred_at\":\"2026-08-14T09:21:45.000Z\",\"service\":\"auth-service\",\"account_id\":\"7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46\",\"tenant\":{\"kind\":\"organization\",\"public_id\":\"019f0a10-0000-7000-8000-0000000000b2\"},\"correlation_id\":\"019f0a10-0000-7000-8000-0000000000a3\",\"causation_id\":null,\"hop\":0,\"data\":{\"customer\":{\"public_id\":\"019f0a10-0000-7000-8000-0000000000d5\",\"status\":\"active\",\"email\":\"árvíztűrő.tükörfúrógép@example.com\"}}}",
+  "timestamp": "1786800000",
+  "signature": "sha256=ceb1f1c28dd51310cfdae7a832f830ac3c237d1a7de1df9c316f49148a7fafe5",
+  "nowSeconds": 1786800000,
+  "expect": {
+    "ok": true
+  }
+}

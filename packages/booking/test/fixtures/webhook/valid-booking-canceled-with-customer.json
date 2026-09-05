@@ -1,0 +1,12 @@
+{
+  "name": "valid-booking-canceled-with-customer",
+  "describes": "a pending expiry, which arrives as booking.canceled with system_pending_expired, carrying the opt-in customer block",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019e5c31-0000-7000-8000-0000000001a1\",\"event_type\":\"booking.canceled\",\"contract_version\":1,\"occurred_at\":\"2026-09-14T07:10:00.000Z\",\"service\":\"booking-service\",\"account_id\":\"acct_EXAMPLE\",\"tenant\":{\"kind\":\"tenant\",\"public_id\":\"019e5c31-0000-7000-8000-000000000100\"},\"correlation_id\":\"019e5c31-0000-7000-8000-0000000001a1\",\"causation_id\":null,\"hop\":0,\"data\":{\"booking\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000106\",\"status\":\"canceled\",\"pending_reason\":null,\"starts_at\":\"2026-09-14T08:00:00.000Z\",\"ends_at\":\"2026-09-14T08:45:00.000Z\",\"timezone\":\"Europe/Budapest\",\"cancellation_reason\":\"system_pending_expired\",\"rescheduled_from_id\":null},\"location\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000101\"},\"service\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000102\",\"price_minor\":\"4500\",\"currency\":\"HUF\"},\"employee\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000103\"},\"customer\":{\"public_id\":\"019e5c31-0000-7000-8000-000000000104\",\"name\":\"Anna Kovács\",\"email\":\"anna@example.com\",\"phone\":\"+36301234567\"}}}",
+  "timestamp": "1789000000",
+  "signature": "sha256=4b55663c69e913d2f3e75004bebbd985117ce1304bcf358063f224252aad7135",
+  "nowSeconds": 1789000000,
+  "expect": {
+    "ok": true
+  }
+}
