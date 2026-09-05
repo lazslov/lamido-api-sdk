@@ -1,0 +1,13 @@
+{
+  "name": "bad-signature-tampered-status",
+  "describes": "the signature of one body presented with another — the status was edited in flight",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019f0a10-0000-7000-8000-0000000000a1\",\"event_type\":\"subscription.activated\",\"contract_version\":1,\"occurred_at\":\"2026-08-14T09:14:31.204Z\",\"service\":\"auth-service\",\"account_id\":\"7c2e9f14-6b0a-4d21-9e83-5a1c7d0b2f46\",\"tenant\":{\"kind\":\"organization\",\"public_id\":\"019f0a10-0000-7000-8000-0000000000b2\"},\"correlation_id\":\"019f0a10-0000-7000-8000-0000000000a1\",\"causation_id\":null,\"hop\":0,\"data\":{\"subscription\":{\"public_id\":\"019f0a10-0000-7000-8000-0000000000c3\",\"status\":\"canceled\",\"plan\":\"starter\",\"website\":null,\"period_start\":\"2026-08-01T00:00:00.000Z\",\"period_end\":\"2026-09-01T00:00:00.000Z\"}}}",
+  "timestamp": "1786800000",
+  "signature": "sha256=c3cf036fe4a71f7beff2ca29550644e175cf2ac7c59b5eeeab682c7894c9ff9c",
+  "nowSeconds": 1786800000,
+  "expect": {
+    "ok": false,
+    "reason": "bad_signature"
+  }
+}

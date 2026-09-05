@@ -1,0 +1,12 @@
+{
+  "name": "valid-webhook-ping",
+  "describes": "the operator's test delivery, signed exactly like a real one",
+  "secret": "whsec_EXAMPLE_TEST_SECRET_0123456789",
+  "rawBody": "{\"event_id\":\"019f0a10-0000-7000-8000-0000000000a4\",\"event_type\":\"webhook.ping\",\"contract_version\":1,\"occurred_at\":\"2026-08-14T09:30:00.000Z\",\"service\":\"auth-service\",\"account_id\":null,\"tenant\":{\"kind\":\"organization\",\"public_id\":\"019f0a10-0000-7000-8000-0000000000b2\"},\"correlation_id\":\"019f0a10-0000-7000-8000-0000000000a4\",\"causation_id\":null,\"hop\":0,\"data\":{}}",
+  "timestamp": "1786800000",
+  "signature": "sha256=b65b6197529e68b4c72a107b5b0b8a68a2b5469e4cfeab7b54aeef55bbc7df98",
+  "nowSeconds": 1786800000,
+  "expect": {
+    "ok": true
+  }
+}
