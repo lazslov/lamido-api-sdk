@@ -2,29 +2,54 @@
 
 [![CI](https://github.com/lazslov/lamido-api-sdk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lazslov/lamido-api-sdk/actions/workflows/ci.yml?query=branch%3Amain)
 
-A consumer-side TypeScript SDK for the three services documented in the `knowledge-base`
-repository, published to npm as five packages and installed into client-website projects.
+A consumer-side TypeScript SDK for the seven services documented in the `knowledge-base`
+repository, published to npm as nine packages and installed into client-website projects.
 
 | Package | Version | What it is |
 |---|---|---|
-| `@lazslov/api-core` | `1.0.0` | transport, errors, HMAC verification, paging — shared, depends on nothing |
-| `@lazslov/content` | `1.0.0` | content-service: pages, sections, collections, datasets, assets |
-| `@lazslov/invoice` | `1.0.0` | invoice-service: Hungarian invoicing |
-| `@lazslov/payment` | `1.0.0` | payment-service: Stripe and Barion behind one merchant API |
-| `@lazslov/telemetry` | `1.0.0` | the estate's log envelope, batched sink, alert channel and request middleware |
+| `@lazslov/api-core` | `2.0.0` | transport, errors, HMAC verification, paging — shared, depends on nothing |
+| `@lazslov/auth` | `1.0.0` | auth-service: browser sign-in, the authorization decision, entitlements, customers |
+| `@lazslov/booking` | `1.0.0` | booking-service: availability, holds, the booking lifecycle |
+| `@lazslov/content` | `2.0.1` | content-service: pages, sections, collections, datasets, assets |
+| `@lazslov/email` | `1.0.0` | email-service: template-only transactional mail |
+| `@lazslov/invoice` | `2.0.1` | invoice-service: Hungarian invoicing |
+| `@lazslov/payment` | `1.0.2` | payment-service: Stripe and Barion behind one merchant API |
+| `@lazslov/webshop` | `1.0.0` | webshop-service: the public catalog, carts, checkout, orders |
+| `@lazslov/telemetry` | `1.1.3` | the estate's log envelope, batched sink, alert channel and request middleware |
+
+Every service package ships only its **consumer** tiers — the browser-safe publishable key where
+the service has one, and the server-only secret key — never the operator tier. Each one that
+receives webhooks ships a verifier and a `Request → Response` route handler on its `./next` subpath.
+
+| Package | Browser tier | Server tier |
+|---|---|---|
+| `@lazslov/auth` | `createAuthPublicClient` (`apk_`) | `createAuthClient` (`ask_`) |
+| `@lazslov/booking` | `createBookingPublicClient` (`bpk_`) | `createBookingClient` (`bsk_`) |
+| `@lazslov/content` | `createWebsiteClient` (`cpk_`) | `createContentClient` (`csk_`) |
+| `@lazslov/email` | — | `createEmailClient` (`esk_`) |
+| `@lazslov/invoice` | — | `createInvoiceClient` (`isk_`) |
+| `@lazslov/payment` | — | `createPaymentClient` (`pmk_`) |
+| `@lazslov/webshop` | `createWebshopPublicClient` (`wpk_`) | `createWebshopClient` (`wsk_`) |
+
+Every constructor has a `tryCreate…` twin that answers `null` when nothing is configured, so a
+project boots and renders with an empty environment.
 
 `@lazslov/telemetry` is the odd one out: it is consumed by the **services**, not by a client site,
-and it depends on the other four not at all. It lives here because it is published from the same
+and it depends on the other packages not at all. It lives here because it is published from the same
 release, under the same provenance.
 
 The build plan, and the reasoning behind several packages rather than one, is in
-[docs/plans/](docs/plans/). **All eight phases are complete.** `@lazslov/api-core` carries the
-transport, error base, configuration, HMAC verifier, paginator and idempotency plumbing the three
-service packages share; all three service surfaces are implemented; and the Next.js App Router
-adapters ship on `@lazslov/content/next` and `@lazslov/payment/next`.
+[docs/plans/](docs/plans/). Phases 1–8 built the first three service packages and published them;
+phase 9 added the other four, one plan document per package. `@lazslov/api-core` carries the
+transport, error base, configuration, HMAC verifier, paginator and idempotency plumbing every
+service package shares.
 
-**Published 2026-08-15 — `v1.0.0`, all five packages, each with an npm provenance attestation.** A
-tag matching `v*` is the only thing that publishes: the workflow runs the full gate, a
+**The first five published on 2026-08-15, each with an npm provenance attestation.** The versions in
+the table above are what the **next** release ships: the four phase 9 packages at `1.0.0`, and every
+existing one moved by the contract re-pin and by `@lazslov/api-core@2.0.0`. Nothing in that column is
+on npm yet.
+
+A tag matching `v*` is the only thing that publishes: the workflow runs the full gate, a
 generated-types check and the live contract suite against real tenants before it ships anything, and
 waits on a required reviewer first. Live status per phase is in
 [docs/plans/PROGRESS.md](docs/plans/PROGRESS.md); how to cut the next release is in
@@ -39,7 +64,7 @@ pnpm verify        # lint, leak guard, type-check, test, build, tarball audit
 
 | Command | What it does |
 |---|---|
-| `pnpm contracts:import [kb-path]` | re-pin the three OpenAPI contracts from a knowledge-base checkout |
+| `pnpm contracts:import [kb-path]` | re-pin the seven OpenAPI contracts from a knowledge-base checkout |
 | `pnpm contracts:drift [kb-path]` | report when a pinned contract or its provenance has gone stale; `--report=<file>` writes the issue body |
 | `pnpm generate:types` | regenerate `packages/*/src/generated/schema.ts`; output is committed |
 | `pnpm check:leaks` | fail on a deployment host, credential or tenant slug in anything packable |
