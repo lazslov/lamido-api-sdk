@@ -111,13 +111,22 @@ pnpm release:version         # applies the changesets: bumps versions, writes ch
 pnpm verify
 pnpm release:dry-run         # five tarballs, core first
 git commit && git push       # through a pull request, as always
-git tag v1.1.0 && git push --tags   # any v* tag; never move one that has published
+git tag v1.1.0                      # LIGHTWEIGHT — see below. Any v* tag; never move a published one
+git push origin v1.1.0
 ```
 
 The tag is what publishes. [`.github/workflows/release.yml`](.github/workflows/release.yml) then
 runs the full gate, the generated-types check and the **live contract suite** against the sandbox
 tenants, and only then `pnpm publish -r --access public --provenance`. Core publishes first: a
 service package published against an unpublished core installs broken.
+
+> **Use a lightweight tag — `git tag v3.0.0`, not `git tag -a`.** `v3.0.0` was annotated, and the
+> release reported failure *after* publishing all nine packages: `actions/checkout` resolves an
+> annotated tag to its commit, so the local `v3.0.0` no longer matched the remote tag object, and
+> the final `git push --tags` was refused on that one ref. Every package and every per-package tag
+> had already landed. **The workflow no longer pushes `--tags`** — it names `refs/tags/@lazslov/*`,
+> so the trigger tag is never offered back and the step can only fail for a reason that matters.
+> A lightweight tag is still the right thing to create: it is what the annotation was worth.
 
 There is deliberately **no manual dispatch and no skip flag**. npm's unpublish window is narrow
 and mirrors are fast, so a release that needs a gate skipped is a release that should not happen.

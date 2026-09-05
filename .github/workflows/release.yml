@@ -104,9 +104,19 @@ jobs:
 
       # Per-package tags, so `@lazslov/content@0.2.0` is findable in git history even though the
       # release was triggered by one repository-level tag.
+      #
+      # **Pushes the `@lazslov/*` tags by name, never `--tags`.** `--tags` also offers the trigger
+      # tag back to the remote it just came from, and git rejects a ref whose local object differs
+      # from the remote one — which is what an **annotated** trigger tag produces, because the
+      # checkout resolves it to its commit. `v3.0.0` failed exactly that way: all nine package tags
+      # pushed, the tenth ref was refused, and the step exited 1 over a tag it had no business
+      # sending. Every artifact was already published by then, so the run was red about nothing.
+      #
+      # The refspec is what `changeset tag` creates and nothing else, so the step can only fail for
+      # a reason that matters.
       - name: Tag the published versions
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           pnpm exec changeset tag
-          git push --tags
+          git push origin "refs/tags/@lazslov/*"

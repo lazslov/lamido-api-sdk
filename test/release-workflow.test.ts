@@ -135,4 +135,16 @@ describe("the gate the release composes", () => {
     expect(rootManifest.scripts["release:publish"]).toContain("--provenance");
     expect(rootManifest.scripts["release:publish"]).toContain("--access public");
   });
+
+  it("pushes the package tags by name, and never offers the trigger tag back", () => {
+    // `git push --tags` also offers the tag that started the run back to the remote it came
+    // from, and git refuses a ref whose local object differs from the remote one — which is what
+    // an **annotated** trigger tag produces, because the checkout resolves it to its commit.
+    // `v3.0.0` failed that way: nine package tags pushed, the tenth ref refused, exit 1 over a
+    // tag the step had no business sending. Everything was already published, so the run went
+    // red about nothing — and a release that reports failure after a successful publish is the
+    // one outcome most likely to provoke a second, duplicate release attempt.
+    expect(directives).toContain('git push origin "refs/tags/@lazslov/*"');
+    expect(directives).not.toContain("git push --tags");
+  });
 });
