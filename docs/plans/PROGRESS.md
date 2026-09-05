@@ -3,21 +3,27 @@
 Live status of the nine phases in [README.md](README.md). Each phase's boxes are its own
 exit criteria, verbatim — so this file is a checklist, not a summary that can drift from one.
 
-**Where we are: five packages published, four built and waiting.** `v1.0.0` shipped on 2026-08-15
-— the original five, each carrying an npm provenance attestation. Phase 9 added `@lazslov/auth`,
-`@lazslov/booking`, `@lazslov/email` and `@lazslov/webshop` on 2026-09-04; **none of the four is on
-npm yet.**
+**Where we are: all nine packages published.** `v3.0.0` shipped on 2026-09-05 — `@lazslov/auth`,
+`@lazslov/booking`, `@lazslov/email` and `@lazslov/webshop` at `1.0.0`, `@lazslov/api-core` at
+`2.0.0`, and the rest moved by the contract re-pin. Every one carries an npm provenance attestation.
 
-`pnpm verify` is green across all nine: 1749 unit tests in 108 files, 48 Node 20.19 baseline tests
+`pnpm verify` is green across all nine: 1755 unit tests in 109 files, 48 Node 20.19 baseline tests
 against the built artefacts, the plain-Node consumer smoke, `publint` + `attw` on every package and
 subpath, nine clean tarballs, and zero transitive runtime dependencies.
 
-**What's next, and it blocks the release:** the four new services have no scratch tenants, so eleven
-live-suite secrets are unset on the `release` environment. `LIVE_REQUIRE_CONFIGURED` turns that into
-a failed release rather than an unverified one, which is the gate working. See
-[docs/live-testing.md §3b](../live-testing.md). After that, the items in
-[Carried-forward items](#carried-forward-items) below — chiefly that the weekly drift job still
-needs a `KNOWLEDGE_BASE_TOKEN` before it can open an issue.
+**What's next:** the items in [Carried-forward items](#carried-forward-items) below — chiefly that
+the weekly drift job still needs a `KNOWLEDGE_BASE_TOKEN` before it can open an issue.
+
+> **`v3.0.0` reported failure after publishing everything, and the cause is worth carrying.** The
+> tag was **annotated**. `actions/checkout` resolves an annotated tag to its commit, so the local
+> `v3.0.0` stopped matching the remote tag object, and the closing `git push --tags` — which offers
+> the trigger tag back to the remote it came from — was refused on that one ref. All nine packages
+> and all nine per-package tags had already landed; the step exited 1 over a tag it had no business
+> sending. The workflow now pushes `refs/tags/@lazslov/*` by name, `test/release-workflow.test.ts`
+> asserts it, and CONTRIBUTING says to create a lightweight tag.
+>
+> **A release that reports failure after a successful publish is the outcome most likely to provoke
+> a second, duplicate release attempt** — which is why it is a fix rather than a note.
 
 > **The packages are `@lazslov/*`, not `@lamido/*`.** The plan assumed a `@lamido` organisation would
 > be created; the registry already resolves `@lamido` to an account that may not be ours, and the
@@ -36,7 +42,7 @@ needs a `KNOWLEDGE_BASE_TOKEN` before it can open an issue.
 | 6 | [Framework adapters](phase-6-next-adapters.md) | ✅ done |
 | 7 | [Verification](phase-7-verification.md) | 🟡 one criterion open — `x-vercel-cache: HIT` needs a deployed site |
 | 8 | [Release & drift](phase-8-release-and-drift.md) | ✅ published — all five packages at `1.0.0`, with provenance |
-| 9 | [`@lazslov/auth`](phase-9-auth.md) · [`@lazslov/booking`](phase-9-booking.md) · [`@lazslov/email`](phase-9-email.md) · [`@lazslov/webshop`](phase-9-webshop.md) | 🟡 built 2026-09-04 — unpublished; the four live suites need scratch tenants |
+| 9 | [`@lazslov/auth`](phase-9-auth.md) · [`@lazslov/booking`](phase-9-booking.md) · [`@lazslov/email`](phase-9-email.md) · [`@lazslov/webshop`](phase-9-webshop.md) | ✅ published — `v3.0.0`, all nine packages, with provenance |
 
 Deviations from the plans and the reasoning behind them are in
 [../ai-context.md](../ai-context.md).
@@ -266,7 +272,7 @@ GitHub runner, which cannot reach a laptop.
 
 ---
 
-## 🟡 Phase 9 — The four remaining services *(built 2026-09-04; unpublished, live suite unrun)*
+## ✅ Phase 9 — The four remaining services *(published 2026-09-05 — `v3.0.0`, all nine packages)*
 
 One plan per package: [phase-9-auth.md](phase-9-auth.md), [phase-9-booking.md](phase-9-booking.md),
 [phase-9-email.md](phase-9-email.md), [phase-9-webshop.md](phase-9-webshop.md). Each carries its own
@@ -291,10 +297,11 @@ exit criteria; this section holds only what is shared.
 - [x] `pnpm test:live` run against those tenants. **All seven services report `✓` and the four new
       files contribute 19 passing cases** — every documented refusal the packages encode, verified
       against the real services rather than against a stub.
-- [ ] The eleven secrets on the `release` environment. `.env.live` holds them; pushing them with
-      `./scripts/push-release-secrets.sh` is deliberately left to the maintainer. **The next release
-      fails on `LIVE_REQUIRE_CONFIGURED` until that runs.**
-- [ ] Published, with each of the four at `1.0.0`.
+- [x] The eleven secrets on the `release` environment, pushed with `./scripts/push-release-secrets.sh`.
+      Twenty secrets there now.
+- [x] **Published 2026-09-05 as `v3.0.0` — all nine packages, each with an npm provenance
+      attestation.** The gate, the generated-types check and the live suite all ran against the real
+      tenants before anything shipped, behind the required reviewer.
 
 ## Carried-forward items
 

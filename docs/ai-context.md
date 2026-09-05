@@ -600,7 +600,20 @@ decisions the next-work plan's §5 left to the maintainer were taken like this:
   The SDK's own tenant is deliberately **unpaired** (`external_ref: null`), which is the state the
   one working production organization is in.
 
-- **The live suite gained four negative-only files, and the release now needs eleven more secrets.**
+- **`v3.0.0` published all nine packages, and reported failure anyway.** The tag was **annotated**.
+  `actions/checkout` resolves an annotated tag to its commit, so the local `v3.0.0` no longer matched
+  the remote tag object, and the closing `git push --tags` — which offers the trigger tag back to the
+  remote it came from — was refused on that one ref. Nine packages and nine per-package tags had
+  already landed; the step exited 1 over a tag it had no business sending.
+
+  **The fix is the refspec, not the tag style.** `git push origin "refs/tags/@lazslov/*"` names what
+  `changeset tag` creates and nothing else, so the step can only fail for a reason that matters.
+  CONTRIBUTING now also says to create the trigger tag lightweight, which is what the annotation was
+  worth. A release that reports failure *after* a successful publish is the outcome most likely to
+  provoke a second, duplicate release attempt — which is why this is a fix and an assertion in
+  `test/release-workflow.test.ts` rather than a note.
+
+- **The live suite gained four negative-only files, and the release needed eleven more secrets.**
   Until the four scratch tenants exist on the `release` environment, `LIVE_REQUIRE_CONFIGURED` fails
   the release naming them. That is the gate doing its job, and it is the first thing the next release
   has to clear — see `docs/live-testing.md` §3b.

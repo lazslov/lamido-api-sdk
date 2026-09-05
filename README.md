@@ -44,10 +44,9 @@ phase 9 added the other four, one plan document per package. `@lazslov/api-core`
 transport, error base, configuration, HMAC verifier, paginator and idempotency plumbing every
 service package shares.
 
-**The first five published on 2026-08-15, each with an npm provenance attestation.** The versions in
-the table above are what the **next** release ships: the four phase 9 packages at `1.0.0`, and every
-existing one moved by the contract re-pin and by `@lazslov/api-core@2.0.0`. Nothing in that column is
-on npm yet.
+**All nine published — `v3.0.0` on 2026-09-05, each with an npm provenance attestation.** The
+versions in the table above are what is on npm today: the four phase 9 packages at `1.0.0`,
+`@lazslov/api-core` at `2.0.0`, and the rest moved by the contract re-pin.
 
 A tag matching `v*` is the only thing that publishes: the workflow runs the full gate, a
 generated-types check and the live contract suite against real tenants before it ships anything, and
