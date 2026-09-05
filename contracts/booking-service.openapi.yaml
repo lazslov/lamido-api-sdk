@@ -467,7 +467,7 @@ paths:
         link in an email the tenant sent, and a token in a URL ends up in referrer headers and
         server logs.
 
-        Confirming twice is `409 already_confirmed`, not a silent success — a client that
+        Confirming twice is `422 already_confirmed`, not a silent success — a client that
         cannot tell the two apart cannot tell the customer either.
       security: [{ publishableKey: [] }]
       requestBody:
@@ -499,7 +499,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422':
-          description: '`pending_expired` — the hold on the slot lapsed. Ask for the slot again and rebook.'
+          description: '`pending_expired` — the hold on the slot lapsed. Ask for the slot again and rebook. `already_confirmed` on a replayed link, which is not a failure: treat it as success.'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1530,7 +1530,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: |
-            `slot_taken`, `hold_expired`, `hold_not_yours`, `idempotency_mismatch`, or
+            `slot_taken`, `hold_not_yours`, `idempotency_mismatch`, or
             `idempotency_in_flight` — the last meaning an identical request is still running,
             so retry rather than treat it as a failure.
           content:
@@ -1538,7 +1538,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '422':
-          description: '`employee_unavailable`, `service_inactive`, `lead_time_violated`, `horizon_exceeded`.'
+          description: '`employee_unavailable`, `service_inactive`, `lead_time_violated`, `horizon_exceeded`, `hold_expired`.'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1591,13 +1591,8 @@ paths:
               schema: { $ref: '#/components/schemas/Booking' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409':
-          description: '`already_confirmed`.'
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
         '422':
-          description: '`pending_expired` or `booking_terminal`.'
+          description: '`already_confirmed` on a replay, `pending_expired`, or `booking_terminal`.'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }

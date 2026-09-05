@@ -1,5 +1,20 @@
 # @lazslov/payment
 
+## 1.0.4
+
+Verified against knowledge base `2d959d2`: content-service `0048426`, invoice-service `706dc63`,
+payment-service `e3828d2`, auth-service `97d9934`, booking-service `aa69aca`,
+email-service `23051b9`, webshop-service `b8b1693`.
+
+### Patch Changes
+
+- Re-pin the booking and webshop contracts after four more upstream fixes. No public surface changes in any package.
+
+  - **booking-service `ac0e373` → `aa69aca`.** `hold_expired` and `already_confirmed` are documented at `422` rather than `409` — both are raised through `wrongState`, which is `status: 422`. A client generated from the old contract and branching on `409` for either code would never have matched. The tenant confirm's `409` response is gone: it documented that one code and the route reaches no other conflict.
+  - **webshop-service `525fe1e` → `b8b1693`.** Four schemas were written from the database tables rather than from the serializers that fill them, so the generated types now read `fingerprint` (not `secret_fingerprint`) on a webhook endpoint, `event_id` (not `public_id`) on a webhook event, `endpoint_public_id` / `endpoint_url` (not `endpoint_id` / `url`) on a delivery, and `payload` rather than `shop_id` on a job. `GET /v1/admin/shops` also gained the `without_payment_credential` parameter, which was declared and never referenced.
+
+  Every one of those is admin-tier, and `@lazslov/webshop` is storefront-only — so nothing a consumer imports changes shape. The re-pin is what makes the packages' pinned contracts match the services again.
+
 ## 1.0.3
 
 Verified against knowledge base `6e23aec`: content-service `0048426`, invoice-service `706dc63`,

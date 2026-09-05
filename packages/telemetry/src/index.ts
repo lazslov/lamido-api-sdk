@@ -29,7 +29,7 @@
  * disagrees with the tarball it came from. A vendored copy carries the version it was
  * taken from, which is what lets a service report which cut of this file it holds.
  */
-export const VERSION = "1.1.4";
+export const VERSION = "1.1.5";
 
 // ─── The envelope (OB-2) ───────────────────────────────────────────────────────────
 

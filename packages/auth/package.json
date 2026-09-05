@@ -1,6 +1,6 @@
 {
   "name": "@lazslov/auth",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Consumer SDK for auth-service: browser sign-in for people and customers, the authorization decision, entitlements, and its webhooks.",
   "license": "MIT",
   "repository": {

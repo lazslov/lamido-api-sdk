@@ -643,8 +643,8 @@ paths:
       tags: [admin]
       summary: Deep health check
       description: >-
-        No scope required, and 200 even when degraded. ELEVEN counts, and ALL TEN QUERY-BACKED ONES
-        ARE ABSENT ENTIRELY when the database is degraded - a monitor must treat absent as "unknown", not
+        No scope required, and 200 even when degraded. TWELVE counts, and ALL TWELVE ARE QUERY-BACKED
+        AND ABSENT ENTIRELY when the database is degraded - a monitor must treat absent as "unknown", not
         as zero, or it will report everything healthy during an outage.
 
         Every count drills into a listing through the SAME EXPORTED PREDICATE (WH-26), so a number
@@ -676,6 +676,7 @@ paths:
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/shopStatus'
         - $ref: '#/components/parameters/withoutExternalRef'
+        - $ref: '#/components/parameters/withoutPaymentCredential'
       responses:
         '200':
           description: A page of shops.
@@ -4596,7 +4597,7 @@ components:
         secret_last4:
           type: string
           description: The readback, and the whole readback. The plaintext is shown once, at mint.
-        secret_fingerprint:
+        fingerprint:
           type: string
         created_at:
           type: string
@@ -4631,14 +4632,16 @@ components:
 
     WebhookEvent:
       type: object
-      required: [public_id, event_type, contract_version, correlation_id, hop, occurred_at, created_at]
+      required: [event_id, event_type, contract_version, correlation_id, hop, occurred_at, created_at]
       description: Immutable. Written once, inside the transaction that made the fact true.
       properties:
-        public_id:
+        event_id:
           type: string
           format: uuid
           description: >-
-            THIS IS THE `event_id` ON THE WIRE and in `X-Event-Id`. One id, not two - dedupe on it.
+            The event's own id, in `X-Event-Id`, and the row's `public_id` in the database. One id,
+            not two - dedupe on it. This member was declared as `public_id` until 2026-09-05, while
+            this very description said the wire name was `event_id`.
         event_type:
           type: string
         contract_version:
@@ -4703,14 +4706,15 @@ components:
         event_id:
           type: string
           format: uuid
-        endpoint_id:
+        endpoint_public_id:
           type: string
           format: uuid
         event_type:
           type: string
-        url:
+        endpoint_url:
           type: string
           format: uri
+          description: The endpoint's URL as it stood for this attempt, copied so a later edit cannot rewrite history.
         status:
           type: string
           enum: [pending, delivered, dead_lettered]
@@ -4778,10 +4782,6 @@ components:
         public_id:
           type: string
           format: uuid
-        shop_id:
-          type: [string, 'null']
-          format: uuid
-          description: 'NULL FOR PLATFORM WORK: the sweeps belong to every shop and to none.'
         type:
           type: string
           enum:
@@ -4815,6 +4815,13 @@ components:
         last_error:
           type: [string, 'null']
           description: Truncated to 1 000 characters. Read this before retrying.
+        payload:
+          type: object
+          additionalProperties: true
+          description: >-
+            The job's own arguments, and PUBLIC IDS ONLY - a delivery job carries
+            `delivery_public_id`. This is the drill-down's point: a count with no way to see what
+            it counts is a number nobody can act on.
         canceled_at:
           type: [string, 'null']
           format: date-time

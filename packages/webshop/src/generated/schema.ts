@@ -385,7 +385,7 @@ export interface paths {
         };
         /**
          * Deep health check
-         * @description No scope required, and 200 even when degraded. ELEVEN counts, and ALL TEN QUERY-BACKED ONES ARE ABSENT ENTIRELY when the database is degraded - a monitor must treat absent as "unknown", not as zero, or it will report everything healthy during an outage.
+         * @description No scope required, and 200 even when degraded. TWELVE counts, and ALL TWELVE ARE QUERY-BACKED AND ABSENT ENTIRELY when the database is degraded - a monitor must treat absent as "unknown", not as zero, or it will report everything healthy during an outage.
          *     Every count drills into a listing through the SAME EXPORTED PREDICATE (WH-26), so a number here is a worklist rather than a hint. `oversold_orders` is the only one that means ACT.
          */
         get: operations["getAdminHealth"];
@@ -2183,7 +2183,7 @@ export interface components {
             include_customer: boolean;
             /** @description The readback, and the whole readback. The plaintext is shown once, at mint. */
             secret_last4: string;
-            secret_fingerprint?: string;
+            fingerprint?: string;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -2203,9 +2203,9 @@ export interface components {
         WebhookEvent: {
             /**
              * Format: uuid
-             * @description THIS IS THE `event_id` ON THE WIRE and in `X-Event-Id`. One id, not two - dedupe on it.
+             * @description The event's own id, in `X-Event-Id`, and the row's `public_id` in the database. One id, not two - dedupe on it. This member was declared as `public_id` until 2026-09-05, while this very description said the wire name was `event_id`.
              */
-            public_id: string;
+            event_id: string;
             event_type: string;
             contract_version: number;
             /** @description The frozen body, exactly as sent to every attempt of every redelivery. `data.customer` is STRIPPED from this listing regardless of any endpoint's `include_customer`. */
@@ -2249,10 +2249,13 @@ export interface components {
             /** Format: uuid */
             event_id?: string;
             /** Format: uuid */
-            endpoint_id?: string;
+            endpoint_public_id?: string;
             event_type?: string;
-            /** Format: uri */
-            url?: string;
+            /**
+             * Format: uri
+             * @description The endpoint's URL as it stood for this attempt, copied so a later edit cannot rewrite history.
+             */
+            endpoint_url?: string;
             /** @enum {string} */
             status: "pending" | "delivered" | "dead_lettered";
             /** @description 0-8. At 8 exhausted attempts the row becomes `dead_lettered`. */
@@ -2292,11 +2295,6 @@ export interface components {
         Job: {
             /** Format: uuid */
             public_id: string;
-            /**
-             * Format: uuid
-             * @description NULL FOR PLATFORM WORK: the sweeps belong to every shop and to none.
-             */
-            shop_id?: string | null;
             /** @enum {string} */
             type: "webhook.deliver" | "inventory.release_expired" | "cart.expire" | "order.confirm" | "order.fail_payment" | "order.refund" | "payment.reconcile";
             /**
@@ -2319,6 +2317,10 @@ export interface components {
             claimed_until?: string | null;
             /** @description Truncated to 1 000 characters. Read this before retrying. */
             last_error?: string | null;
+            /** @description The job's own arguments, and PUBLIC IDS ONLY - a delivery job carries `delivery_public_id`. This is the drill-down's point: a count with no way to see what it counts is a number nobody can act on. */
+            payload?: {
+                [key: string]: unknown;
+            };
             /** Format: date-time */
             canceled_at?: string | null;
             /** Format: date-time */
@@ -3265,6 +3267,8 @@ export interface operations {
                 status?: components["parameters"]["shopStatus"];
                 /** @description Only the literal string `true` filters. Restricts to ACTIVE shops with a null `external_ref` - the same predicate as the admin-health count. */
                 without_external_ref?: components["parameters"]["withoutExternalRef"];
+                /** @description Only the literal string `true` filters. The same predicate as the admin-health count. DELIBERATELY NOT COMBINABLE with `without_external_ref`: each drills into exactly one number and an AND of both would drill into neither, so passing both applies only this one. */
+                without_payment_credential?: components["parameters"]["withoutPaymentCredential"];
             };
             header?: never;
             path?: never;

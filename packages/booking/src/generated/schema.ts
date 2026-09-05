@@ -256,7 +256,7 @@ export interface paths {
          *     link in an email the tenant sent, and a token in a URL ends up in referrer headers and
          *     server logs.
          *
-         *     Confirming twice is `409 already_confirmed`, not a silent success — a client that
+         *     Confirming twice is `422 already_confirmed`, not a silent success — a client that
          *     cannot tell the two apart cannot tell the customer either.
          */
         post: operations["confirmPublicBooking"];
@@ -3348,7 +3348,7 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
-            /** @description `pending_expired` — the hold on the slot lapsed. Ask for the slot again and rebook. */
+            /** @description `pending_expired` — the hold on the slot lapsed. Ask for the slot again and rebook. `already_confirmed` on a replayed link, which is not a failure: treat it as success. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4556,7 +4556,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             /**
-             * @description `slot_taken`, `hold_expired`, `hold_not_yours`, `idempotency_mismatch`, or
+             * @description `slot_taken`, `hold_not_yours`, `idempotency_mismatch`, or
              *     `idempotency_in_flight` — the last meaning an identical request is still running,
              *     so retry rather than treat it as a failure.
              */
@@ -4569,7 +4569,7 @@ export interface operations {
                 };
             };
             413: components["responses"]["PayloadTooLarge"];
-            /** @description `employee_unavailable`, `service_inactive`, `lead_time_violated`, `horizon_exceeded`. */
+            /** @description `employee_unavailable`, `service_inactive`, `lead_time_violated`, `horizon_exceeded`, `hold_expired`. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4644,16 +4644,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /** @description `already_confirmed`. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description `pending_expired` or `booking_terminal`. */
+            /** @description `already_confirmed` on a replay, `pending_expired`, or `booking_terminal`. */
             422: {
                 headers: {
                     [name: string]: unknown;

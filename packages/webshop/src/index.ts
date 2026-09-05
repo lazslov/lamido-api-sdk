@@ -127,4 +127,4 @@ export {
  * Kept in step with `package.json` by a test, so a release cannot ship a constant that disagrees with
  * the tarball it came from.
  */
-export const VERSION = "1.0.1";
+export const VERSION = "1.0.2";
